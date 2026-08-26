@@ -6,11 +6,11 @@ import { z } from "zod";
 import { db, initializeDatabase } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
 import { getSiteConnection } from "@/lib/sites";
-import { createWordPressDraft, updateWordPressDraft } from "@/lib/wordpress";
+import { createWordPressDraft, getWordPressPost, publishWordPressDraft, updateWordPressDraft, updateWordPressPublishedPost } from "@/lib/wordpress";
 
 export type ContentActionState = { error?: string; message?: string };
 
-const draftSchema = z.object({
+const postSchema = z.object({
   siteId: z.string().uuid(),
   title: z.string().trim().min(1, "عنوان الزامی است.").max(500),
   content: z.string().min(1, "محتوا نمی‌تواند خالی باشد."),
@@ -24,7 +24,7 @@ function categoryIds(formData: FormData) {
 
 export async function createDraftAction(_state: ContentActionState, formData: FormData): Promise<ContentActionState> {
   await requireAdmin();
-  const parsed = draftSchema.safeParse({
+  const parsed = postSchema.safeParse({
     siteId: formData.get("siteId"), title: formData.get("title"), content: formData.get("content"),
     excerpt: formData.get("excerpt") || undefined, slug: formData.get("slug") || undefined,
   });
@@ -44,24 +44,45 @@ export async function createDraftAction(_state: ContentActionState, formData: Fo
   redirect(destination);
 }
 
-export async function updateDraftAction(_state: ContentActionState, formData: FormData): Promise<ContentActionState> {
+export async function updatePostAction(_state: ContentActionState, formData: FormData): Promise<ContentActionState> {
   await requireAdmin();
   const postId = Number(formData.get("postId"));
   if (!Number.isInteger(postId) || postId <= 0) return { error: "شناسه نوشته معتبر نیست." };
-  const parsed = draftSchema.safeParse({
+  const parsed = postSchema.safeParse({
     siteId: formData.get("siteId"), title: formData.get("title"), content: formData.get("content"),
     excerpt: formData.get("excerpt") || undefined, slug: formData.get("slug") || undefined,
   });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "اطلاعات نوشته معتبر نیست." };
   try {
     const site = await getSiteConnection(parsed.data.siteId);
-    await updateWordPressDraft(site, postId, { ...parsed.data, categoryIds: categoryIds(formData) });
+    const current = await getWordPressPost(site, postId);
+    if (current.status === "draft") {
+      await updateWordPressDraft(site, postId, { ...parsed.data, categoryIds: categoryIds(formData) });
+    } else if (current.status === "publish") {
+      await updateWordPressPublishedPost(site, postId, { ...parsed.data, categoryIds: categoryIds(formData) });
+    } else {
+      return { error: `وضعیت ${current.status} از پنل قابل ویرایش نیست.` };
+    }
     await initializeDatabase();
-    await db.query("INSERT INTO audit_logs (site_id,action,details) VALUES ($1,'content.draft_updated',$2)", [site.id, JSON.stringify({ postId, title: parsed.data.title })]);
+    await db.query("INSERT INTO audit_logs (site_id,action,details) VALUES ($1,$2,$3)", [site.id, current.status === "publish" ? "content.post_updated" : "content.draft_updated", JSON.stringify({ postId, title: parsed.data.title, live: current.status === "publish" })]);
     revalidatePath("/content");
     revalidatePath(`/content/${postId}`);
-    return { message: "پیش‌نویس با موفقیت ذخیره شد." };
+    return { message: current.status === "publish" ? "تغییرات روی نوشته منتشرشده اعمال شد." : "پیش‌نویس با موفقیت ذخیره شد." };
   } catch (error) {
-    return { error: error instanceof Error ? error.message : "ذخیره پیش‌نویس ناموفق بود." };
+    return { error: error instanceof Error ? error.message : "ذخیره نوشته ناموفق بود." };
   }
+}
+
+export async function publishDraftAction(formData: FormData) {
+  await requireAdmin();
+  const siteId = z.string().uuid().parse(formData.get("siteId"));
+  const postId = Number(formData.get("postId"));
+  if (!Number.isInteger(postId) || postId <= 0) throw new Error("شناسه نوشته معتبر نیست.");
+  const site = await getSiteConnection(siteId);
+  const post = await publishWordPressDraft(site, postId);
+  await initializeDatabase();
+  await db.query("INSERT INTO audit_logs (site_id,action,details) VALUES ($1,'content.published',$2)", [site.id, JSON.stringify({ postId, title: post.title.raw || post.title.rendered })]);
+  revalidatePath("/content");
+  revalidatePath(`/content/${postId}`);
+  redirect(`/content/${postId}?siteId=${site.id}`);
 }
