@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { dashboardConfig, passwordDigest } from "@/lib/config";
-import { encryptSecret } from "@/lib/crypto";
+import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { db, initializeDatabase } from "@/lib/db";
 import { clearSession, createSession, requireAdmin } from "@/lib/session";
 import { checkWordPressConnection } from "@/lib/wordpress";
@@ -52,7 +52,7 @@ export async function addSiteAction(_state: ActionState, formData: FormData): Pr
       [id, input.name, input.baseUrl, input.username, encryptSecret(input.appPassword.replace(/\s+/g, "")), `Connected as ${user.name ?? input.username}`],
     );
     await db.query("INSERT INTO audit_logs (site_id,action,details) VALUES ($1,'site.created',$2)", [id, JSON.stringify({ baseUrl: input.baseUrl, username: input.username })]);
-    revalidatePath("/");
+    revalidatePath("/"); revalidatePath("/sites"); revalidatePath("/content");
     return { ok: true, message: "سایت با موفقیت اضافه و اتصال آن تأیید شد." };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "افزودن سایت ناموفق بود." };
@@ -65,5 +65,26 @@ export async function toggleSiteAction(formData: FormData) {
   const id = z.string().uuid().parse(formData.get("id"));
   await db.query("UPDATE wordpress_sites SET enabled=NOT enabled,updated_at=NOW() WHERE id=$1", [id]);
   await db.query("INSERT INTO audit_logs (site_id,action) VALUES ($1,'site.toggled')", [id]);
-  revalidatePath("/");
+  revalidatePath("/"); revalidatePath("/sites"); revalidatePath("/content");
+}
+
+export async function checkSiteAction(formData: FormData) {
+  await requireAdmin();
+  await initializeDatabase();
+  const id = z.string().uuid().parse(formData.get("id"));
+  const result = await db.query<{ base_url: string; username: string; encrypted_app_password: string }>(
+    "SELECT base_url,username,encrypted_app_password FROM wordpress_sites WHERE id=$1 LIMIT 1", [id],
+  );
+  const site = result.rows[0];
+  if (!site) return;
+  try {
+    const user = await checkWordPressConnection({ baseUrl: site.base_url, username: site.username, appPassword: decryptSecret(site.encrypted_app_password) });
+    await db.query("UPDATE wordpress_sites SET last_check_status='ok',last_check_message=$2,last_checked_at=NOW(),updated_at=NOW() WHERE id=$1", [id, `Connected as ${user.name ?? site.username}`]);
+    await db.query("INSERT INTO audit_logs (site_id,action,details) VALUES ($1,'site.health_checked',$2)", [id, JSON.stringify({ status: "ok", roles: user.roles })]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message.slice(0, 500) : "Connection failed";
+    await db.query("UPDATE wordpress_sites SET last_check_status='error',last_check_message=$2,last_checked_at=NOW(),updated_at=NOW() WHERE id=$1", [id, message]);
+    await db.query("INSERT INTO audit_logs (site_id,action,details) VALUES ($1,'site.health_checked',$2)", [id, JSON.stringify({ status: "error", message })]);
+  }
+  revalidatePath("/"); revalidatePath("/sites");
 }
