@@ -10,9 +10,15 @@ const actionLabels: Record<string, string> = {
   "site.created": "سایت جدید اضافه شد",
   "site.toggled": "وضعیت سایت تغییر کرد",
   "site.health_checked": "اتصال سایت بررسی شد",
-  "agent.site_resolved": "عامل به سایت دسترسی گرفت",
+  "agent.site_resolved": "عامل به وردپرس دسترسی گرفت",
+  "agent.gsc_resolved": "عامل به Search Console دسترسی گرفت",
   "content.draft_created": "پیش‌نویس جدید ساخته شد",
   "content.draft_updated": "پیش‌نویس ویرایش شد",
+  "content.post_updated": "نوشته منتشرشده ویرایش شد",
+  "content.published": "پیش‌نویس منتشر شد",
+  "gsc.connected": "Search Console متصل شد",
+  "gsc.disconnected": "اتصال Search Console قطع شد",
+  "gsc.property_mapped": "GSC Property سایت تغییر کرد",
 };
 
 export default async function DashboardPage() {
@@ -23,9 +29,12 @@ export default async function DashboardPage() {
   const enabled = sites.filter((site) => site.enabled).length;
   const healthy = sites.filter((site) => site.enabled && site.last_check_status === "ok").length;
   const auditResult = await db.query<AuditRow>(`SELECT a.id::text,a.action,a.created_at,a.details,s.name AS site_name FROM audit_logs a LEFT JOIN wordpress_sites s ON s.id=a.site_id ORDER BY a.created_at DESC LIMIT 6`);
-  const agentOps = await db.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM audit_logs WHERE action='agent.site_resolved' AND created_at >= NOW() - INTERVAL '24 hours'");
+  const agentOps = await db.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM audit_logs WHERE action IN ('agent.site_resolved','agent.gsc_resolved') AND created_at >= NOW() - INTERVAL '24 hours'");
+  const gsc = await db.query<{ last_check_status: string | null }>("SELECT last_check_status FROM gsc_connection WHERE id=1 LIMIT 1");
+  const gscMapped = await db.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM wordpress_sites WHERE enabled=TRUE AND gsc_property_url IS NOT NULL AND gsc_property_url <> ''");
+  const gscHealthy = gsc.rows[0]?.last_check_status === "ok";
 
-  return <AppShell active="dashboard" title="داشبورد" description="نمای کلی سایت‌ها، سلامت اتصال، محتوا و فعالیت عامل هوشمند.">
+  return <AppShell active="dashboard" title="داشبورد" description="مرکز کنترل WordPress، Search Console، محتوا و فعالیت عامل هوشمند.">
     <section className="metric-grid">
       <article className="metric-card">
         <div className="metric-icon">◎</div>
@@ -33,15 +42,15 @@ export default async function DashboardPage() {
       </article>
       <article className="metric-card">
         <div className="metric-icon healthy">✓</div>
-        <div><span>اتصال سالم</span><strong>{healthy}</strong><small>از {enabled} اتصال فعال</small></div>
+        <div><span>اتصال WordPress</span><strong>{healthy}</strong><small>از {enabled} اتصال فعال</small></div>
       </article>
       <article className="metric-card">
-        <div className="metric-icon agent">✦</div>
-        <div><span>دسترسی عامل در ۲۴ ساعت</span><strong>{agentOps.rows[0]?.count ?? "0"}</strong><small>ثبت‌شده در گزارش فعالیت</small></div>
+        <div className="metric-icon agent">G</div>
+        <div><span>Google Search Console</span><strong className="metric-word">{gscHealthy ? "متصل" : "—"}</strong><small>{gscMapped.rows[0]?.count ?? "0"} سایت دارای Property</small></div>
       </article>
       <article className="metric-card security-metric">
-        <div className="metric-icon secure">⌾</div>
-        <div><span>حالت امنیتی</span><strong className="metric-word">ایمن</strong><small>فقط ایجاد و ویرایش پیش‌نویس</small></div>
+        <div className="metric-icon secure">✦</div>
+        <div><span>دسترسی عامل در ۲۴ ساعت</span><strong>{agentOps.rows[0]?.count ?? "0"}</strong><small>WordPress + GSC · ثبت‌شده در Audit</small></div>
       </article>
     </section>
 
@@ -79,11 +88,11 @@ export default async function DashboardPage() {
     </div>
 
     <section className="quick-section">
-      <div className="section-heading"><div><p className="eyebrow">QUICK ACTIONS</p><h2>دسترسی سریع</h2></div><p>کارهای پرتکرار بدون جست‌وجو در منوها</p></div>
+      <div className="section-heading"><div><p className="eyebrow">QUICK ACTIONS</p><h2>دسترسی سریع</h2></div><p>Agent می‌تواند Draft بسازد، منتشر کند و با درخواست صریح، محتوای زنده را به‌روزرسانی کند.</p></div>
       <div className="quick-actions">
-        <Link className="quick-card" href="/content"><span>✦</span><div><strong>مدیریت محتوا</strong><small>مشاهده، جست‌وجو و ویرایش پیش‌نویس‌ها</small></div><b>←</b></Link>
-        <Link className="quick-card" href="/content/new"><span>＋</span><div><strong>پیش‌نویس جدید</strong><small>ایجاد نوشته جدید روی سایت انتخاب‌شده</small></div><b>←</b></Link>
-        <Link className="quick-card" href="/sites"><span>◎</span><div><strong>مدیریت اتصال‌ها</strong><small>افزودن سایت یا بررسی مجدد اتصال وردپرس</small></div><b>←</b></Link>
+        <Link className="quick-card" href="/content"><span>✦</span><div><strong>مدیریت محتوا</strong><small>Draft و نوشته‌های منتشرشده</small></div><b>←</b></Link>
+        <Link className="quick-card" href="/content/new"><span>＋</span><div><strong>نوشته جدید</strong><small>ساخت Draft و انتشار بعد از تکمیل</small></div><b>←</b></Link>
+        <Link className="quick-card" href="/settings"><span>G</span><div><strong>Search Console</strong><small>OAuth و اتصال Property هر سایت</small></div><b>←</b></Link>
       </div>
     </section>
   </AppShell>;

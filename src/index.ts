@@ -2,7 +2,7 @@ import express, { type Request, type Response } from "express";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { config } from "./config.js";
-import { createMcpServer } from "./server.js";
+import { createMcpServer } from "./server-with-gsc.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -32,7 +32,7 @@ function requestAllowed(req: Request, res: Response): boolean {
 }
 
 app.get("/health", (_req, res) => {
-  res.json({ ok: true, service: "digitalafarin-wordpress-mcp", version: "0.4.0" });
+  res.json({ ok: true, service: "digitalafarin-wordpress-mcp", version: "0.5.0" });
 });
 
 app.post("/mcp", async (req, res) => {

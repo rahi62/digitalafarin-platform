@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { logoutAction } from "@/app/actions";
 
-type NavKey = "dashboard" | "sites" | "content" | "audit";
+type NavKey = "dashboard" | "sites" | "content" | "audit" | "settings";
 
 const items: Array<{ key: NavKey; href: string; label: string; icon: string }> = [
   { key: "dashboard", href: "/", label: "داشبورد", icon: "⌂" },
   { key: "sites", href: "/sites", label: "سایت‌ها", icon: "◎" },
   { key: "content", href: "/content", label: "مدیریت محتوا", icon: "✦" },
   { key: "audit", href: "/audit", label: "گزارش فعالیت", icon: "≋" },
+  { key: "settings", href: "/settings", label: "تنظیمات و اتصال‌ها", icon: "⚙" },
 ];
 
 export function AppShell({
@@ -49,7 +50,7 @@ export function AppShell({
             <span className="live-dot" />
             <span>
               <strong>عامل هوشمند فعال</strong>
-              <small>مسیریابی امن چندسایته</small>
+              <small>WordPress + Search Console</small>
             </span>
           </div>
           <form action={logoutAction}><button className="nav-logout" type="submit">خروج از پنل</button></form>

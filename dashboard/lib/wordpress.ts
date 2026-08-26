@@ -11,9 +11,13 @@ export type WordPressPost = {
   content: { raw?: string; rendered: string };
   excerpt: { raw?: string; rendered: string };
   categories: number[];
+  tags?: number[];
+  featured_media?: number;
 };
 
 export type WordPressCategory = { id: number; name: string; slug: string; count: number };
+
+type PostInput = { title: string; content: string; excerpt?: string; slug?: string; categoryIds?: number[] };
 
 function authorization(input: WordPressAuth) {
   return `Basic ${Buffer.from(`${input.username}:${input.appPassword.replace(/\s+/g, "")}`, "utf8").toString("base64")}`;
@@ -26,7 +30,7 @@ async function wpRequest<T>(input: WordPressAuth, path: string, init: RequestIni
       Authorization: authorization(input),
       Accept: "application/json",
       ...(init.body ? { "Content-Type": "application/json" } : {}),
-      "User-Agent": "DigitalAfarin-WP-Agent-Dashboard/0.3",
+      "User-Agent": "DigitalAfarin-WP-Agent-Dashboard/0.5",
       ...(init.headers ?? {}),
     },
     cache: "no-store",
@@ -63,7 +67,7 @@ export async function listWordPressCategories(input: WordPressAuth) {
   return wpRequest<WordPressCategory[]>(input, "/wp-json/wp/v2/categories?context=edit&per_page=100&orderby=count&order=desc");
 }
 
-export async function createWordPressDraft(input: WordPressAuth, draft: { title: string; content: string; excerpt?: string; slug?: string; categoryIds?: number[] }) {
+export async function createWordPressDraft(input: WordPressAuth, draft: PostInput) {
   return wpRequest<WordPressPost>(input, "/wp-json/wp/v2/posts", {
     method: "POST",
     body: JSON.stringify({
@@ -77,17 +81,37 @@ export async function createWordPressDraft(input: WordPressAuth, draft: { title:
   });
 }
 
-export async function updateWordPressDraft(input: WordPressAuth, postId: number, draft: { title: string; content: string; excerpt?: string; slug?: string; categoryIds?: number[] }) {
+async function updateWordPressPost(input: WordPressAuth, postId: number, post: PostInput, requiredStatus: "draft" | "publish") {
   const current = await getWordPressPost(input, postId);
-  if (current.status !== "draft") throw new Error("برای حفظ ایمنی، فقط نوشته‌های پیش‌نویس از این پنل قابل ویرایش هستند.");
+  if (current.status !== requiredStatus) {
+    throw new Error(requiredStatus === "draft" ? "این نوشته دیگر Draft نیست؛ صفحه را تازه‌سازی کنید." : "این نوشته دیگر Published نیست؛ صفحه را تازه‌سازی کنید.");
+  }
   return wpRequest<WordPressPost>(input, `/wp-json/wp/v2/posts/${postId}`, {
     method: "POST",
     body: JSON.stringify({
-      title: draft.title,
-      content: draft.content,
-      excerpt: draft.excerpt || "",
-      slug: draft.slug || undefined,
-      categories: draft.categoryIds ?? [],
+      status: requiredStatus,
+      title: post.title,
+      content: post.content,
+      excerpt: post.excerpt || "",
+      slug: post.slug || undefined,
+      categories: post.categoryIds ?? [],
     }),
+  });
+}
+
+export function updateWordPressDraft(input: WordPressAuth, postId: number, draft: PostInput) {
+  return updateWordPressPost(input, postId, draft, "draft");
+}
+
+export function updateWordPressPublishedPost(input: WordPressAuth, postId: number, post: PostInput) {
+  return updateWordPressPost(input, postId, post, "publish");
+}
+
+export async function publishWordPressDraft(input: WordPressAuth, postId: number) {
+  const current = await getWordPressPost(input, postId);
+  if (current.status !== "draft") throw new Error("فقط نوشته‌ای که هنوز Draft است قابل انتشار از این عملیات است.");
+  return wpRequest<WordPressPost>(input, `/wp-json/wp/v2/posts/${postId}`, {
+    method: "POST",
+    body: JSON.stringify({ status: "publish" }),
   });
 }

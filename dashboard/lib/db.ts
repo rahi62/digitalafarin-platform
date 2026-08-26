@@ -25,6 +25,8 @@ export async function initializeDatabase() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    ALTER TABLE wordpress_sites ADD COLUMN IF NOT EXISTS gsc_property_url TEXT;
+
     CREATE TABLE IF NOT EXISTS audit_logs (
       id BIGSERIAL PRIMARY KEY,
       site_id UUID REFERENCES wordpress_sites(id) ON DELETE SET NULL,
@@ -32,5 +34,23 @@ export async function initializeDatabase() {
       details JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS gsc_connection (
+      id SMALLINT PRIMARY KEY CHECK (id = 1),
+      encrypted_refresh_token TEXT NOT NULL,
+      scope TEXT,
+      last_check_status VARCHAR(32),
+      last_check_message TEXT,
+      last_checked_at TIMESTAMPTZ,
+      connected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS gsc_oauth_states (
+      state_hash CHAR(64) PRIMARY KEY,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    DELETE FROM gsc_oauth_states WHERE expires_at < NOW();
   `);
 }

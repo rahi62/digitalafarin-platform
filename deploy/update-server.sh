@@ -20,22 +20,27 @@ test -f "${DASHBOARD_DIR}/package-lock.json"
 if ! grep -q '^MAX_MEDIA_BYTES=' "${MCP_ENV}"; then
   printf '\nMAX_MEDIA_BYTES=10000000\n' >>"${MCP_ENV}"
 fi
+if ! grep -q '^GSC_BROKER_URL=' "${MCP_ENV}"; then
+  printf '\nGSC_BROKER_URL=http://127.0.0.1:3040/api/internal/gsc\n' >>"${MCP_ENV}"
+fi
 
 chown -R deploy:deploy "${APP_DIR}"
 
-# Build and restart the dashboard first because MCP resolves enabled sites and
-# encrypted credentials through its localhost-only broker endpoint.
+# Build and restart the dashboard first because MCP resolves WordPress and GSC
+# credentials through localhost-only broker endpoints.
 sudo -u deploy npm --prefix "${DASHBOARD_DIR}" ci
 set -a
 source "${DASHBOARD_ENV}"
 set +a
-sudo --preserve-env=DATABASE_URL,ADMIN_PASSWORD_SHA256,SESSION_SECRET,CREDENTIALS_ENCRYPTION_KEY \
+sudo --preserve-env=DATABASE_URL,ADMIN_PASSWORD_SHA256,SESSION_SECRET,CREDENTIALS_ENCRYPTION_KEY,GSC_GOOGLE_CLIENT_ID,GSC_GOOGLE_CLIENT_SECRET,GSC_GOOGLE_REDIRECT_URI \
   -u deploy env NEXT_TELEMETRY_DISABLED=1 npm --prefix "${DASHBOARD_DIR}" run build
 systemctl restart digitalafarin-wp-agent.service
 
 for attempt in {1..15}; do
   if curl --fail --silent --show-error -H 'x-digitalafarin-internal-mcp: 1' \
-    "http://127.0.0.1:3040/api/internal/sites" >/dev/null; then
+    "http://127.0.0.1:3040/api/internal/sites" >/dev/null && \
+     curl --fail --silent --show-error -H 'x-digitalafarin-internal-mcp: 1' \
+    "http://127.0.0.1:3040/api/internal/gsc" >/dev/null; then
     break
   fi
   if [[ "$attempt" -eq 15 ]]; then
