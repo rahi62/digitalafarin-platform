@@ -9,10 +9,30 @@ MCP چندسایته برای اتصال ChatGPT به WordPress و Google Search
 ChatGPT / Agent → MCP → Dashboard localhost brokers
                          └─ Google Search Console API
                                   ↑
-                       encrypted PostgreSQL registry
+                    encrypted PostgreSQL control plane
 ```
 
-Dashboard محل مدیریت اتصال‌هاست. Credentialهای WordPress و Google Refresh Token در پاسخ Agent نمایش داده نمی‌شوند. MCP فقط credential کوتاه‌عمر/لازم برای هر عملیات را از brokerهای loopback دریافت می‌کند.
+Dashboard محل مدیریت سایت‌ها، credentialها و Integrationهاست. Secretهای محصول داخل source code یا پاسخ Agent قرار نمی‌گیرند. MCP فقط credential کوتاه‌عمر یا لازم برای هر عملیات را از brokerهای loopback دریافت می‌کند.
+
+## مدل تنظیمات Product-ready
+
+Environment فقط برای secretهای زیرساختی باقی می‌ماند:
+
+```env
+DATABASE_URL=...
+ADMIN_PASSWORD_SHA256=...
+SESSION_SECRET=...
+CREDENTIALS_ENCRYPTION_KEY=...
+```
+
+Google OAuth Client ID/Secret و سایر Integrationهای محصول از **Settings → Integrations** در پنل تنظیم می‌شوند و در PostgreSQL ذخیره می‌شوند. Client Secret و Refresh Token با AES-256-GCM رمزنگاری می‌شوند.
+
+دو مدل deployment پشتیبانی می‌شود:
+
+- **Hosted SaaS**: DigitalAfarin یک Google OAuth App مرکزی را یک‌بار در پنل مدیر سیستم ثبت می‌کند. مشتری نهایی فقط Google Account خود را Connect و Propertyهایش را map می‌کند.
+- **White-label / Self-hosted**: مدیر هر نصب Client ID/Secret اختصاصی خودش را از همان پنل ثبت می‌کند. Callback از دامنه واقعی پنل ساخته می‌شود و در source code hard-code نیست.
+
+Phase فعلی هنوز single-admin است. برای فروش SaaS چندمشتری، milestone بعدی افزودن Workspace/Tenant، User/Role و جداسازی credentialها و سایت‌ها در سطح Workspace است.
 
 ## مدل امنیتی نسخه 0.5
 
@@ -25,16 +45,15 @@ Dashboard محل مدیریت اتصال‌هاست. Credentialهای WordPress 
 - Featured Image و SEO برای Draft و Published پشتیبانی می‌شوند.
 - `expectedModified` می‌تواند از overwrite شدن تغییرات جدیدتر جلوگیری کند.
 - Upload تصویر از URL فقط HTTPS است و مقصد private/reserved network رد می‌شود.
-- WordPress Application Password و Google Refresh Token با AES-256-GCM در Dashboard رمزنگاری می‌شوند.
+- WordPress Application Password، Google Client Secret و Google Refresh Token با AES-256-GCM در Dashboard رمزنگاری می‌شوند.
 - Search Console با scope فقط‌خواندنی `https://www.googleapis.com/auth/webmasters.readonly` متصل می‌شود.
-- Google Client Secret و Refresh Token هرگز به MCP/ChatGPT برگردانده نمی‌شوند؛ broker فقط Access Token کوتاه‌عمر می‌دهد.
-- brokerهای `/api/internal/sites` و `/api/internal/gsc` فقط روی loopback + internal header کار می‌کنند و باید در Nginx به‌صورت عمومی block باشند.
+- Client Secret و Refresh Token هرگز به MCP/ChatGPT برگردانده نمی‌شوند؛ broker فقط Access Token کوتاه‌عمر می‌دهد.
+- brokerهای `/api/internal/sites` و `/api/internal/gsc` فقط روی loopback + internal header کار می‌کنند و در Nginx باید عمومی block باشند.
 
-## ابزارهای MCP نسخه 0.5
+## ابزارهای MCP
 
-### WordPress
+### WordPress Read
 
-Read:
 - `wordpress_list_sites`
 - `wordpress_health_check`
 - `wordpress_search_posts`
@@ -44,7 +63,8 @@ Read:
 - `wordpress_list_media`
 - `wordpress_get_seo`
 
-Write:
+### WordPress Write
+
 - `wordpress_create_draft`
 - `wordpress_update_draft`
 - `wordpress_publish_draft`
@@ -62,20 +82,16 @@ Create + Publish عمداً دو مرحله‌ای است تا مقاله، تص
 ### Google Search Console
 
 - `gsc_list_sites`
-  - سایت‌های enabled که در Dashboard به GSC Property نگاشت شده‌اند.
 - `gsc_search_analytics`
-  - دریافت Clicks، Impressions، CTR و Average Position.
+  - Clicks، Impressions، CTR و Average Position
   - dimensions: `query`, `page`, `country`, `device`, `searchAppearance`, `date`, `hour`
-  - filters: query/page/country/device/searchAppearance
-  - search type: web/image/video/news/discover/googleNews
-  - rowLimit تا 25000 و startRow برای pagination.
+  - filters و pagination
 - `gsc_inspect_url`
-  - وضعیت نسخه موجود یک URL در Google Index، canonical/indexing/crawl-related inspection data در صورت موجود بودن.
-  - این API Live URL Test اجرا نمی‌کند.
+  - وضعیت نسخه موجود URL در Google Index
 - `gsc_list_sitemaps`
-  - مشاهده Sitemapهای ثبت‌شده برای Property و در صورت نیاز فیلتر بر اساس sitemap index.
+  - Sitemapهای Property
 
-تمام ابزارهای GSC فقط Read-only هستند و هیچ تغییر Search Console از MCP انجام نمی‌شود. Search Analytics در queryهای بزرگ top rows را برمی‌گرداند و تضمین نمی‌کند تمام ترکیب‌های ممکن dimension در یک پاسخ وجود داشته باشند.
+تمام ابزارهای GSC فقط Read-only هستند.
 
 ## DigitalAfarin Agent Bridge
 
@@ -107,51 +123,20 @@ MAX_POST_CONTENT_BYTES=500000
 MAX_MEDIA_BYTES=10000000
 ```
 
-فایل production:
-
-```text
-/etc/digitalafarin-wordpress-mcp.env
-```
-
-## Environment Dashboard
-
-```env
-DATABASE_URL=...
-ADMIN_PASSWORD_SHA256=...
-SESSION_SECRET=...
-CREDENTIALS_ENCRYPTION_KEY=...
-GSC_GOOGLE_CLIENT_ID=...
-GSC_GOOGLE_CLIENT_SECRET=...
-GSC_GOOGLE_REDIRECT_URI=https://wp-agent.digitalafarin.ir/api/gsc/oauth/callback
-```
-
-فایل production:
-
-```text
-/etc/digitalafarin-wp-agent.env
-```
-
-این فایل باید root-owned و mode `600` باشد. Secretها را commit نکنید.
-
-## راه‌اندازی Google Search Console OAuth
+## راه‌اندازی Google Search Console
 
 1. در Google Cloud یک Project انتخاب/ایجاد کنید.
-2. Google Search Console API را برای Project فعال کنید.
+2. Google Search Console API را Enable کنید.
 3. OAuth consent screen را تنظیم کنید.
-4. OAuth Client با نوع **Web application** بسازید.
-5. Authorized redirect URI را دقیقاً برابر Dashboard callback قرار دهید:
+4. یک OAuth Client از نوع **Web application** بسازید.
+5. وارد Dashboard → **تنظیمات و اتصال‌ها** شوید.
+6. Client ID و Client Secret را در بخش **Google OAuth App** وارد کنید.
+7. Callback URL تولیدشده در پنل را عیناً به Authorized redirect URIs در Google Cloud اضافه کنید.
+8. در همان صفحه **اتصال حساب Google** را بزنید.
+9. برای هر WordPress Site یک Search Console Property انتخاب کنید.
+10. Connector/MCP را refresh کنید و ابزارهای GSC را تست کنید.
 
-```text
-https://wp-agent.digitalafarin.ir/api/gsc/oauth/callback
-```
-
-6. Client ID و Client Secret را فقط داخل `/etc/digitalafarin-wp-agent.env` قرار دهید.
-7. deploy را اجرا کنید.
-8. در Dashboard وارد **تنظیمات و اتصال‌ها** شوید و **اتصال حساب Google** را بزنید.
-9. بعد از OAuth، برای هر WordPress Site یک Search Console Property انتخاب کنید. Property می‌تواند URL-prefix یا domain property مثل `sc-domain:example.com` باشد.
-10. Connector/MCP را refresh کنید و `gsc_list_sites`، `gsc_search_analytics`، `gsc_inspect_url` و `gsc_list_sitemaps` را تست کنید.
-
-اگر OAuth consent screen در حالت Testing باشد، Google Account مورد استفاده باید در Test users قرار داشته باشد.
+اگر OAuth consent screen در حالت Testing است، حساب Google باید در Test users قرار داشته باشد.
 
 ## Build و Deploy
 
@@ -165,8 +150,6 @@ sudo -u deploy git pull --ff-only origin main
 sudo bash deploy/update-server.sh
 curl -s http://127.0.0.1:3030/health
 ```
-
-Health نسخه 0.5 باید `version: "0.5.0"` برگرداند.
 
 ## Workflow هدف سئو
 
@@ -192,4 +175,4 @@ Health نسخه 0.5 باید `version: "0.5.0"` برگرداند.
 
 ## سیاست حذف
 
-Delete عمداً در نسخه 0.5 وجود ندارد. برای workflow تولید و بهینه‌سازی سئو ضروری نیست و اگر بعداً اضافه شود باید ابزار جدا با تأیید قوی داشته باشد.
+Delete عمداً وجود ندارد. برای workflow تولید و بهینه‌سازی سئو ضروری نیست و اگر بعداً اضافه شود باید ابزار جدا با تأیید قوی داشته باشد.
