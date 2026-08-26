@@ -14,6 +14,8 @@ const actionLabels: Record<string, string> = {
   "content.draft_updated": "ویرایش پیش‌نویس",
   "content.post_updated": "ویرایش نوشته منتشرشده",
   "content.published": "انتشار پیش‌نویس",
+  "gsc.oauth_config_updated": "تغییر تنظیمات Google OAuth",
+  "gsc.oauth_config_removed": "حذف تنظیمات Google OAuth",
   "gsc.connected": "اتصال Search Console",
   "gsc.disconnected": "قطع Search Console",
   "gsc.health_checked": "بررسی اتصال Search Console",
@@ -28,6 +30,9 @@ function detailText(details: Record<string, unknown>) {
   if (details.propertyUrl) pieces.push(String(details.propertyUrl));
   if (details.status) pieces.push(`status: ${String(details.status)}`);
   if (details.properties) pieces.push(`${String(details.properties)} properties`);
+  if (details.connectionReset) pieces.push("GSC connection reset");
+  if (details.clientIdChanged) pieces.push("Client ID changed");
+  if (details.secretChanged) pieces.push("Client Secret changed");
   return pieces.join(" · ") || "—";
 }
 
