@@ -65,6 +65,15 @@ type WordPressConnection = {
   appPassword: string;
 };
 
+type PostWriteInput = {
+  title?: string;
+  content?: string;
+  excerpt?: string;
+  slug?: string;
+  categoryIds?: number[];
+  tagIds?: number[];
+};
+
 export class WordPressClient {
   private readonly authorization: string;
   private readonly baseUrl: string;
@@ -109,7 +118,7 @@ export class WordPressClient {
         Authorization: this.authorization,
         Accept: "application/json",
         "Content-Type": "application/json; charset=utf-8",
-        "User-Agent": "DigitalAfarin-WordPress-MCP/0.3",
+        "User-Agent": "DigitalAfarin-WordPress-MCP/0.4",
       },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
       signal: AbortSignal.timeout(20_000),
@@ -171,17 +180,17 @@ export class WordPressClient {
     });
   }
 
-  async updateDraft(
-    id: number,
-    input: {
-      title?: string;
-      content?: string;
-      excerpt?: string;
-      slug?: string;
-      categoryIds?: number[];
-      tagIds?: number[];
-    },
-  ) {
+  private assertUnchanged(current: WpPost, expectedModified?: string) {
+    if (expectedModified && current.modified !== expectedModified) {
+      throw new WordPressError(
+        `Post ${current.id} changed after it was read. Expected modified=${expectedModified}, found ${current.modified}`,
+        409,
+        "post_changed",
+      );
+    }
+  }
+
+  async updateDraft(id: number, input: PostWriteInput, expectedModified?: string) {
     const current = await this.getPost(id);
     if (current.status !== "draft") {
       throw new WordPressError(
@@ -190,9 +199,42 @@ export class WordPressClient {
         "not_a_draft",
       );
     }
+    this.assertUnchanged(current, expectedModified);
     return this.request<WpPost>(`posts/${id}`, {
       method: "POST",
       body: { ...input, categories: input.categoryIds, tags: input.tagIds, status: "draft" },
+    });
+  }
+
+  async publishDraft(id: number, expectedModified?: string) {
+    const current = await this.getPost(id);
+    if (current.status !== "draft") {
+      throw new WordPressError(
+        `Refusing to publish post ${id}: expected draft, found ${current.status}`,
+        409,
+        "not_a_draft",
+      );
+    }
+    this.assertUnchanged(current, expectedModified);
+    return this.request<WpPost>(`posts/${id}`, {
+      method: "POST",
+      body: { status: "publish" },
+    });
+  }
+
+  async updatePublishedPost(id: number, input: PostWriteInput, expectedModified?: string) {
+    const current = await this.getPost(id);
+    if (current.status !== "publish") {
+      throw new WordPressError(
+        `Refusing live update for post ${id}: expected publish, found ${current.status}`,
+        409,
+        "not_published",
+      );
+    }
+    this.assertUnchanged(current, expectedModified);
+    return this.request<WpPost>(`posts/${id}`, {
+      method: "POST",
+      body: { ...input, categories: input.categoryIds, tags: input.tagIds, status: "publish" },
     });
   }
 
@@ -243,7 +285,7 @@ export class WordPressClient {
         Accept: "application/json",
         "Content-Type": input.contentType,
         "Content-Disposition": `attachment; filename="${input.filename}"`,
-        "User-Agent": "DigitalAfarin-WordPress-MCP/0.3",
+        "User-Agent": "DigitalAfarin-WordPress-MCP/0.4",
       },
       body: new Uint8Array(input.bytes),
       signal: AbortSignal.timeout(30_000),
@@ -266,18 +308,19 @@ export class WordPressClient {
     });
   }
 
-  async setFeaturedImageOnDraft(postId: number, mediaId: number) {
+  async setFeaturedImage(postId: number, mediaId: number, expectedModified?: string) {
     const current = await this.getPost(postId);
-    if (current.status !== "draft") {
+    if (!new Set(["draft", "publish"]).has(current.status)) {
       throw new WordPressError(
-        `Refusing to change featured image for post ${postId}: expected draft, found ${current.status}`,
+        `Refusing to change featured image for post ${postId}: unsupported status ${current.status}`,
         409,
-        "not_a_draft",
+        "unsupported_post_status",
       );
     }
+    this.assertUnchanged(current, expectedModified);
     return this.request<WpPost>(`posts/${postId}`, {
       method: "POST",
-      body: { featured_media: mediaId, status: "draft" },
+      body: { featured_media: mediaId, status: current.status },
     });
   }
 
@@ -301,7 +344,7 @@ export class WordPressClient {
         writable: false,
         fields: post.yoast_head_json,
         post: { id: post.id, status: post.status, link: post.link },
-        note: "Yoast REST metadata is read-only. Install the DigitalAfarin Agent Bridge plugin for controlled draft SEO writes.",
+        note: "Yoast REST metadata is read-only. Install the DigitalAfarin Agent Bridge plugin for controlled SEO writes.",
       };
     }
 
@@ -313,7 +356,7 @@ export class WordPressClient {
         writable: false,
         fields: rankMath,
         post: { id: post.id, status: post.status, link: post.link },
-        note: "Rank Math headless metadata endpoint is read-oriented. Install the DigitalAfarin Agent Bridge plugin for controlled draft SEO writes.",
+        note: "Rank Math headless metadata endpoint is read-oriented. Install the DigitalAfarin Agent Bridge plugin for controlled SEO writes.",
       };
     } catch (error) {
       if (!(error instanceof WordPressError) || ![400, 404].includes(error.status)) throw error;
@@ -329,18 +372,20 @@ export class WordPressClient {
     };
   }
 
-  async updateDraftSeo(
+  async updateSeo(
     postId: number,
     input: { title?: string; description?: string; focusKeyword?: string; canonical?: string },
+    expectedModified?: string,
   ) {
     const current = await this.getPost(postId);
-    if (current.status !== "draft") {
+    if (!new Set(["draft", "publish"]).has(current.status)) {
       throw new WordPressError(
-        `Refusing to edit SEO metadata for post ${postId}: expected draft, found ${current.status}`,
+        `Refusing to edit SEO metadata for post ${postId}: unsupported status ${current.status}`,
         409,
-        "not_a_draft",
+        "unsupported_post_status",
       );
     }
+    this.assertUnchanged(current, expectedModified);
     try {
       return await this.requestRest<{
         provider: string;
@@ -357,5 +402,21 @@ export class WordPressClient {
       }
       throw error;
     }
+  }
+
+  async updateDraftSeo(
+    postId: number,
+    input: { title?: string; description?: string; focusKeyword?: string; canonical?: string },
+    expectedModified?: string,
+  ) {
+    const current = await this.getPost(postId);
+    if (current.status !== "draft") {
+      throw new WordPressError(
+        `Refusing to edit SEO metadata for post ${postId}: expected draft, found ${current.status}`,
+        409,
+        "not_a_draft",
+      );
+    }
+    return this.updateSeo(postId, input, expectedModified);
   }
 }
