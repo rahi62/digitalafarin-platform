@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
-import { dashboardConfig } from "./config";
 import { decryptSecret, encryptSecret } from "./crypto";
 import { db, initializeDatabase } from "./db";
+import { getGscOAuthCredentials } from "./integration-settings";
 
 const GSC_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -13,19 +13,18 @@ export type GscProperty = {
   permissionLevel: string;
 };
 
-function requireGoogleConfig() {
-  if (!dashboardConfig.gscOAuthConfigured || !dashboardConfig.googleClientId || !dashboardConfig.googleClientSecret || !dashboardConfig.googleRedirectUri) {
-    throw new Error("تنظیمات OAuth گوگل برای Search Console روی سرور کامل نشده است.");
-  }
-  return {
-    clientId: dashboardConfig.googleClientId,
-    clientSecret: dashboardConfig.googleClientSecret,
-    redirectUri: dashboardConfig.googleRedirectUri,
-  };
-}
-
 function hashState(value: string) {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function normalizeRedirectUri(value: string) {
+  const url = new URL(value);
+  const localHttp = url.protocol === "http:" && ["127.0.0.1", "localhost"].includes(url.hostname);
+  if (url.protocol !== "https:" && !localHttp) {
+    throw new Error("OAuth callback باید HTTPS باشد؛ فقط localhost در توسعه می‌تواند HTTP باشد.");
+  }
+  if (url.username || url.password) throw new Error("OAuth callback معتبر نیست.");
+  return url.toString();
 }
 
 async function googleJson<T>(url: string, init: RequestInit): Promise<T> {
@@ -37,18 +36,19 @@ async function googleJson<T>(url: string, init: RequestInit): Promise<T> {
   return data;
 }
 
-export async function createGscOAuthUrl() {
-  const config = requireGoogleConfig();
+export async function createGscOAuthUrl(redirectUri: string) {
+  const config = await getGscOAuthCredentials();
+  const callback = normalizeRedirectUri(redirectUri);
   await initializeDatabase();
   const state = randomBytes(32).toString("base64url");
   await db.query(
-    "INSERT INTO gsc_oauth_states (state_hash,expires_at) VALUES ($1,NOW() + INTERVAL '10 minutes')",
-    [hashState(state)],
+    "INSERT INTO gsc_oauth_states (state_hash,redirect_uri,expires_at) VALUES ($1,$2,NOW() + INTERVAL '10 minutes')",
+    [hashState(state), callback],
   );
 
   const url = new URL(GOOGLE_AUTH_URL);
   url.searchParams.set("client_id", config.clientId);
-  url.searchParams.set("redirect_uri", config.redirectUri);
+  url.searchParams.set("redirect_uri", callback);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("scope", GSC_SCOPE);
   url.searchParams.set("access_type", "offline");
@@ -60,20 +60,23 @@ export async function createGscOAuthUrl() {
 
 async function consumeOAuthState(state: string) {
   await initializeDatabase();
-  const result = await db.query(
-    "DELETE FROM gsc_oauth_states WHERE state_hash=$1 AND expires_at >= NOW() RETURNING state_hash",
+  const result = await db.query<{ redirect_uri: string | null }>(
+    "DELETE FROM gsc_oauth_states WHERE state_hash=$1 AND expires_at >= NOW() RETURNING redirect_uri",
     [hashState(state)],
   );
-  if (result.rowCount !== 1) throw new Error("OAuth state نامعتبر یا منقضی شده است. اتصال را دوباره شروع کنید.");
+  const row = result.rows[0];
+  if (!row) throw new Error("OAuth state نامعتبر یا منقضی شده است. اتصال را دوباره شروع کنید.");
+  if (!row.redirect_uri) throw new Error("OAuth callback برای این درخواست ثبت نشده است. اتصال را دوباره شروع کنید.");
+  return normalizeRedirectUri(row.redirect_uri);
 }
 
 export async function completeGscOAuth(code: string, state: string) {
-  const config = requireGoogleConfig();
-  await consumeOAuthState(state);
+  const config = await getGscOAuthCredentials();
+  const redirectUri = await consumeOAuthState(state);
   const body = new URLSearchParams({
     client_id: config.clientId,
     client_secret: config.clientSecret,
-    redirect_uri: config.redirectUri,
+    redirect_uri: redirectUri,
     grant_type: "authorization_code",
     code,
   });
@@ -90,7 +93,7 @@ export async function completeGscOAuth(code: string, state: string) {
     `INSERT INTO gsc_connection (id,encrypted_refresh_token,scope,last_check_status,last_check_message,last_checked_at,connected_at,updated_at)
      VALUES (1,$1,$2,'ok',$3,NOW(),NOW(),NOW())
      ON CONFLICT (id) DO UPDATE SET encrypted_refresh_token=EXCLUDED.encrypted_refresh_token,scope=EXCLUDED.scope,
-       last_check_status='ok',last_check_message=EXCLUDED.last_check_message,last_checked_at=NOW(),updated_at=NOW()`,
+       last_check_status='ok',last_check_message=EXCLUDED.last_check_message,last_checked_at=NOW(),connected_at=NOW(),updated_at=NOW()`,
     [encryptSecret(token.refresh_token), token.scope ?? GSC_SCOPE, `${properties.length} Search Console properties available`],
   );
   await db.query("INSERT INTO audit_logs (action,details) VALUES ('gsc.connected',$1)", [JSON.stringify({ properties: properties.length })]);
@@ -98,7 +101,7 @@ export async function completeGscOAuth(code: string, state: string) {
 }
 
 export async function getGscAccessToken() {
-  const config = requireGoogleConfig();
+  const config = await getGscOAuthCredentials();
   await initializeDatabase();
   const result = await db.query<{ encrypted_refresh_token: string }>("SELECT encrypted_refresh_token FROM gsc_connection WHERE id=1 LIMIT 1");
   const row = result.rows[0];
