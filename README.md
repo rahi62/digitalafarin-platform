@@ -1,103 +1,100 @@
-# DigitalAfarin WordPress MCP
+# DigitalAfarin WordPress + Search Console MCP
 
-MCP چندسایته برای اتصال ChatGPT به WordPress و مدیریت کنترل‌شده محتوای سئو.
+MCP چندسایته برای اتصال ChatGPT به WordPress و Google Search Console و اجرای workflow کنترل‌شده سئو.
 
 ## معماری
 
 ```text
-ChatGPT / Agent
-      ↓
-DigitalAfarin WordPress MCP
-      ↓
-Dashboard credential broker (localhost only)
-      ↓
-Encrypted PostgreSQL site registry
-      ↓
-WordPress REST API
+                         ┌─ WordPress REST API
+ChatGPT / Agent → MCP → Dashboard localhost brokers
+                         └─ Google Search Console API
+                                  ↑
+                       encrypted PostgreSQL registry
 ```
 
-Credential وردپرس داخل ابزار یا پاسخ Agent نمایش داده نمی‌شود. سایت‌ها از Dashboard فعال/غیرفعال می‌شوند و MCP فقط سایت‌های enabled را resolve می‌کند.
+Dashboard محل مدیریت اتصال‌هاست. Credentialهای WordPress و Google Refresh Token در پاسخ Agent نمایش داده نمی‌شوند. MCP فقط credential کوتاه‌عمر/لازم برای هر عملیات را از brokerهای loopback دریافت می‌کند.
 
-## مدل امنیتی نسخه 0.4
+## مدل امنیتی نسخه 0.5
 
 - ابزار حذف محتوا وجود ندارد.
 - مقاله جدید ابتدا با `wordpress_create_draft` ساخته می‌شود.
-- انتشار فقط از ابزار مستقل `wordpress_publish_draft` و فقط وقتی status فعلی `draft` باشد انجام می‌شود.
+- انتشار فقط از ابزار مستقل `wordpress_publish_draft` انجام می‌شود.
 - `wordpress_update_draft` فقط Draft را تغییر می‌دهد.
-- `wordpress_update_published_post` فقط Published را تغییر می‌دهد و status را `publish` نگه می‌دارد.
-- ابزارهای Live در description صراحتاً مشخص شده‌اند و باید فقط با درخواست کاربر استفاده شوند.
-- Featured Image برای Draft و Published قابل تنظیم است.
-- SEO برای Draft و Published از Bridge محدود DigitalAfarin قابل مدیریت است.
-- `expectedModified` اختیاری برای Publish/Live Update/SEO/Featured Image از overwrite کردن نسخه‌ای که بعد از تحلیل تغییر کرده جلوگیری می‌کند.
-- Upload از URL فقط HTTPS است و مقصدهای private/reserved network رد می‌شوند.
-- حجم محتوا و تصویر محدود است.
-- سرویس MCP و credential broker روی loopback اجرا می‌شوند.
-- Application Passwordها در Dashboard با AES-256-GCM رمزنگاری می‌شوند.
+- `wordpress_update_published_post` فقط Published را تغییر می‌دهد و نوشته را Published نگه می‌دارد.
+- تغییرات Live باید فقط در پاسخ به درخواست صریح کاربر اجرا شوند.
+- Featured Image و SEO برای Draft و Published پشتیبانی می‌شوند.
+- `expectedModified` می‌تواند از overwrite شدن تغییرات جدیدتر جلوگیری کند.
+- Upload تصویر از URL فقط HTTPS است و مقصد private/reserved network رد می‌شود.
+- WordPress Application Password و Google Refresh Token با AES-256-GCM در Dashboard رمزنگاری می‌شوند.
+- Search Console با scope فقط‌خواندنی `https://www.googleapis.com/auth/webmasters.readonly` متصل می‌شود.
+- Google Client Secret و Refresh Token هرگز به MCP/ChatGPT برگردانده نمی‌شوند؛ broker فقط Access Token کوتاه‌عمر می‌دهد.
+- brokerهای `/api/internal/sites` و `/api/internal/gsc` فقط روی loopback + internal header کار می‌کنند و باید در Nginx به‌صورت عمومی block باشند.
 
-## ابزارهای MCP نسخه 0.4
+## ابزارهای MCP نسخه 0.5
 
-### Sites / Read
+### WordPress
 
+Read:
 - `wordpress_list_sites`
 - `wordpress_health_check`
 - `wordpress_search_posts`
 - `wordpress_get_post`
 - `wordpress_list_categories`
+- `wordpress_list_tags`
+- `wordpress_list_media`
+- `wordpress_get_seo`
 
-### Content Write
-
+Write:
 - `wordpress_create_draft`
 - `wordpress_update_draft`
 - `wordpress_publish_draft`
 - `wordpress_update_published_post`
-
-Create + Publish عمداً دو مرحله‌ای است. Agent می‌تواند یک مقاله جدید را Draft بسازد، تصاویر/SEO/Taxonomy را کامل کند و سپس در صورت درخواست صریح کاربر آن را Publish کند.
-
-### Tags
-
-- `wordpress_list_tags`
 - `wordpress_create_tag`
-
-### Media
-
-- `wordpress_list_media`
 - `wordpress_upload_media_from_url`
 - `wordpress_upload_media_base64`
 - `wordpress_update_media_metadata`
 - `wordpress_set_featured_image`
-
-`wordpress_upload_media_base64` برای تصاویر تولیدشده یا فایل‌هایی است که Agent بتواند به bytes/base64 تبدیل کند. فرمت‌های مجاز: JPEG, PNG, WebP و GIF.
-
-### SEO
-
-- `wordpress_get_seo`
 - `wordpress_update_draft_seo`
 - `wordpress_update_post_seo`
 
-برای نوشتن SEO باید افزونه زیر روی سایت نصب و فعال باشد:
+Create + Publish عمداً دو مرحله‌ای است تا مقاله، تصاویر و SEO قبل از زنده شدن کامل شوند.
+
+### Google Search Console
+
+- `gsc_list_sites`
+  - سایت‌های enabled که در Dashboard به GSC Property نگاشت شده‌اند.
+- `gsc_search_analytics`
+  - دریافت Clicks، Impressions، CTR و Average Position.
+  - dimensions: `query`, `page`, `country`, `device`, `searchAppearance`, `date`, `hour`
+  - filters: query/page/country/device/searchAppearance
+  - search type: web/image/video/news/discover/googleNews
+  - rowLimit تا 25000 و startRow برای pagination
+  - فقط Read-only؛ هیچ تغییر GSC از MCP انجام نمی‌شود.
+
+Search Console API در queryهای بزرگ top rows را برمی‌گرداند و تضمین نمی‌کند تمام ترکیب‌های ممکن dimension در یک پاسخ وجود داشته باشند.
+
+## DigitalAfarin Agent Bridge
+
+برای SEO write روی WordPress افزونه زیر باید نصب و فعال باشد:
 
 ```text
 wordpress-plugin/digitalafarin-agent-bridge/digitalafarin-agent-bridge.php
 ```
 
-Bridge نسخه 0.2 فقط برای کاربر authenticated دارای `edit_post` کار می‌کند و SEO Postهای `draft` و `publish` را پشتیبانی می‌کند. Providerهای پشتیبانی‌شده:
-
-- Rank Math
-- Yoast SEO
-
-فیلدهای قابل مدیریت:
+Bridge 0.2 برای کاربر authenticated دارای `edit_post`، SEO نوشته‌های `draft` و `publish` را برای Yoast SEO و Rank Math مدیریت می‌کند:
 
 - SEO title
 - Meta description
 - Focus keyword
 - Canonical URL
 
-Bridge امکان Delete، نصب افزونه یا تغییر تنظیمات عمومی WordPress را اضافه نمی‌کند.
+Bridge امکان Delete، نصب افزونه یا تغییر تنظیمات عمومی WordPress را ندارد.
 
-## Environment
+## Environment MCP
 
 ```env
 SITE_BROKER_URL=http://127.0.0.1:3040/api/internal/sites
+GSC_BROKER_URL=http://127.0.0.1:3040/api/internal/gsc
 PORT=3030
 HOST=127.0.0.1
 ALLOWED_ORIGINS=https://chatgpt.com
@@ -106,62 +103,89 @@ MAX_POST_CONTENT_BYTES=500000
 MAX_MEDIA_BYTES=10000000
 ```
 
-Credentialهای WordPress در Environment MCP قرار نمی‌گیرند و از Site Registry پنل resolve می‌شوند.
-
-## Build
-
-نیازمندی: Node.js 20 یا بالاتر.
-
-```bash
-npm ci
-npm run check
-npm run build
-```
-
-تست سلامت:
-
-```bash
-curl http://127.0.0.1:3030/health
-```
-
-## Deploy روی VPS
-
-```bash
-cd /var/www/digitalafarin-wordpress-mcp
-sudo -u deploy git pull --ff-only origin main
-sudo bash deploy/update-server.sh
-```
-
-فایل Environment سرویس:
+فایل production:
 
 ```text
 /etc/digitalafarin-wordpress-mcp.env
 ```
 
-باید متعلق به root و mode آن `600` باشد.
+## Environment Dashboard
 
-## Workflow هدف
+```env
+DATABASE_URL=...
+ADMIN_PASSWORD_SHA256=...
+SESSION_SECRET=...
+CREDENTIALS_ENCRYPTION_KEY=...
+GSC_GOOGLE_CLIENT_ID=...
+GSC_GOOGLE_CLIENT_SECRET=...
+GSC_GOOGLE_REDIRECT_URI=https://wp-agent.digitalafarin.ir/api/gsc/oauth/callback
+```
+
+فایل production:
+
+```text
+/etc/digitalafarin-wp-agent.env
+```
+
+این فایل باید root-owned و mode `600` باشد. Secretها را commit نکنید.
+
+## راه‌اندازی Google Search Console OAuth
+
+1. در Google Cloud یک Project انتخاب/ایجاد کنید.
+2. Google Search Console API را برای Project فعال کنید.
+3. OAuth consent screen را تنظیم کنید.
+4. OAuth Client با نوع **Web application** بسازید.
+5. Authorized redirect URI را دقیقاً برابر Dashboard callback قرار دهید:
+
+```text
+https://wp-agent.digitalafarin.ir/api/gsc/oauth/callback
+```
+
+6. Client ID و Client Secret را فقط داخل `/etc/digitalafarin-wp-agent.env` قرار دهید.
+7. deploy را اجرا کنید.
+8. در Dashboard وارد **تنظیمات و اتصال‌ها** شوید و **اتصال حساب Google** را بزنید.
+9. بعد از OAuth، برای هر WordPress Site یک Search Console Property انتخاب کنید. Property می‌تواند URL-prefix یا domain property مثل `sc-domain:example.com` باشد.
+10. Connector/MCP را refresh کنید و `gsc_list_sites` و `gsc_search_analytics` را تست کنید.
+
+اگر OAuth consent screen در حالت Testing باشد، Google Account مورد استفاده باید در Test users قرار داشته باشد.
+
+## Build و Deploy
+
+```bash
+npm ci
+npm run check
+npm run build
+
+cd /var/www/digitalafarin-wordpress-mcp
+sudo -u deploy git pull --ff-only origin main
+sudo bash deploy/update-server.sh
+curl -s http://127.0.0.1:3030/health
+```
+
+Health نسخه 0.5 باید `version: "0.5.0"` برگرداند.
+
+## Workflow هدف سئو
 
 ### مقاله جدید
 
-1. تحلیل Keyword/Intent و محتوای رقبا/داده‌های Search Console.
-2. انتخاب Category و Tag.
-3. ساخت مقاله با `wordpress_create_draft`.
-4. تولید و Upload تصاویر و تنظیم alt/title/caption.
-5. درج تصاویر داخل HTML و تنظیم Featured Image.
-6. تنظیم SEO title/meta/focus keyword/canonical.
-7. بازخوانی Draft نهایی.
-8. در صورت درخواست صریح کاربر: `wordpress_publish_draft`.
-9. بازخوانی Published post و گزارش URL نهایی.
+1. داده‌های GSC را برای Query/Page/CTR/Position تحلیل کن.
+2. Keyword/Intent و gap محتوایی را مشخص کن.
+3. Category/Tag را انتخاب کن.
+4. Draft جدید بساز.
+5. محتوا و تصاویر را تولید و Upload کن؛ alt/title/caption و Featured Image را تنظیم کن.
+6. SEO meta را از Bridge تنظیم کن.
+7. Draft را بازخوانی و کنترل کن.
+8. در صورت درخواست صریح کاربر، Publish کن.
+9. URL نهایی و تغییرات را گزارش کن.
 
 ### آپدیت مقاله موجود
 
-1. خواندن مقاله Published و ثبت `modified`.
-2. تحلیل SEO و طراحی تغییرات.
-3. اعمال محتوا با `wordpress_update_published_post` و در صورت نیاز `expectedModified`.
-4. اعمال Media/Featured Image/SEO در صورت درخواست.
-5. بازخوانی مقاله زنده و گزارش دقیق تغییرات.
+1. GSC Query/Page performance را در بازه مناسب بخوان.
+2. مقاله Published و `modified` فعلی را بخوان.
+3. مشکل CTR، intent mismatch، content decay یا فرصت position را تحلیل کن.
+4. محتوا/Media/SEO را با guard مناسب به‌روزرسانی کن.
+5. دوباره WordPress و در صورت نیاز GSC را بخوان و گزارش تغییرات بده.
 
 ## سیاست حذف
 
-Delete عمداً در نسخه 0.4 وجود ندارد. حذف محتوا برای workflow تولید و بهینه‌سازی سئو ضروری نیست و در صورت نیاز باید به شکل ابزار جدا با سیاست تأیید قوی طراحی شود.
+Delete عمداً در نسخه 0.5 وجود ندارد. برای workflow تولید و بهینه‌سازی سئو ضروری نیست و اگر بعداً اضافه شود باید ابزار جدا با تأیید قوی داشته باشد.
