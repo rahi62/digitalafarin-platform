@@ -93,7 +93,7 @@ SSH_PRIVATE_KEY=<matching private deployment key>
 کاربر استقرار باید فقط اجازه اجرای اسکریپت بروزرسانی همین پروژه را بدون رمز داشته باشد. مسیر دقیق را با محل نصب واقعی پروژه جایگزین کنید:
 
 ```text
-DEPLOY_USER ALL=(root) NOPASSWD: APP_DIR/deploy/update-server.sh
+DEPLOY_USER ALL=(root) NOPASSWD: /usr/bin/bash APP_DIR/deploy/update-server.sh
 ```
 
 فایل محرمانه زیر را با دسترسی root بسازید:
