@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: DigitalAfarin Agent Bridge
- * Description: Adds a narrow authenticated REST bridge for draft-only SEO metadata management by the DigitalAfarin WordPress Agent.
- * Version: 0.1.0
+ * Description: Adds a narrow authenticated REST bridge for controlled SEO metadata management by the DigitalAfarin WordPress Agent.
+ * Version: 0.2.0
  * Author: DigitalAfarin
  * Requires at least: 6.5
  * Requires PHP: 8.1
@@ -12,6 +12,7 @@ defined('ABSPATH') || exit;
 
 final class DigitalAfarin_Agent_Bridge {
     private const NS = 'digitalafarin/v1';
+    private const WRITABLE_STATUSES = ['draft', 'publish'];
 
     public static function boot(): void {
         add_action('rest_api_init', [self::class, 'register_routes']);
@@ -81,6 +82,10 @@ final class DigitalAfarin_Agent_Bridge {
         return substr($value, 0, $length);
     }
 
+    private static function is_writable_status(string $status): bool {
+        return in_array($status, self::WRITABLE_STATUSES, true);
+    }
+
     private static function response_fields(int $post_id, string $provider): array {
         $keys = self::keys($provider);
         return [
@@ -105,7 +110,8 @@ final class DigitalAfarin_Agent_Bridge {
 
         return rest_ensure_response([
             'provider' => $provider,
-            'writable' => $post->post_status === 'draft',
+            'writable' => self::is_writable_status($post->post_status),
+            'status' => $post->post_status,
             'fields' => self::response_fields($post_id, $provider),
         ]);
     }
@@ -116,8 +122,12 @@ final class DigitalAfarin_Agent_Bridge {
         if (!$post) {
             return new WP_Error('digitalafarin_post_not_found', 'Post not found.', ['status' => 404]);
         }
-        if ($post->post_status !== 'draft') {
-            return new WP_Error('digitalafarin_not_draft', 'SEO metadata may only be changed for draft posts.', ['status' => 409]);
+        if (!self::is_writable_status($post->post_status)) {
+            return new WP_Error(
+                'digitalafarin_status_not_writable',
+                'SEO metadata may only be changed for draft or published posts.',
+                ['status' => 409]
+            );
         }
 
         $provider = self::provider();
@@ -159,6 +169,7 @@ final class DigitalAfarin_Agent_Bridge {
         return rest_ensure_response([
             'provider' => $provider,
             'writable' => true,
+            'status' => $post->post_status,
             'changed' => $changed,
             'fields' => self::response_fields($post_id, $provider),
         ]);
