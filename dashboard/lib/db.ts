@@ -35,6 +35,14 @@ export async function initializeDatabase() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS integration_configs (
+      provider VARCHAR(80) PRIMARY KEY,
+      config JSONB NOT NULL DEFAULT '{}'::jsonb,
+      encrypted_secret TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS gsc_connection (
       id SMALLINT PRIMARY KEY CHECK (id = 1),
       encrypted_refresh_token TEXT NOT NULL,
@@ -48,9 +56,11 @@ export async function initializeDatabase() {
 
     CREATE TABLE IF NOT EXISTS gsc_oauth_states (
       state_hash CHAR(64) PRIMARY KEY,
+      redirect_uri TEXT,
       expires_at TIMESTAMPTZ NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    ALTER TABLE gsc_oauth_states ADD COLUMN IF NOT EXISTS redirect_uri TEXT;
     DELETE FROM gsc_oauth_states WHERE expires_at < NOW();
   `);
 }
