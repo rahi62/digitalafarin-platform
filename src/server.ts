@@ -68,7 +68,7 @@ async function clientFor(siteId: string | undefined, operation: string) {
 const siteIdSchema = z.string().uuid().optional().describe(
   "Registered WordPress site ID. Optional only when exactly one site is enabled.",
 );
-const expectedModifiedSchema = z.string().datetime().optional().describe(
+const expectedModifiedSchema = z.string().trim().min(10).max(64).optional().describe(
   "Optional modified timestamp returned by wordpress_get_post. If supplied, the write is refused when the post changed since it was read.",
 );
 const imageTypeSchema = z.enum(["image/jpeg", "image/png", "image/webp", "image/gif"]);
