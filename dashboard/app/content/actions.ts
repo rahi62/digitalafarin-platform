@@ -29,17 +29,19 @@ export async function createDraftAction(_state: ContentActionState, formData: Fo
     excerpt: formData.get("excerpt") || undefined, slug: formData.get("slug") || undefined,
   });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "اطلاعات نوشته معتبر نیست." };
+
+  let destination = "";
   try {
     const site = await getSiteConnection(parsed.data.siteId);
     const post = await createWordPressDraft(site, { ...parsed.data, categoryIds: categoryIds(formData) });
     await initializeDatabase();
     await db.query("INSERT INTO audit_logs (site_id,action,details) VALUES ($1,'content.draft_created',$2)", [site.id, JSON.stringify({ postId: post.id, title: parsed.data.title })]);
     revalidatePath("/content");
-    redirect(`/content/${post.id}?siteId=${site.id}`);
+    destination = `/content/${post.id}?siteId=${site.id}`;
   } catch (error) {
-    if (error instanceof Error && error.message === "NEXT_REDIRECT") throw error;
     return { error: error instanceof Error ? error.message : "ساخت پیش‌نویس ناموفق بود." };
   }
+  redirect(destination);
 }
 
 export async function updateDraftAction(_state: ContentActionState, formData: FormData): Promise<ContentActionState> {
