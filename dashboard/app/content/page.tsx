@@ -26,7 +26,7 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
   }
 
   const actions = selected ? <Link className="button-link primary" href={`/content/new?siteId=${selected.id}`}>+ نوشته جدید</Link> : null;
-  return <AppShell active="content" title="مدیریت محتوا" description="نوشته‌های سایت را ببینید، جستجو کنید و پیش‌نویس‌ها را با کنترل کامل ویرایش کنید." actions={actions}>
+  return <AppShell active="content" title="مدیریت محتوا" description="Draftها را آماده و منتشر کنید؛ نوشته‌های Published نیز با هشدار و به‌صورت زنده قابل ویرایش هستند." actions={actions}>
     {sites.length === 0 ? <section className="panel empty-state"><div className="empty-icon">◎</div><h2>سایت فعالی وجود ندارد</h2><p>ابتدا از بخش سایت‌ها یک اتصال فعال اضافه کنید.</p><Link className="button-link primary" href="/sites">رفتن به سایت‌ها</Link></section> : <>
       <section className="toolbar panel compact-panel">
         <form action="/content" method="get" className="filters">
@@ -38,7 +38,7 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
       </section>
       {error ? <div className="error-banner"><strong>خطا در اتصال به وردپرس</strong><span>{error}</span></div> : <section className="panel content-panel">
         <div className="panel-head"><div><p className="eyebrow">CONTENT LIBRARY</p><h2>{selected?.name}</h2></div><span className="count-pill">{posts.length} مورد</span></div>
-        {posts.length === 0 ? <div className="empty">محتوایی مطابق این فیلتر پیدا نشد.</div> : <div className="content-table-wrap"><table className="content-table"><thead><tr><th>عنوان</th><th>وضعیت</th><th>آخرین ویرایش</th><th>عملیات</th></tr></thead><tbody>{posts.map((post) => <tr key={post.id}><td><div className="post-title"><strong>{cleanTitle(post.title.rendered)}</strong><small>#{post.id} · /{post.slug}</small></div></td><td><span className={`status-badge status-${post.status}`}>{statusLabels[post.status] ?? post.status}</span></td><td className="date-cell">{new Date(post.modified).toLocaleString("fa-IR")}</td><td><div className="row-actions">{post.status === "draft" ? <Link className="text-link" href={`/content/${post.id}?siteId=${selected?.id}`}>ویرایش</Link> : <span className="disabled-action">فقط خواندنی</span>}<a className="text-link subtle" href={post.link} target="_blank" rel="noreferrer">مشاهده</a></div></td></tr>)}</tbody></table></div>}
+        {posts.length === 0 ? <div className="empty">محتوایی مطابق این فیلتر پیدا نشد.</div> : <div className="content-table-wrap"><table className="content-table"><thead><tr><th>عنوان</th><th>وضعیت</th><th>آخرین ویرایش</th><th>عملیات</th></tr></thead><tbody>{posts.map((post) => <tr key={post.id}><td><div className="post-title"><strong>{cleanTitle(post.title.rendered)}</strong><small>#{post.id} · /{post.slug}</small></div></td><td><span className={`status-badge status-${post.status}`}>{statusLabels[post.status] ?? post.status}</span></td><td className="date-cell">{new Date(post.modified).toLocaleString("fa-IR")}</td><td><div className="row-actions">{post.status === "draft" || post.status === "publish" ? <Link className="text-link" href={`/content/${post.id}?siteId=${selected?.id}`}>{post.status === "publish" ? "ویرایش زنده" : "ویرایش"}</Link> : <span className="disabled-action">فقط خواندنی</span>}<a className="text-link subtle" href={post.link} target="_blank" rel="noreferrer">مشاهده</a></div></td></tr>)}</tbody></table></div>}
       </section>}
     </>}
   </AppShell>;
