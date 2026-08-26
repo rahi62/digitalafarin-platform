@@ -60,10 +60,16 @@ export async function saveGscOAuthCredentials(input: { clientId: string; clientS
   );
   const current = existing.rows[0];
   const secret = input.clientSecret?.trim();
+  const previousClientId = typeof current?.config?.clientId === "string" ? current.config.clientId.trim() : "";
+  const clientIdChanged = Boolean(previousClientId && previousClientId !== clientId);
+
+  if (clientIdChanged && !secret) {
+    throw new Error("با تغییر Google Client ID باید Client Secret مربوط به همان OAuth Client را نیز وارد کنید.");
+  }
+
   const encryptedSecret = secret ? encryptSecret(secret) : current?.encrypted_secret ?? null;
   if (!encryptedSecret) throw new Error("Google Client Secret الزامی است.");
 
-  const previousClientId = typeof current?.config?.clientId === "string" ? current.config.clientId : "";
   const credentialsChanged = Boolean(secret) || previousClientId !== clientId;
 
   await db.query(
