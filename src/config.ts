@@ -10,13 +10,26 @@ function positiveInteger(name: string, fallback: number): number {
   return value;
 }
 
-const siteBrokerUrl = (process.env.SITE_BROKER_URL?.trim() || "http://127.0.0.1:3040/api/internal/sites").replace(/\/$/, "");
-if (!siteBrokerUrl.startsWith("http://127.0.0.1:") && !siteBrokerUrl.startsWith("http://localhost:")) {
-  throw new Error("SITE_BROKER_URL must point to a loopback HTTP endpoint");
+function loopbackBroker(name: string, value: string) {
+  const normalized = value.replace(/\/$/, "");
+  if (!normalized.startsWith("http://127.0.0.1:") && !normalized.startsWith("http://localhost:")) {
+    throw new Error(`${name} must point to a loopback HTTP endpoint`);
+  }
+  return normalized;
 }
+
+const siteBrokerUrl = loopbackBroker(
+  "SITE_BROKER_URL",
+  process.env.SITE_BROKER_URL?.trim() || "http://127.0.0.1:3040/api/internal/sites",
+);
+const gscBrokerUrl = loopbackBroker(
+  "GSC_BROKER_URL",
+  process.env.GSC_BROKER_URL?.trim() || "http://127.0.0.1:3040/api/internal/gsc",
+);
 
 export const config = {
   siteBrokerUrl,
+  gscBrokerUrl,
   port: positiveInteger("PORT", 3030),
   host: process.env.HOST?.trim() || "127.0.0.1",
   allowedOrigins: new Set(
