@@ -16,6 +16,8 @@ const actionLabels: Record<string, string> = {
   "content.draft_updated": "پیش‌نویس ویرایش شد",
   "content.post_updated": "نوشته منتشرشده ویرایش شد",
   "content.published": "پیش‌نویس منتشر شد",
+  "gsc.oauth_config_updated": "تنظیمات Google OAuth تغییر کرد",
+  "gsc.oauth_config_removed": "تنظیمات Google OAuth حذف شد",
   "gsc.connected": "Search Console متصل شد",
   "gsc.disconnected": "اتصال Search Console قطع شد",
   "gsc.property_mapped": "GSC Property سایت تغییر کرد",
@@ -92,7 +94,7 @@ export default async function DashboardPage() {
       <div className="quick-actions">
         <Link className="quick-card" href="/content"><span>✦</span><div><strong>مدیریت محتوا</strong><small>Draft و نوشته‌های منتشرشده</small></div><b>←</b></Link>
         <Link className="quick-card" href="/content/new"><span>＋</span><div><strong>نوشته جدید</strong><small>ساخت Draft و انتشار بعد از تکمیل</small></div><b>←</b></Link>
-        <Link className="quick-card" href="/settings"><span>G</span><div><strong>Search Console</strong><small>OAuth و اتصال Property هر سایت</small></div><b>←</b></Link>
+        <Link className="quick-card" href="/settings"><span>G</span><div><strong>Search Console</strong><small>تنظیم OAuth، اتصال حساب و Propertyها از پنل</small></div><b>←</b></Link>
       </div>
     </section>
   </AppShell>;
