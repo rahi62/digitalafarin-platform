@@ -5,6 +5,7 @@ import { db, initializeDatabase } from "@/lib/db";
 import { listGscProperties } from "@/lib/gsc";
 import { requireAdmin } from "@/lib/session";
 import { disconnectGscAction, saveGscPropertyAction, testGscAction } from "./actions";
+import "./settings.css";
 
 type ConnectionRow = {
   last_check_status: string | null;
