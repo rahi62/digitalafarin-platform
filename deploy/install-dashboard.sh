@@ -36,7 +36,13 @@ fi
 
 chown -R deploy:deploy "/var/www/digitalafarin-wordpress-mcp"
 sudo -u deploy npm --prefix "${APP_DIR}" ci
-sudo -u deploy env NEXT_TELEMETRY_DISABLED=1 npm --prefix "${APP_DIR}" run build
+set -a
+# The dashboard validates its server-only configuration while Next.js collects
+# page data, so the protected environment must also be present during build.
+source "${ENV_FILE}"
+set +a
+sudo --preserve-env=DATABASE_URL,ADMIN_PASSWORD_SHA256,SESSION_SECRET,CREDENTIALS_ENCRYPTION_KEY \
+  -u deploy env NEXT_TELEMETRY_DISABLED=1 npm --prefix "${APP_DIR}" run build
 
 install -o root -g root -m 644 "${SERVICE_SOURCE}" "${SERVICE_TARGET}"
 systemctl daemon-reload
