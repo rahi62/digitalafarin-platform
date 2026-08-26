@@ -26,6 +26,7 @@ if [[ ! -f "${ENV_FILE}" ]]; then
   install -o root -g root -m 600 /dev/null "${ENV_FILE}"
   cat >"${ENV_FILE}" <<'ENV'
 SITE_BROKER_URL=http://127.0.0.1:3040/api/internal/sites
+GSC_BROKER_URL=http://127.0.0.1:3040/api/internal/gsc
 PORT=3030
 HOST=127.0.0.1
 ALLOWED_ORIGINS=https://chatgpt.com
@@ -40,6 +41,9 @@ sed -i '/^WP_BASE_URL=/d;/^WP_USERNAME=/d;/^WP_APP_PASSWORD=/d' "${ENV_FILE}"
 if ! grep -q '^SITE_BROKER_URL=' "${ENV_FILE}"; then
   printf '\nSITE_BROKER_URL=http://127.0.0.1:3040/api/internal/sites\n' >>"${ENV_FILE}"
 fi
+if ! grep -q '^GSC_BROKER_URL=' "${ENV_FILE}"; then
+  printf 'GSC_BROKER_URL=http://127.0.0.1:3040/api/internal/gsc\n' >>"${ENV_FILE}"
+fi
 if ! grep -q '^MAX_MEDIA_BYTES=' "${ENV_FILE}"; then
   printf 'MAX_MEDIA_BYTES=10000000\n' >>"${ENV_FILE}"
 fi
@@ -47,6 +51,11 @@ fi
 if ! curl --fail --silent --show-error -H 'x-digitalafarin-internal-mcp: 1' \
   "http://127.0.0.1:3040/api/internal/sites" >/dev/null; then
   echo "Dashboard site broker is not reachable. Deploy/start the dashboard first." >&2
+  exit 3
+fi
+if ! curl --fail --silent --show-error -H 'x-digitalafarin-internal-mcp: 1' \
+  "http://127.0.0.1:3040/api/internal/gsc" >/dev/null; then
+  echo "Dashboard GSC broker is not reachable. Deploy/start the dashboard first." >&2
   exit 3
 fi
 
