@@ -1,14 +1,22 @@
 # WP Agent Dashboard
 
-Private multi-site administration UI for `wp-agent.digitalafarin.ir`.
+Administration and integration control plane for DigitalAfarin WordPress MCP.
 
 ## Security model
 
-- Single administrator session in phase 1.
+- Phase 1 still uses a single administrator session; workspace/tenant roles are the next productization milestone.
 - WordPress Application Passwords are encrypted at rest with AES-256-GCM.
-- A connection must pass `users/me?context=edit` before it can be saved.
-- The UI never returns or renders a stored credential.
-- Every state-changing site operation creates an audit record.
+- Product integration secrets such as Google OAuth Client Secret and Search Console Refresh Token are configured from the authenticated panel and encrypted in PostgreSQL.
+- Environment variables are reserved for infrastructure secrets: database, admin authentication, session signing and the master credentials-encryption key.
+- The UI never returns or renders a stored secret.
+- MCP brokers are localhost-only and public Nginx access to `/api/internal/` must remain blocked.
+- State-changing operations create audit records.
+
+## Search Console product model
+
+Hosted SaaS can use one DigitalAfarin-owned Google OAuth App configured once by the platform administrator. End customers only connect their Google account and map their Search Console properties.
+
+White-label / self-hosted installations can enter their own Google OAuth Client ID and Client Secret from **Settings → Integrations**. The OAuth callback is derived from the deployed dashboard domain instead of being hard-coded in source code.
 
 ## Local development
 
@@ -18,4 +26,4 @@ npm install
 npm run dev
 ```
 
-The PostgreSQL schema is created idempotently on the first authenticated dashboard request.
+The PostgreSQL schema is created idempotently on the first dashboard request.
