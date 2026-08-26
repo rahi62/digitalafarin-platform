@@ -71,6 +71,31 @@ sudo systemctl enable --now digitalafarin-wordpress-mcp
 sudo systemctl status digitalafarin-wordpress-mcp --no-pager
 ```
 
+برای نصب کنترل‌شده روی سرور، پس از قرار دادن پروژه در مسیر فوق اجرا کنید:
+
+```bash
+sudo bash /var/www/digitalafarin-wordpress-mcp/deploy/install-server.sh
+```
+
+اجرای اول در صورت نبود Environment، فایل امن `/etc/digitalafarin-wordpress-mcp.env` را با placeholder می‌سازد و متوقف می‌شود. رمز واقعی را داخل همان فایل وارد و اسکریپت را دوباره اجرا کنید.
+
+### GitHub Actions
+
+Workflow دستی `.github/workflows/deploy.yml` اضافه شده است. Secrets محیط `production`:
+
+```text
+SSH_HOST=<server hostname or IP>
+SSH_PORT=<SSH port, usually 22>
+SSH_USER=<restricted deployment user>
+SSH_PRIVATE_KEY=<matching private deployment key>
+```
+
+کاربر استقرار باید فقط اجازه اجرای اسکریپت بروزرسانی همین پروژه را بدون رمز داشته باشد. مسیر دقیق را با محل نصب واقعی پروژه جایگزین کنید:
+
+```text
+DEPLOY_USER ALL=(root) NOPASSWD: APP_DIR/deploy/update-server.sh
+```
+
 فایل محرمانه زیر را با دسترسی root بسازید:
 
 ```text
