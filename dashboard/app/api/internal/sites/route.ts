@@ -7,14 +7,15 @@ export const dynamic = "force-dynamic";
 
 function internalOnly(request: NextRequest) {
   const host = request.headers.get("host") ?? "";
-  const hasForwardedHeaders = Boolean(
-    request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip"),
-  );
-  const loopbackHost = host.startsWith("127.0.0.1:") || host.startsWith("localhost:");
+  const loopbackHost =
+    host === "127.0.0.1" ||
+    host.startsWith("127.0.0.1:") ||
+    host === "localhost" ||
+    host.startsWith("localhost:");
+
   return (
     request.headers.get("x-digitalafarin-internal-mcp") === "1" &&
-    loopbackHost &&
-    !hasForwardedHeaders
+    loopbackHost
   );
 }
 
