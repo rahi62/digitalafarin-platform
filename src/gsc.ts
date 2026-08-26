@@ -39,6 +39,25 @@ export class GscApiError extends Error {
   }
 }
 
+async function gscJson<T>(url: string, accessToken: string, init: RequestInit = {}) {
+  const response = await fetch(url, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: "application/json",
+      ...(init.body ? { "Content-Type": "application/json" } : {}),
+      "User-Agent": "DigitalAfarin-WordPress-MCP/0.5",
+      ...(init.headers ?? {}),
+    },
+    signal: AbortSignal.timeout(30_000),
+  });
+  const data = await response.json().catch(() => null) as (T & { error?: { message?: string } }) | null;
+  if (!response.ok || !data) {
+    throw new GscApiError(data?.error?.message || `Search Console API returned HTTP ${response.status}`, response.status);
+  }
+  return data;
+}
+
 export async function querySearchAnalytics(accessToken: string, propertyUrl: string, input: GscQueryInput) {
   const url = `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(propertyUrl)}/searchAnalytics/query`;
   const body: Record<string, unknown> = {
@@ -52,26 +71,24 @@ export async function querySearchAnalytics(accessToken: string, propertyUrl: str
     aggregationType: input.aggregationType ?? "auto",
   };
   if (input.filters?.length) {
-    body.dimensionFilterGroups = [{
-      groupType: "and",
-      filters: input.filters,
-    }];
+    body.dimensionFilterGroups = [{ groupType: "and", filters: input.filters }];
   }
+  return gscJson<GscQueryResponse>(url, accessToken, { method: "POST", body: JSON.stringify(body) });
+}
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      "User-Agent": "DigitalAfarin-WordPress-MCP/0.5",
+export async function inspectGscUrl(accessToken: string, propertyUrl: string, inspectionUrl: string, languageCode = "en-US") {
+  return gscJson<{ inspectionResult?: Record<string, unknown> }>(
+    "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect",
+    accessToken,
+    {
+      method: "POST",
+      body: JSON.stringify({ inspectionUrl, siteUrl: propertyUrl, languageCode }),
     },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(30_000),
-  });
-  const data = await response.json().catch(() => null) as (GscQueryResponse & { error?: { message?: string } }) | null;
-  if (!response.ok || !data) {
-    throw new GscApiError(data?.error?.message || `Search Console API returned HTTP ${response.status}`, response.status);
-  }
-  return data;
+  );
+}
+
+export async function listGscSitemaps(accessToken: string, propertyUrl: string, sitemapIndex?: string) {
+  const url = new URL(`https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(propertyUrl)}/sitemaps`);
+  if (sitemapIndex) url.searchParams.set("sitemapIndex", sitemapIndex);
+  return gscJson<{ sitemap?: Array<Record<string, unknown>> }>(url.toString(), accessToken);
 }
