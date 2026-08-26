@@ -68,13 +68,32 @@ async function clientFor(siteId: string | undefined, operation: string) {
 const siteIdSchema = z.string().uuid().optional().describe(
   "Registered WordPress site ID. Optional only when exactly one site is enabled.",
 );
+const expectedModifiedSchema = z.string().trim().min(10).max(64).optional().describe(
+  "Optional modified timestamp returned by wordpress_get_post. If supplied, the write is refused when the post changed since it was read.",
+);
 const imageTypeSchema = z.enum(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 const maxBase64Chars = Math.ceil(config.maxMediaBytes * 4 / 3) + 200;
+
+const editablePostFields = {
+  title: z.string().trim().min(1).max(500).optional(),
+  content: z.string().min(1).optional(),
+  excerpt: z.string().max(5000).optional(),
+  slug: z.string().trim().max(200).regex(/^[a-z0-9-]*$/).optional(),
+  categoryIds: z.array(z.number().int().positive()).max(20).optional(),
+  tagIds: z.array(z.number().int().positive()).max(100).optional(),
+};
+
+const seoFields = {
+  title: z.string().max(300).optional(),
+  description: z.string().max(1000).optional(),
+  focusKeyword: z.string().max(500).optional(),
+  canonical: z.string().url().max(2048).optional(),
+};
 
 export function createMcpServer() {
   const server = new McpServer({
     name: "DigitalAfarin WordPress Manager",
-    version: "0.3.0",
+    version: "0.4.0",
   });
 
   server.registerTool(
@@ -341,15 +360,20 @@ export function createMcpServer() {
   server.registerTool(
     "wordpress_set_featured_image",
     {
-      title: "Set featured image on a draft",
-      description: "Set an existing Media Library image as featured image only when the target post is currently a draft. Refuses live/non-draft posts.",
-      inputSchema: { siteId: siteIdSchema, postId: z.number().int().positive(), mediaId: z.number().int().positive() },
+      title: "Set featured image on a post",
+      description: "Set an existing Media Library image as the featured image of a draft or published post. Published posts are changed live; use only when the user requested that change.",
+      inputSchema: {
+        siteId: siteIdSchema,
+        postId: z.number().int().positive(),
+        mediaId: z.number().int().positive(),
+        expectedModified: expectedModifiedSchema,
+      },
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
     },
-    async ({ siteId, postId, mediaId }) => {
+    async ({ siteId, postId, mediaId, expectedModified }) => {
       try {
         const { site, wp } = await clientFor(siteId, "wordpress_set_featured_image");
-        const post = await wp.setFeaturedImageOnDraft(postId, mediaId);
+        const post = await wp.setFeaturedImage(postId, mediaId, expectedModified);
         return text({ updated: true, site: { id: site.id, name: site.name, baseUrl: site.baseUrl }, post: postSummary(post) });
       } catch (error) {
         return failure(error);
@@ -379,22 +403,45 @@ export function createMcpServer() {
     "wordpress_update_draft_seo",
     {
       title: "Update SEO metadata on a draft",
-      description: "Update title, meta description, focus keyword, or canonical URL only for a draft post through the optional DigitalAfarin Agent Bridge plugin. Refuses live/non-draft posts.",
+      description: "Update SEO title, meta description, focus keyword, or canonical URL only when the post is a draft.",
       inputSchema: {
         siteId: siteIdSchema,
         postId: z.number().int().positive(),
-        title: z.string().max(300).optional(),
-        description: z.string().max(1000).optional(),
-        focusKeyword: z.string().max(500).optional(),
-        canonical: z.string().url().max(2048).optional(),
+        ...seoFields,
+        expectedModified: expectedModifiedSchema,
       },
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
     },
-    async ({ siteId, postId, ...input }) => {
+    async ({ siteId, postId, expectedModified, ...input }) => {
       try {
         if (Object.values(input).every((value) => value === undefined)) throw new Error("At least one SEO field must be provided");
         const { site, wp } = await clientFor(siteId, "wordpress_update_draft_seo");
-        const seo = await wp.updateDraftSeo(postId, input);
+        const seo = await wp.updateDraftSeo(postId, input, expectedModified);
+        return text({ updated: true, site: { id: site.id, name: site.name, baseUrl: site.baseUrl }, seo });
+      } catch (error) {
+        return failure(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "wordpress_update_post_seo",
+    {
+      title: "Update SEO metadata on a draft or published post",
+      description: "Update SEO title, meta description, focus keyword, or canonical URL on a draft or published post through DigitalAfarin Agent Bridge. Changes to published posts are live; use only when the user requested a live SEO update.",
+      inputSchema: {
+        siteId: siteIdSchema,
+        postId: z.number().int().positive(),
+        ...seoFields,
+        expectedModified: expectedModifiedSchema,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+    },
+    async ({ siteId, postId, expectedModified, ...input }) => {
+      try {
+        if (Object.values(input).every((value) => value === undefined)) throw new Error("At least one SEO field must be provided");
+        const { site, wp } = await clientFor(siteId, "wordpress_update_post_seo");
+        const seo = await wp.updateSeo(postId, input, expectedModified);
         return text({ updated: true, site: { id: site.id, name: site.name, baseUrl: site.baseUrl }, seo });
       } catch (error) {
         return failure(error);
@@ -406,7 +453,7 @@ export function createMcpServer() {
     "wordpress_create_draft",
     {
       title: "Create a WordPress draft",
-      description: "Create a new post strictly as draft on an enabled site. Never publishes or deletes content.",
+      description: "Create a new post as draft on an enabled site. The draft can later be completed with images and SEO metadata and explicitly published with wordpress_publish_draft.",
       inputSchema: {
         siteId: siteIdSchema,
         title: z.string().trim().min(1).max(500),
@@ -438,24 +485,67 @@ export function createMcpServer() {
       inputSchema: {
         siteId: siteIdSchema,
         id: z.number().int().positive(),
-        title: z.string().trim().min(1).max(500).optional(),
-        content: z.string().min(1).optional(),
-        excerpt: z.string().max(5000).optional(),
-        slug: z.string().trim().max(200).regex(/^[a-z0-9-]*$/).optional(),
-        categoryIds: z.array(z.number().int().positive()).max(20).optional(),
-        tagIds: z.array(z.number().int().positive()).max(100).optional(),
+        ...editablePostFields,
+        expectedModified: expectedModifiedSchema,
       },
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
     },
-    async ({ siteId, id, ...input }) => {
+    async ({ siteId, id, expectedModified, ...input }) => {
       try {
-        if (Object.values(input).every((value) => value === undefined)) {
-          throw new Error("At least one field must be provided");
-        }
+        if (Object.values(input).every((value) => value === undefined)) throw new Error("At least one field must be provided");
         ensureContentSize(input.content);
         const { site, wp } = await clientFor(siteId, "wordpress_update_draft");
-        const post = await wp.updateDraft(id, input);
+        const post = await wp.updateDraft(id, input, expectedModified);
         return text({ updated: true, site: { id: site.id, name: site.name, baseUrl: site.baseUrl }, post: postSummary(post) });
+      } catch (error) {
+        return failure(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "wordpress_publish_draft",
+    {
+      title: "Publish a WordPress draft",
+      description: "Publish an existing post only when it is currently a draft. This makes the post live. Use this tool only when the user explicitly asks to publish.",
+      inputSchema: {
+        siteId: siteIdSchema,
+        id: z.number().int().positive(),
+        expectedModified: expectedModifiedSchema,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+    },
+    async ({ siteId, id, expectedModified }) => {
+      try {
+        const { site, wp } = await clientFor(siteId, "wordpress_publish_draft");
+        const post = await wp.publishDraft(id, expectedModified);
+        return text({ published: true, site: { id: site.id, name: site.name, baseUrl: site.baseUrl }, post: postSummary(post) });
+      } catch (error) {
+        return failure(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "wordpress_update_published_post",
+    {
+      title: "Update a published WordPress post",
+      description: "Edit an existing post only when it is currently published. The post remains published, so changes become live immediately. Use only when the user explicitly requests a live content update.",
+      inputSchema: {
+        siteId: siteIdSchema,
+        id: z.number().int().positive(),
+        ...editablePostFields,
+        expectedModified: expectedModifiedSchema,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+    },
+    async ({ siteId, id, expectedModified, ...input }) => {
+      try {
+        if (Object.values(input).every((value) => value === undefined)) throw new Error("At least one field must be provided");
+        ensureContentSize(input.content);
+        const { site, wp } = await clientFor(siteId, "wordpress_update_published_post");
+        const post = await wp.updatePublishedPost(id, input, expectedModified);
+        return text({ updated: true, live: true, site: { id: site.id, name: site.name, baseUrl: site.baseUrl }, post: postSummary(post) });
       } catch (error) {
         return failure(error);
       }
