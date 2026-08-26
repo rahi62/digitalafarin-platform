@@ -24,9 +24,6 @@ DATABASE_URL=postgresql://wp_agent:REPLACE_DB_PASSWORD@127.0.0.1:5432/wp_agent
 ADMIN_PASSWORD_SHA256=REPLACE_ADMIN_PASSWORD_SHA256
 SESSION_SECRET=REPLACE_SESSION_SECRET
 CREDENTIALS_ENCRYPTION_KEY=REPLACE_CREDENTIALS_ENCRYPTION_KEY
-GSC_GOOGLE_CLIENT_ID=
-GSC_GOOGLE_CLIENT_SECRET=
-GSC_GOOGLE_REDIRECT_URI=https://wp-agent.digitalafarin.ir/api/gsc/oauth/callback
 ENV
   echo "Created ${ENV_FILE}. Replace every REPLACE_* value, then rerun." >&2
   exit 2
@@ -40,11 +37,11 @@ fi
 chown -R deploy:deploy "/var/www/digitalafarin-wordpress-mcp"
 sudo -u deploy npm --prefix "${APP_DIR}" ci
 set -a
-# The dashboard validates its server-only configuration while Next.js collects
-# page data, so the protected environment must also be present during build.
+# Only infrastructure secrets are required during build. Product integration
+# credentials are configured from the authenticated dashboard and stored in DB.
 source "${ENV_FILE}"
 set +a
-sudo --preserve-env=DATABASE_URL,ADMIN_PASSWORD_SHA256,SESSION_SECRET,CREDENTIALS_ENCRYPTION_KEY,GSC_GOOGLE_CLIENT_ID,GSC_GOOGLE_CLIENT_SECRET,GSC_GOOGLE_REDIRECT_URI \
+sudo --preserve-env=DATABASE_URL,ADMIN_PASSWORD_SHA256,SESSION_SECRET,CREDENTIALS_ENCRYPTION_KEY \
   -u deploy env NEXT_TELEMETRY_DISABLED=1 npm --prefix "${APP_DIR}" run build
 
 install -o root -g root -m 644 "${SERVICE_SOURCE}" "${SERVICE_TARGET}"
