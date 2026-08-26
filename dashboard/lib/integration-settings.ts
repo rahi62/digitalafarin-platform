@@ -54,48 +54,67 @@ export async function saveGscOAuthCredentials(input: { clientId: string; clientS
   const clientId = input.clientId.trim();
   if (!clientId) throw new Error("Google Client ID الزامی است.");
 
-  const existing = await db.query<{ encrypted_secret: string | null; config: Record<string, unknown> }>(
-    "SELECT encrypted_secret,config FROM integration_configs WHERE provider=$1 LIMIT 1",
-    [GSC_PROVIDER],
-  );
-  const current = existing.rows[0];
-  const secret = input.clientSecret?.trim();
-  const previousClientId = typeof current?.config?.clientId === "string" ? current.config.clientId.trim() : "";
-  const clientIdChanged = Boolean(previousClientId && previousClientId !== clientId);
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    const existing = await client.query<{ encrypted_secret: string | null; config: Record<string, unknown> }>(
+      "SELECT encrypted_secret,config FROM integration_configs WHERE provider=$1 LIMIT 1 FOR UPDATE",
+      [GSC_PROVIDER],
+    );
+    const current = existing.rows[0];
+    const secret = input.clientSecret?.trim();
+    const previousClientId = typeof current?.config?.clientId === "string" ? current.config.clientId.trim() : "";
+    const clientIdChanged = Boolean(previousClientId && previousClientId !== clientId);
 
-  if (clientIdChanged && !secret) {
-    throw new Error("با تغییر Google Client ID باید Client Secret مربوط به همان OAuth Client را نیز وارد کنید.");
+    if (clientIdChanged && !secret) {
+      throw new Error("با تغییر Google Client ID باید Client Secret مربوط به همان OAuth Client را نیز وارد کنید.");
+    }
+
+    const encryptedSecret = secret ? encryptSecret(secret) : current?.encrypted_secret ?? null;
+    if (!encryptedSecret) throw new Error("Google Client Secret الزامی است.");
+
+    const credentialsChanged = Boolean(secret) || previousClientId !== clientId;
+
+    await client.query(
+      `INSERT INTO integration_configs (provider,config,encrypted_secret,updated_at)
+       VALUES ($1,$2,$3,NOW())
+       ON CONFLICT (provider) DO UPDATE SET config=EXCLUDED.config,encrypted_secret=EXCLUDED.encrypted_secret,updated_at=NOW()`,
+      [GSC_PROVIDER, JSON.stringify({ clientId }), encryptedSecret],
+    );
+
+    if (credentialsChanged) {
+      await client.query("UPDATE wordpress_sites SET gsc_property_url=NULL,updated_at=NOW()");
+      await client.query("DELETE FROM gsc_connection WHERE id=1");
+    }
+
+    await client.query(
+      "INSERT INTO audit_logs (action,details) VALUES ('gsc.oauth_config_updated',$1)",
+      [JSON.stringify({ clientIdChanged: previousClientId !== clientId, secretChanged: Boolean(secret), connectionReset: credentialsChanged })],
+    );
+    await client.query("COMMIT");
+    return { credentialsChanged };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
   }
-
-  const encryptedSecret = secret ? encryptSecret(secret) : current?.encrypted_secret ?? null;
-  if (!encryptedSecret) throw new Error("Google Client Secret الزامی است.");
-
-  const credentialsChanged = Boolean(secret) || previousClientId !== clientId;
-
-  await db.query(
-    `INSERT INTO integration_configs (provider,config,encrypted_secret,updated_at)
-     VALUES ($1,$2,$3,NOW())
-     ON CONFLICT (provider) DO UPDATE SET config=EXCLUDED.config,encrypted_secret=EXCLUDED.encrypted_secret,updated_at=NOW()`,
-    [GSC_PROVIDER, JSON.stringify({ clientId }), encryptedSecret],
-  );
-
-  if (credentialsChanged) {
-    await db.query("UPDATE wordpress_sites SET gsc_property_url=NULL,updated_at=NOW()");
-    await db.query("DELETE FROM gsc_connection WHERE id=1");
-  }
-
-  await db.query(
-    "INSERT INTO audit_logs (action,details) VALUES ('gsc.oauth_config_updated',$1)",
-    [JSON.stringify({ clientIdChanged: previousClientId !== clientId, secretChanged: Boolean(secret), connectionReset: credentialsChanged })],
-  );
-
-  return { credentialsChanged };
 }
 
 export async function clearGscOAuthCredentials() {
   await initializeDatabase();
-  await db.query("UPDATE wordpress_sites SET gsc_property_url=NULL,updated_at=NOW()");
-  await db.query("DELETE FROM gsc_connection WHERE id=1");
-  await db.query("DELETE FROM integration_configs WHERE provider=$1", [GSC_PROVIDER]);
-  await db.query("INSERT INTO audit_logs (action) VALUES ('gsc.oauth_config_removed')");
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("UPDATE wordpress_sites SET gsc_property_url=NULL,updated_at=NOW()");
+    await client.query("DELETE FROM gsc_connection WHERE id=1");
+    await client.query("DELETE FROM integration_configs WHERE provider=$1", [GSC_PROVIDER]);
+    await client.query("INSERT INTO audit_logs (action) VALUES ('gsc.oauth_config_removed')");
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
 }
