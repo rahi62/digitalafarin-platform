@@ -74,6 +74,13 @@ final class DigitalAfarin_Agent_Bridge {
         ];
     }
 
+    private static function truncate(string $value, int $length): string {
+        if (function_exists('mb_substr')) {
+            return mb_substr($value, 0, $length);
+        }
+        return substr($value, 0, $length);
+    }
+
     private static function response_fields(int $post_id, string $provider): array {
         $keys = self::keys($provider);
         return [
@@ -125,10 +132,10 @@ final class DigitalAfarin_Agent_Bridge {
 
         $keys = self::keys($provider);
         $sanitizers = [
-            'title' => static fn($value): string => mb_substr(sanitize_text_field((string) $value), 0, 300),
-            'description' => static fn($value): string => mb_substr(sanitize_textarea_field((string) $value), 0, 1000),
-            'focusKeyword' => static fn($value): string => mb_substr(sanitize_text_field((string) $value), 0, 500),
-            'canonical' => static fn($value): string => mb_substr(esc_url_raw((string) $value), 0, 2048),
+            'title' => static fn($value): string => self::truncate(sanitize_text_field((string) $value), 300),
+            'description' => static fn($value): string => self::truncate(sanitize_textarea_field((string) $value), 1000),
+            'focusKeyword' => static fn($value): string => self::truncate(sanitize_text_field((string) $value), 500),
+            'canonical' => static fn($value): string => self::truncate(esc_url_raw((string) $value), 2048),
         ];
 
         $changed = [];
