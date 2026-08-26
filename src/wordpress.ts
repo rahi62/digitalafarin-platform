@@ -190,6 +190,16 @@ export class WordPressClient {
     }
   }
 
+  private postWriteBody(input: PostWriteInput, status: "draft" | "publish") {
+    const { categoryIds, tagIds, ...fields } = input;
+    return {
+      ...fields,
+      categories: categoryIds,
+      tags: tagIds,
+      status,
+    };
+  }
+
   async updateDraft(id: number, input: PostWriteInput, expectedModified?: string) {
     const current = await this.getPost(id);
     if (current.status !== "draft") {
@@ -202,7 +212,7 @@ export class WordPressClient {
     this.assertUnchanged(current, expectedModified);
     return this.request<WpPost>(`posts/${id}`, {
       method: "POST",
-      body: { ...input, categories: input.categoryIds, tags: input.tagIds, status: "draft" },
+      body: this.postWriteBody(input, "draft"),
     });
   }
 
@@ -234,7 +244,7 @@ export class WordPressClient {
     this.assertUnchanged(current, expectedModified);
     return this.request<WpPost>(`posts/${id}`, {
       method: "POST",
-      body: { ...input, categories: input.categoryIds, tags: input.tagIds, status: "publish" },
+      body: this.postWriteBody(input, "publish"),
     });
   }
 
