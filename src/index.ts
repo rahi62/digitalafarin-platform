@@ -6,7 +6,7 @@ import { createMcpServer } from "./server.js";
 
 const app = express();
 app.disable("x-powered-by");
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: Math.max(1_000_000, Math.ceil(config.maxMediaBytes * 1.5)) }));
 
 function equalsSecret(left: string, right: string) {
   const a = Buffer.from(left);
@@ -32,7 +32,7 @@ function requestAllowed(req: Request, res: Response): boolean {
 }
 
 app.get("/health", (_req, res) => {
-  res.json({ ok: true, service: "digitalafarin-wordpress-mcp", version: "0.2.0" });
+  res.json({ ok: true, service: "digitalafarin-wordpress-mcp", version: "0.3.0" });
 });
 
 app.post("/mcp", async (req, res) => {
