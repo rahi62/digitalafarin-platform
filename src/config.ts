@@ -1,11 +1,5 @@
 import "dotenv/config";
 
-function required(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`Missing required environment variable: ${name}`);
-  return value;
-}
-
 function positiveInteger(name: string, fallback: number): number {
   const raw = process.env[name];
   if (!raw) return fallback;
@@ -16,15 +10,13 @@ function positiveInteger(name: string, fallback: number): number {
   return value;
 }
 
-const baseUrl = required("WP_BASE_URL").replace(/\/$/, "");
-if (!baseUrl.startsWith("https://")) {
-  throw new Error("WP_BASE_URL must use HTTPS");
+const siteBrokerUrl = (process.env.SITE_BROKER_URL?.trim() || "http://127.0.0.1:3040/api/internal/sites").replace(/\/$/, "");
+if (!siteBrokerUrl.startsWith("http://127.0.0.1:") && !siteBrokerUrl.startsWith("http://localhost:")) {
+  throw new Error("SITE_BROKER_URL must point to a loopback HTTP endpoint");
 }
 
 export const config = {
-  wpBaseUrl: baseUrl,
-  wpUsername: required("WP_USERNAME"),
-  wpAppPassword: required("WP_APP_PASSWORD").replace(/\s+/g, ""),
+  siteBrokerUrl,
   port: positiveInteger("PORT", 3030),
   host: process.env.HOST?.trim() || "127.0.0.1",
   allowedOrigins: new Set(

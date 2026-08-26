@@ -1,5 +1,3 @@
-import { config } from "./config.js";
-
 export class WordPressError extends Error {
   constructor(
     message: string,
@@ -33,18 +31,26 @@ type RequestOptions = {
   body?: unknown;
 };
 
+type WordPressConnection = {
+  baseUrl: string;
+  username: string;
+  appPassword: string;
+};
+
 export class WordPressClient {
   private readonly authorization: string;
+  private readonly baseUrl: string;
 
-  constructor() {
+  constructor(connection: WordPressConnection) {
+    this.baseUrl = connection.baseUrl.replace(/\/$/, "");
     this.authorization = `Basic ${Buffer.from(
-      `${config.wpUsername}:${config.wpAppPassword}`,
+      `${connection.username}:${connection.appPassword.replace(/\s+/g, "")}`,
       "utf8",
     ).toString("base64")}`;
   }
 
   async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-    const url = new URL(`/wp-json/wp/v2/${path.replace(/^\//, "")}`, config.wpBaseUrl);
+    const url = new URL(`/wp-json/wp/v2/${path.replace(/^\//, "")}`, this.baseUrl);
     for (const [key, value] of Object.entries(options.query ?? {})) {
       if (value !== undefined) url.searchParams.set(key, String(value));
     }
@@ -55,7 +61,7 @@ export class WordPressClient {
         Authorization: this.authorization,
         Accept: "application/json",
         "Content-Type": "application/json; charset=utf-8",
-        "User-Agent": "DigitalAfarin-WordPress-MCP/0.1",
+        "User-Agent": "DigitalAfarin-WordPress-MCP/0.2",
       },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
       signal: AbortSignal.timeout(20_000),
