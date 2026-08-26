@@ -27,12 +27,13 @@ fi
 chown -R deploy:deploy "${APP_DIR}"
 
 # Build and restart the dashboard first because MCP resolves WordPress and GSC
-# credentials through localhost-only broker endpoints.
+# credentials through localhost-only broker endpoints. Product integration
+# credentials are stored encrypted in PostgreSQL and do not need build-time env.
 sudo -u deploy npm --prefix "${DASHBOARD_DIR}" ci
 set -a
 source "${DASHBOARD_ENV}"
 set +a
-sudo --preserve-env=DATABASE_URL,ADMIN_PASSWORD_SHA256,SESSION_SECRET,CREDENTIALS_ENCRYPTION_KEY,GSC_GOOGLE_CLIENT_ID,GSC_GOOGLE_CLIENT_SECRET,GSC_GOOGLE_REDIRECT_URI \
+sudo --preserve-env=DATABASE_URL,ADMIN_PASSWORD_SHA256,SESSION_SECRET,CREDENTIALS_ENCRYPTION_KEY \
   -u deploy env NEXT_TELEMETRY_DISABLED=1 npm --prefix "${DASHBOARD_DIR}" run build
 systemctl restart digitalafarin-wp-agent.service
 
