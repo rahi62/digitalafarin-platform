@@ -5,16 +5,21 @@ APP_NAME="digitalafarin-wordpress-mcp"
 APP_DIR="/var/www/${APP_NAME}"
 DASHBOARD_DIR="${APP_DIR}/dashboard"
 DASHBOARD_ENV="/etc/digitalafarin-wp-agent.env"
+MCP_ENV="/etc/${APP_NAME}.env"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Run as root or via the restricted sudo rule." >&2
   exit 1
 fi
 
-test -f "/etc/${APP_NAME}.env"
+test -f "${MCP_ENV}"
 test -f "${DASHBOARD_ENV}"
 test -f "${APP_DIR}/package-lock.json"
 test -f "${DASHBOARD_DIR}/package-lock.json"
+
+if ! grep -q '^MAX_MEDIA_BYTES=' "${MCP_ENV}"; then
+  printf '\nMAX_MEDIA_BYTES=10000000\n' >>"${MCP_ENV}"
+fi
 
 chown -R deploy:deploy "${APP_DIR}"
 

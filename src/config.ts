@@ -27,4 +27,5 @@ export const config = {
   ),
   bearerToken: process.env.MCP_BEARER_TOKEN?.trim() || undefined,
   maxPostContentBytes: positiveInteger("MAX_POST_CONTENT_BYTES", 500_000),
+  maxMediaBytes: positiveInteger("MAX_MEDIA_BYTES", 10_000_000),
 };

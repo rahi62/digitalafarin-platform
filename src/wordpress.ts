@@ -23,6 +23,34 @@ export type WpPost = {
   excerpt: WpRendered;
   categories: number[];
   tags: number[];
+  featured_media: number;
+  yoast_head?: string;
+  yoast_head_json?: Record<string, unknown>;
+};
+
+export type WpMedia = {
+  id: number;
+  date: string;
+  modified: string;
+  slug: string;
+  status: string;
+  link: string;
+  title: WpRendered;
+  caption: WpRendered;
+  description: WpRendered;
+  alt_text: string;
+  media_type: string;
+  mime_type: string;
+  source_url: string;
+};
+
+export type WpTag = {
+  id: number;
+  count: number;
+  description: string;
+  link: string;
+  name: string;
+  slug: string;
 };
 
 type RequestOptions = {
@@ -49,24 +77,7 @@ export class WordPressClient {
     ).toString("base64")}`;
   }
 
-  async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-    const url = new URL(`/wp-json/wp/v2/${path.replace(/^\//, "")}`, this.baseUrl);
-    for (const [key, value] of Object.entries(options.query ?? {})) {
-      if (value !== undefined) url.searchParams.set(key, String(value));
-    }
-
-    const response = await fetch(url, {
-      method: options.method ?? "GET",
-      headers: {
-        Authorization: this.authorization,
-        Accept: "application/json",
-        "Content-Type": "application/json; charset=utf-8",
-        "User-Agent": "DigitalAfarin-WordPress-MCP/0.2",
-      },
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
-      signal: AbortSignal.timeout(20_000),
-    });
-
+  private async parseResponse<T>(response: Response): Promise<T> {
     const raw = await response.text();
     let data: unknown;
     try {
@@ -84,6 +95,30 @@ export class WordPressClient {
       );
     }
     return data as T;
+  }
+
+  private async requestRest<T>(route: string, options: RequestOptions = {}): Promise<T> {
+    const url = new URL(`/wp-json/${route.replace(/^\//, "")}`, this.baseUrl);
+    for (const [key, value] of Object.entries(options.query ?? {})) {
+      if (value !== undefined) url.searchParams.set(key, String(value));
+    }
+
+    const response = await fetch(url, {
+      method: options.method ?? "GET",
+      headers: {
+        Authorization: this.authorization,
+        Accept: "application/json",
+        "Content-Type": "application/json; charset=utf-8",
+        "User-Agent": "DigitalAfarin-WordPress-MCP/0.3",
+      },
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      signal: AbortSignal.timeout(20_000),
+    });
+    return this.parseResponse<T>(response);
+  }
+
+  async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    return this.requestRest<T>(`wp/v2/${path.replace(/^\//, "")}`, options);
   }
 
   getCurrentUser() {
@@ -166,5 +201,161 @@ export class WordPressClient {
       "categories",
       { query: { search, per_page: 100, orderby: "name", order: "asc" } },
     );
+  }
+
+  listTags(input: { search?: string; page: number; perPage: number }) {
+    return this.request<WpTag[]>("tags", {
+      query: {
+        context: "edit",
+        search: input.search,
+        page: input.page,
+        per_page: input.perPage,
+        orderby: "name",
+        order: "asc",
+      },
+    });
+  }
+
+  createTag(input: { name: string; slug?: string; description?: string }) {
+    return this.request<WpTag>("tags", { method: "POST", body: input });
+  }
+
+  listMedia(input: { search?: string; page: number; perPage: number }) {
+    return this.request<WpMedia[]>("media", {
+      query: {
+        context: "edit",
+        search: input.search,
+        media_type: "image",
+        page: input.page,
+        per_page: input.perPage,
+        orderby: "date",
+        order: "desc",
+      },
+    });
+  }
+
+  async uploadMedia(input: { bytes: Buffer; contentType: string; filename: string }) {
+    const url = new URL("/wp-json/wp/v2/media", this.baseUrl);
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: this.authorization,
+        Accept: "application/json",
+        "Content-Type": input.contentType,
+        "Content-Disposition": `attachment; filename="${input.filename}"`,
+        "User-Agent": "DigitalAfarin-WordPress-MCP/0.3",
+      },
+      body: new Uint8Array(input.bytes),
+      signal: AbortSignal.timeout(30_000),
+    });
+    return this.parseResponse<WpMedia>(response);
+  }
+
+  updateMediaMetadata(
+    id: number,
+    input: { altText?: string; title?: string; caption?: string; description?: string },
+  ) {
+    return this.request<WpMedia>(`media/${id}`, {
+      method: "POST",
+      body: {
+        alt_text: input.altText,
+        title: input.title,
+        caption: input.caption,
+        description: input.description,
+      },
+    });
+  }
+
+  async setFeaturedImageOnDraft(postId: number, mediaId: number) {
+    const current = await this.getPost(postId);
+    if (current.status !== "draft") {
+      throw new WordPressError(
+        `Refusing to change featured image for post ${postId}: expected draft, found ${current.status}`,
+        409,
+        "not_a_draft",
+      );
+    }
+    return this.request<WpPost>(`posts/${postId}`, {
+      method: "POST",
+      body: { featured_media: mediaId, status: "draft" },
+    });
+  }
+
+  async getSeo(postId: number) {
+    const post = await this.getPost(postId);
+    try {
+      const bridge = await this.requestRest<{
+        provider: string;
+        writable: boolean;
+        fields: { title?: string; description?: string; focusKeyword?: string; canonical?: string };
+      }>(`digitalafarin/v1/posts/${postId}/seo`);
+      return { source: "digitalafarin-bridge", ...bridge, post: { id: post.id, status: post.status, link: post.link } };
+    } catch (error) {
+      if (!(error instanceof WordPressError) || error.status !== 404) throw error;
+    }
+
+    if (post.yoast_head_json) {
+      return {
+        source: "yoast-rest",
+        provider: "yoast",
+        writable: false,
+        fields: post.yoast_head_json,
+        post: { id: post.id, status: post.status, link: post.link },
+        note: "Yoast REST metadata is read-only. Install the DigitalAfarin Agent Bridge plugin for controlled draft SEO writes.",
+      };
+    }
+
+    try {
+      const rankMath = await this.requestRest<Record<string, unknown>>("rankmath/v1/getHead", { query: { url: post.link } });
+      return {
+        source: "rankmath-rest",
+        provider: "rank-math",
+        writable: false,
+        fields: rankMath,
+        post: { id: post.id, status: post.status, link: post.link },
+        note: "Rank Math headless metadata endpoint is read-oriented. Install the DigitalAfarin Agent Bridge plugin for controlled draft SEO writes.",
+      };
+    } catch (error) {
+      if (!(error instanceof WordPressError) || ![400, 404].includes(error.status)) throw error;
+    }
+
+    return {
+      source: "wordpress",
+      provider: "unknown",
+      writable: false,
+      fields: {},
+      post: { id: post.id, status: post.status, link: post.link },
+      note: "No supported writable SEO bridge was detected.",
+    };
+  }
+
+  async updateDraftSeo(
+    postId: number,
+    input: { title?: string; description?: string; focusKeyword?: string; canonical?: string },
+  ) {
+    const current = await this.getPost(postId);
+    if (current.status !== "draft") {
+      throw new WordPressError(
+        `Refusing to edit SEO metadata for post ${postId}: expected draft, found ${current.status}`,
+        409,
+        "not_a_draft",
+      );
+    }
+    try {
+      return await this.requestRest<{
+        provider: string;
+        writable: boolean;
+        fields: { title?: string; description?: string; focusKeyword?: string; canonical?: string };
+      }>(`digitalafarin/v1/posts/${postId}/seo`, { method: "POST", body: input });
+    } catch (error) {
+      if (error instanceof WordPressError && error.status === 404) {
+        throw new WordPressError(
+          "DigitalAfarin Agent Bridge is not installed on this WordPress site, so SEO metadata cannot be written safely yet",
+          409,
+          "seo_bridge_missing",
+        );
+      }
+      throw error;
+    }
   }
 }

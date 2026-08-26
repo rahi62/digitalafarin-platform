@@ -30,6 +30,7 @@ PORT=3030
 HOST=127.0.0.1
 ALLOWED_ORIGINS=https://chatgpt.com
 MAX_POST_CONTENT_BYTES=500000
+MAX_MEDIA_BYTES=10000000
 ENV
 fi
 
@@ -38,6 +39,9 @@ fi
 sed -i '/^WP_BASE_URL=/d;/^WP_USERNAME=/d;/^WP_APP_PASSWORD=/d' "${ENV_FILE}"
 if ! grep -q '^SITE_BROKER_URL=' "${ENV_FILE}"; then
   printf '\nSITE_BROKER_URL=http://127.0.0.1:3040/api/internal/sites\n' >>"${ENV_FILE}"
+fi
+if ! grep -q '^MAX_MEDIA_BYTES=' "${ENV_FILE}"; then
+  printf 'MAX_MEDIA_BYTES=10000000\n' >>"${ENV_FILE}"
 fi
 
 if ! curl --fail --silent --show-error -H 'x-digitalafarin-internal-mcp: 1' \
