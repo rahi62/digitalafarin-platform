@@ -9,11 +9,15 @@ export function resolvePublicOrigin(headers: Headers, fallbackUrl?: string) {
   const fallback = fallbackUrl ? new URL(fallbackUrl) : undefined;
   const protocol = forwardedProto || fallback?.protocol.replace(":", "") || "https";
   const resolvedHost = host || fallback?.host;
-  if (!resolvedHost || !/^[a-z0-9.:[\]-]+$/i.test(resolvedHost)) {
+
+  if (!resolvedHost || resolvedHost.includes("/") || resolvedHost.includes("\\") || /\s/.test(resolvedHost)) {
     throw new Error("Public dashboard host could not be resolved safely.");
   }
   if (!new Set(["http", "https"]).has(protocol)) throw new Error("Unsupported public dashboard protocol.");
-  return `${protocol}://${resolvedHost}`;
+
+  const origin = new URL(`${protocol}://${resolvedHost}`);
+  if (origin.username || origin.password) throw new Error("Public dashboard origin is invalid.");
+  return origin.origin;
 }
 
 export function gscCallbackUrl(origin: string) {
