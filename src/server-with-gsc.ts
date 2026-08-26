@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { GscApiError, querySearchAnalytics } from "./gsc.js";
+import { GscApiError, inspectGscUrl, listGscSitemaps, querySearchAnalytics } from "./gsc.js";
 import { GscRegistryError, listGscSites, resolveGscSite } from "./gsc-registry.js";
 import { createMcpServer as createWordPressMcpServer } from "./server.js";
 
@@ -87,6 +87,56 @@ export function createMcpServer() {
           metadata: result.metadata,
           note: "Search Console API returns top rows and does not guarantee every possible row for large result sets.",
         });
+      } catch (error) {
+        return failure(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "gsc_inspect_url",
+    {
+      title: "Inspect URL index status in Search Console",
+      description: "Read Google's indexed-version URL Inspection result for a URL under the mapped Search Console property. This does not run a live URL test and makes no changes.",
+      inputSchema: {
+        siteId: siteIdSchema,
+        inspectionUrl: z.string().url().max(3000),
+        languageCode: z.string().trim().min(2).max(35).default("en-US"),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+    },
+    async ({ siteId, inspectionUrl, languageCode }) => {
+      try {
+        const resolved = await resolveGscSite(siteId, "gsc_inspect_url");
+        const result = await inspectGscUrl(resolved.accessToken, resolved.site.propertyUrl, inspectionUrl, languageCode);
+        return text({
+          site: resolved.site,
+          inspectionUrl,
+          inspectionResult: result.inspectionResult ?? {},
+          note: "URL Inspection API reports the version in Google's index; it does not perform a live URL test.",
+        });
+      } catch (error) {
+        return failure(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "gsc_list_sitemaps",
+    {
+      title: "List Search Console sitemaps",
+      description: "List sitemaps submitted for the mapped Search Console property. Optionally filter entries contained in a sitemap index. Makes no changes.",
+      inputSchema: {
+        siteId: siteIdSchema,
+        sitemapIndex: z.string().url().max(3000).optional(),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+    },
+    async ({ siteId, sitemapIndex }) => {
+      try {
+        const resolved = await resolveGscSite(siteId, "gsc_list_sitemaps");
+        const result = await listGscSitemaps(resolved.accessToken, resolved.site.propertyUrl, sitemapIndex);
+        return text({ site: resolved.site, sitemaps: result.sitemap ?? [] });
       } catch (error) {
         return failure(error);
       }
