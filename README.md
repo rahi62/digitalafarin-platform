@@ -68,10 +68,14 @@ Create + Publish عمداً دو مرحله‌ای است تا مقاله، تص
   - dimensions: `query`, `page`, `country`, `device`, `searchAppearance`, `date`, `hour`
   - filters: query/page/country/device/searchAppearance
   - search type: web/image/video/news/discover/googleNews
-  - rowLimit تا 25000 و startRow برای pagination
-  - فقط Read-only؛ هیچ تغییر GSC از MCP انجام نمی‌شود.
+  - rowLimit تا 25000 و startRow برای pagination.
+- `gsc_inspect_url`
+  - وضعیت نسخه موجود یک URL در Google Index، canonical/indexing/crawl-related inspection data در صورت موجود بودن.
+  - این API Live URL Test اجرا نمی‌کند.
+- `gsc_list_sitemaps`
+  - مشاهده Sitemapهای ثبت‌شده برای Property و در صورت نیاز فیلتر بر اساس sitemap index.
 
-Search Console API در queryهای بزرگ top rows را برمی‌گرداند و تضمین نمی‌کند تمام ترکیب‌های ممکن dimension در یک پاسخ وجود داشته باشند.
+تمام ابزارهای GSC فقط Read-only هستند و هیچ تغییر Search Console از MCP انجام نمی‌شود. Search Analytics در queryهای بزرگ top rows را برمی‌گرداند و تضمین نمی‌کند تمام ترکیب‌های ممکن dimension در یک پاسخ وجود داشته باشند.
 
 ## DigitalAfarin Agent Bridge
 
@@ -145,7 +149,7 @@ https://wp-agent.digitalafarin.ir/api/gsc/oauth/callback
 7. deploy را اجرا کنید.
 8. در Dashboard وارد **تنظیمات و اتصال‌ها** شوید و **اتصال حساب Google** را بزنید.
 9. بعد از OAuth، برای هر WordPress Site یک Search Console Property انتخاب کنید. Property می‌تواند URL-prefix یا domain property مثل `sc-domain:example.com` باشد.
-10. Connector/MCP را refresh کنید و `gsc_list_sites` و `gsc_search_analytics` را تست کنید.
+10. Connector/MCP را refresh کنید و `gsc_list_sites`، `gsc_search_analytics`، `gsc_inspect_url` و `gsc_list_sitemaps` را تست کنید.
 
 اگر OAuth consent screen در حالت Testing باشد، Google Account مورد استفاده باید در Test users قرار داشته باشد.
 
@@ -180,9 +184,9 @@ Health نسخه 0.5 باید `version: "0.5.0"` برگرداند.
 
 ### آپدیت مقاله موجود
 
-1. GSC Query/Page performance را در بازه مناسب بخوان.
+1. GSC Query/Page performance و در صورت نیاز URL Inspection/Sitemap را بخوان.
 2. مقاله Published و `modified` فعلی را بخوان.
-3. مشکل CTR، intent mismatch، content decay یا فرصت position را تحلیل کن.
+3. مشکل CTR، intent mismatch، content decay، indexing issue یا فرصت position را تحلیل کن.
 4. محتوا/Media/SEO را با guard مناسب به‌روزرسانی کن.
 5. دوباره WordPress و در صورت نیاز GSC را بخوان و گزارش تغییرات بده.
 
