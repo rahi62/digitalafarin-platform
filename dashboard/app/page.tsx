@@ -97,8 +97,7 @@ export default async function DashboardPage() {
     <section className="quick-section">
       <div className="section-heading"><div><p className="eyebrow">QUICK ACTIONS</p><h2>دسترسی سریع</h2></div><p>محتوا، Search Console و عملیات حساس SEO از یک Control Center مدیریت می‌شوند.</p></div>
       <div className="quick-actions">
-        <Link className="quick-card" href="/content"><span>✦</span><div><strong>مدیریت محتوا</strong><small>Draft و نوشته‌های منتشرشده</small></div><b>←</b></Link>
-        <Link className="quick-card" href="/content/new"><span>＋</span><div><strong>نوشته جدید</strong><small>ساخت Draft و انتشار بعد از تکمیل</small></div><b>←</b></Link>
+        <Link className="quick-card" href="/content"><span>✦</span><div><strong>مدیریت محتوا</strong><small>Draft، انتشار و نوشته جدید</small></div><b>←</b></Link>
         <Link className="quick-card" href="/admin-tools"><span>↗</span><div><strong>ابزارهای ادمین و SEO</strong><small>301 · Noindex · Trash/Delete</small></div><b>←</b></Link>
         <Link className="quick-card" href="/settings"><span>G</span><div><strong>Search Console</strong><small>تنظیم OAuth، اتصال حساب و Propertyها از پنل</small></div><b>←</b></Link>
       </div>
