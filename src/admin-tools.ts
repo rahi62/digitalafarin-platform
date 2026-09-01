@@ -30,6 +30,38 @@ const expectedModifiedSchema = z.string().trim().min(10).max(64).optional().desc
 
 export function registerAdminTools(server: McpServer) {
   server.registerTool(
+    "wordpress_admin_capabilities",
+    {
+      title: "Check WordPress admin capabilities",
+      description: "Read selected capabilities of the configured WordPress API user so the Agent can determine whether admin-level operations such as redirects or deletion are allowed. Makes no changes.",
+      inputSchema: { siteId: siteIdSchema },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+    },
+    async ({ siteId }) => {
+      try {
+        const { site, wp } = await clientFor(siteId, "wordpress_admin_capabilities");
+        const user = await wp.getCurrentUser();
+        const c = user.capabilities ?? {};
+        return text({
+          site: { id: site.id, name: site.name, baseUrl: site.baseUrl },
+          user: { id: user.id, username: user.username, name: user.name, roles: user.roles },
+          capabilities: {
+            manageOptions: Boolean(c.manage_options),
+            editOthersPosts: Boolean(c.edit_others_posts),
+            deletePosts: Boolean(c.delete_posts),
+            deleteOthersPosts: Boolean(c.delete_others_posts),
+            deletePublishedPosts: Boolean(c.delete_published_posts),
+            publishPosts: Boolean(c.publish_posts),
+            uploadFiles: Boolean(c.upload_files),
+          },
+        });
+      } catch (error) {
+        return failure(error);
+      }
+    },
+  );
+
+  server.registerTool(
     "wordpress_get_indexing",
     {
       title: "Read post indexability override",
