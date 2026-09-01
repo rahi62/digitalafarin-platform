@@ -75,16 +75,19 @@ export default async function AdminToolsPage({ searchParams }: { searchParams: P
           <button className="primary" type="submit" disabled={!canManageRedirects}>ساخت Redirect 301</button>
         </form>
         <div className="redirect-list">
-          {redirects.length === 0 ? <div className="empty compact-empty">Redirect ثبت‌شده‌ای وجود ندارد.</div> : redirects.map((redirect) => <article className="redirect-row" key={redirect.id}>
-            <div><strong dir="ltr">{redirect.source}</strong><span>→</span><a dir="ltr" href={redirect.target} target="_blank" rel="noreferrer">{redirect.target}</a></div>
-            <form action={deleteRedirectAction}><input type="hidden" name="siteId" value={selectedSite.id}/><input type="hidden" name="redirectId" value={redirect.id}/><button className="ghost danger-button" type="submit">حذف Redirect</button></form>
-          </article>)}
+          {redirects.length === 0 ? <div className="empty compact-empty">Redirect ثبت‌شده‌ای وجود ندارد.</div> : redirects.map((redirect) => {
+            const redirectHref = new URL(redirect.target, connection.baseUrl.endsWith("/") ? connection.baseUrl : `${connection.baseUrl}/`).toString();
+            return <article className="redirect-row" key={redirect.id}>
+              <div><strong dir="ltr">{redirect.source}</strong><span>→</span><a dir="ltr" href={redirectHref} target="_blank" rel="noreferrer">{redirect.target}</a></div>
+              <form action={deleteRedirectAction}><input type="hidden" name="siteId" value={selectedSite.id}/><input type="hidden" name="redirectId" value={redirect.id}/><button className="ghost danger-button" type="submit">حذف Redirect</button></form>
+            </article>;
+          })}
         </div>
       </section>
 
       <section className="panel admin-tool-panel">
         <div className="panel-head"><div><p className="eyebrow">INDEX CONTROL</p><h2>Noindex کنترل‌شده</h2></div></div>
-        <p className="tool-copy">Noindex روی Draft یا Published اعمال می‌شود. روی نوشته منتشرشده تغییر بلافاصله در robots output سایت اثر می‌گذارد.</p>
+        <p className="tool-copy">Noindex روی Draft یا Published اعمال می‌شود. روی نوشته منتشرشده تغییر بلافاصله در robots output سایت و sitemap سازگار با Yoast/Rank Math اثر می‌گذارد.</p>
         <form method="get" className="inspect-form">
           <input type="hidden" name="siteId" value={selectedSite.id}/>
           <label>Post ID<input name="postId" inputMode="numeric" dir="ltr" defaultValue={requestedPostId ?? ""} placeholder="12968" required /></label>
