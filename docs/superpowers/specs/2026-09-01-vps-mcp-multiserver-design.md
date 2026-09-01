@@ -1,7 +1,7 @@
 # DigitalAfarin VPS MCP Multi-Server Design
 
 Date: 2026-09-01
-Status: Approved design, pending implementation plan
+Status: Approved design, implementation plan written
 Project: DigitalAfarin Platform
 
 ## 1. Purpose
@@ -99,7 +99,7 @@ is_active         boolean
 status            derived property: online | stale | offline (not stored)
 last_seen_at      datetime nullable
 agent_version     string nullable
-capabilities      JSON object
+capabilities      JSON array of capability strings
 cpu_percent       float nullable
 memory_percent    float nullable
 disk_percent      float nullable
