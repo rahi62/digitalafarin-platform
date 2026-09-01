@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "digitalafarin-vps-mcp"
+version = "0.1.0"
+description = "Read-only MCP bridge for the DigitalAfarin VPS control plane"
+requires-python = ">=3.12"
+dependencies = [
+  "mcp>=2,<3",
+  "httpx>=0.28,<1",
+  "pydantic-settings>=2.7,<3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9", "pytest-asyncio>=0.25,<1"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["digitalafarin_vps_mcp*"]
