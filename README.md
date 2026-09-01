@@ -1,6 +1,6 @@
 # DigitalAfarin WordPress + Search Console MCP
 
-MCP چندسایته برای اتصال ChatGPT به WordPress و Google Search Console و اجرای workflow کنترل‌شده سئو.
+MCP چندسایته برای اتصال ChatGPT به WordPress و Google Search Console و اجرای workflow کنترل‌شده سئو و مدیریت محتوا.
 
 ## معماری
 
@@ -12,9 +12,9 @@ ChatGPT / Agent → MCP → Dashboard localhost brokers
                     encrypted PostgreSQL control plane
 ```
 
-Dashboard محل مدیریت سایت‌ها، credentialها و Integrationهاست. Secretهای محصول داخل source code یا پاسخ Agent قرار نمی‌گیرند. MCP فقط credential کوتاه‌عمر یا لازم برای هر عملیات را از brokerهای loopback دریافت می‌کند.
+Dashboard محل مدیریت سایت‌ها، credentialها، Integrationها و ابزارهای حساس ادمین است. Secretهای محصول داخل source code یا پاسخ Agent قرار نمی‌گیرند.
 
-## مدل تنظیمات Product-ready
+## مدل Product-ready
 
 Environment فقط برای secretهای زیرساختی باقی می‌ماند:
 
@@ -25,30 +25,26 @@ SESSION_SECRET=...
 CREDENTIALS_ENCRYPTION_KEY=...
 ```
 
-Google OAuth Client ID/Secret و سایر Integrationهای محصول از **Settings → Integrations** در پنل تنظیم می‌شوند و در PostgreSQL ذخیره می‌شوند. Client Secret و Refresh Token با AES-256-GCM رمزنگاری می‌شوند.
+Google OAuth Client ID/Secret و سایر Integrationهای محصول از پنل تنظیم می‌شوند و در PostgreSQL ذخیره می‌شوند. Client Secret و Refresh Token با AES-256-GCM رمزنگاری می‌شوند.
 
-دو مدل deployment پشتیبانی می‌شود:
+- **Hosted SaaS**: DigitalAfarin OAuth App مرکزی را مدیریت می‌کند و مشتری فقط Google Account خود را Connect می‌کند.
+- **White-label / Self-hosted**: مدیر هر نصب OAuth Client اختصاصی خودش را از پنل ثبت می‌کند.
 
-- **Hosted SaaS**: DigitalAfarin یک Google OAuth App مرکزی را یک‌بار در پنل مدیر سیستم ثبت می‌کند. مشتری نهایی فقط Google Account خود را Connect و Propertyهایش را map می‌کند.
-- **White-label / Self-hosted**: مدیر هر نصب Client ID/Secret اختصاصی خودش را از همان پنل ثبت می‌کند. Callback از دامنه واقعی پنل ساخته می‌شود و در source code hard-code نیست.
+Phase فعلی هنوز single-admin است. milestone بعدی برای SaaS چندمشتری: Workspace/Tenant، User/Role، جداسازی credentialها و Billing.
 
-Phase فعلی هنوز single-admin است. برای فروش SaaS چندمشتری، milestone بعدی افزودن Workspace/Tenant، User/Role و جداسازی credentialها و سایت‌ها در سطح Workspace است.
+## مدل امنیتی نسخه 0.6
 
-## مدل امنیتی نسخه 0.5
-
-- ابزار حذف محتوا وجود ندارد.
-- مقاله جدید ابتدا با `wordpress_create_draft` ساخته می‌شود.
-- انتشار فقط از ابزار مستقل `wordpress_publish_draft` انجام می‌شود.
-- `wordpress_update_draft` فقط Draft را تغییر می‌دهد.
-- `wordpress_update_published_post` فقط Published را تغییر می‌دهد و نوشته را Published نگه می‌دارد.
-- تغییرات Live باید فقط در پاسخ به درخواست صریح کاربر اجرا شوند.
-- Featured Image و SEO برای Draft و Published پشتیبانی می‌شوند.
-- `expectedModified` می‌تواند از overwrite شدن تغییرات جدیدتر جلوگیری کند.
+- مقاله جدید ابتدا Draft ساخته می‌شود و انتشار ابزار مستقل دارد.
+- تغییر Published به‌صورت Live و فقط با ابزار جدا انجام می‌شود.
+- `expectedModified` برای جلوگیری از overwrite نسخه جدیدتر پشتیبانی می‌شود.
 - Upload تصویر از URL فقط HTTPS است و مقصد private/reserved network رد می‌شود.
-- WordPress Application Password، Google Client Secret و Google Refresh Token با AES-256-GCM در Dashboard رمزنگاری می‌شوند.
-- Search Console با scope فقط‌خواندنی `https://www.googleapis.com/auth/webmasters.readonly` متصل می‌شود.
-- Client Secret و Refresh Token هرگز به MCP/ChatGPT برگردانده نمی‌شوند؛ broker فقط Access Token کوتاه‌عمر می‌دهد.
-- brokerهای `/api/internal/sites` و `/api/internal/gsc` فقط روی loopback + internal header کار می‌کنند و در Nginx باید عمومی block باشند.
+- Search Console فقط read-only است.
+- **Noindex** فقط روی Draft/Published و از Bridge کنترل‌شده اعمال می‌شود.
+- **301 Redirect** فقط از Bridge و با capability سطح ادمین `manage_options` قابل مدیریت است.
+- **Delete عادی** فقط Post را به WordPress Trash می‌برد.
+- **Permanent Delete** فقط وقتی Post از قبل Trash باشد و عبارت تأیید دقیق `PERMANENTLY DELETE POST <id>` ارسال شود انجام می‌شود.
+- ابزار Permanent Delete به‌عنوان destructive در MCP علامت‌گذاری شده است.
+- هیچ ابزار نصب افزونه، تغییر Theme یا اجرای کد arbitrary در WordPress وجود ندارد.
 
 ## ابزارهای MCP
 
@@ -62,8 +58,11 @@ Phase فعلی هنوز single-admin است. برای فروش SaaS چندمشت
 - `wordpress_list_tags`
 - `wordpress_list_media`
 - `wordpress_get_seo`
+- `wordpress_admin_capabilities`
+- `wordpress_get_indexing`
+- `wordpress_list_redirects`
 
-### WordPress Write
+### WordPress Content Write
 
 - `wordpress_create_draft`
 - `wordpress_update_draft`
@@ -77,9 +76,24 @@ Phase فعلی هنوز single-admin است. برای فروش SaaS چندمشت
 - `wordpress_update_draft_seo`
 - `wordpress_update_post_seo`
 
-Create + Publish عمداً دو مرحله‌ای است تا مقاله، تصاویر و SEO قبل از زنده شدن کامل شوند.
+### WordPress Admin / SEO
 
-### Google Search Console
+- `wordpress_set_noindex`
+  - `noindex=true` اعمال Noindex
+  - `noindex=false` حذف override
+- `wordpress_create_301_redirect`
+  - Source باید مسیر نسبی مثل `/old-page` باشد.
+  - Target می‌تواند مسیر نسبی یا URL HTTP(S) باشد.
+  - Redirect به‌صورت exact path و با status 301 اجرا می‌شود.
+- `wordpress_delete_redirect`
+- `wordpress_trash_post`
+- `wordpress_delete_post_permanently`
+  - فقط Post از قبل Trash شده
+  - confirmation دقیق الزامی است
+
+Redirectها نیازمند `manage_options` هستند. بنابراین WordPress API user برای این عملیات باید Administrator باشد یا capability معادل داشته باشد. Noindex و Delete از capabilityهای native همان Post استفاده می‌کنند.
+
+## Google Search Console
 
 - `gsc_list_sites`
 - `gsc_search_analytics`
@@ -87,28 +101,30 @@ Create + Publish عمداً دو مرحله‌ای است تا مقاله، تص
   - dimensions: `query`, `page`, `country`, `device`, `searchAppearance`, `date`, `hour`
   - filters و pagination
 - `gsc_inspect_url`
-  - وضعیت نسخه موجود URL در Google Index
 - `gsc_list_sitemaps`
-  - Sitemapهای Property
 
 تمام ابزارهای GSC فقط Read-only هستند.
 
 ## DigitalAfarin Agent Bridge
 
-برای SEO write روی WordPress افزونه زیر باید نصب و فعال باشد:
+فایل افزونه:
 
 ```text
 wordpress-plugin/digitalafarin-agent-bridge/digitalafarin-agent-bridge.php
 ```
 
-Bridge 0.2 برای کاربر authenticated دارای `edit_post`، SEO نوشته‌های `draft` و `publish` را برای Yoast SEO و Rank Math مدیریت می‌کند:
+Bridge 0.3 این قابلیت‌ها را فراهم می‌کند:
 
-- SEO title
-- Meta description
-- Focus keyword
-- Canonical URL
+- SEO title / Meta description / Focus keyword / Canonical برای Yoast و Rank Math
+- Noindex override مستقل و سازگار با robots output
+- 301 Redirect مستقل از Yoast Premium یا Rank Math Pro
 
-Bridge امکان Delete، نصب افزونه یا تغییر تنظیمات عمومی WordPress را ندارد.
+سطح دسترسی:
+
+- SEO / Noindex: کاربر authenticated دارای `edit_post`
+- Redirect: کاربر دارای `manage_options`
+
+Bridge امکان اجرای arbitrary PHP، نصب افزونه یا تغییر Theme را نمی‌دهد.
 
 ## Environment MCP
 
@@ -125,18 +141,13 @@ MAX_MEDIA_BYTES=10000000
 
 ## راه‌اندازی Google Search Console
 
-1. در Google Cloud یک Project انتخاب/ایجاد کنید.
-2. Google Search Console API را Enable کنید.
-3. OAuth consent screen را تنظیم کنید.
-4. یک OAuth Client از نوع **Web application** بسازید.
-5. وارد Dashboard → **تنظیمات و اتصال‌ها** شوید.
-6. Client ID و Client Secret را در بخش **Google OAuth App** وارد کنید.
-7. Callback URL تولیدشده در پنل را عیناً به Authorized redirect URIs در Google Cloud اضافه کنید.
-8. در همان صفحه **اتصال حساب Google** را بزنید.
-9. برای هر WordPress Site یک Search Console Property انتخاب کنید.
-10. Connector/MCP را refresh کنید و ابزارهای GSC را تست کنید.
-
-اگر OAuth consent screen در حالت Testing است، حساب Google باید در Test users قرار داشته باشد.
+1. Google Search Console API را در Google Cloud Enable کنید.
+2. OAuth consent screen را تنظیم کنید.
+3. OAuth Client از نوع Web application بسازید.
+4. در Dashboard → تنظیمات و اتصال‌ها، Client ID/Secret را ثبت کنید.
+5. Callback URL پنل را در Google Cloud ثبت کنید.
+6. حساب Google را Connect کنید.
+7. Property هر سایت را map کنید.
 
 ## Build و Deploy
 
@@ -151,28 +162,14 @@ sudo bash deploy/update-server.sh
 curl -s http://127.0.0.1:3030/health
 ```
 
-## Workflow هدف سئو
+Health نسخه جدید باید `0.6.0` را برگرداند.
 
-### مقاله جدید
+## Workflow حذف پیشنهادی
 
-1. داده‌های GSC را برای Query/Page/CTR/Position تحلیل کن.
-2. Keyword/Intent و gap محتوایی را مشخص کن.
-3. Category/Tag را انتخاب کن.
-4. Draft جدید بساز.
-5. محتوا و تصاویر را تولید و Upload کن؛ alt/title/caption و Featured Image را تنظیم کن.
-6. SEO meta را از Bridge تنظیم کن.
-7. Draft را بازخوانی و کنترل کن.
-8. در صورت درخواست صریح کاربر، Publish کن.
-9. URL نهایی و تغییرات را گزارش کن.
+1. Post را با `wordpress_get_post` بخوان و ID/عنوان/modified را تأیید کن.
+2. با درخواست صریح کاربر `wordpress_trash_post` را اجرا کن.
+3. در صورت نیاز امکان بازیابی از WordPress Admin باقی می‌ماند.
+4. فقط اگر کاربر صراحتاً حذف غیرقابل‌بازگشت خواست، Post باید از قبل Trash باشد.
+5. سپس `wordpress_delete_post_permanently` با confirmation دقیق اجرا شود.
 
-### آپدیت مقاله موجود
-
-1. GSC Query/Page performance و در صورت نیاز URL Inspection/Sitemap را بخوان.
-2. مقاله Published و `modified` فعلی را بخوان.
-3. مشکل CTR، intent mismatch، content decay، indexing issue یا فرصت position را تحلیل کن.
-4. محتوا/Media/SEO را با guard مناسب به‌روزرسانی کن.
-5. دوباره WordPress و در صورت نیاز GSC را بخوان و گزارش تغییرات بده.
-
-## سیاست حذف
-
-Delete عمداً وجود ندارد. برای workflow تولید و بهینه‌سازی سئو ضروری نیست و اگر بعداً اضافه شود باید ابزار جدا با تأیید قوی داشته باشد.
+این سیاست عمداً از حذف دائمی تک‌مرحله‌ای جلوگیری می‌کند.
