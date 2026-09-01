@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: DigitalAfarin Agent Bridge
- * Description: Adds a narrow authenticated REST bridge for controlled SEO metadata management by the DigitalAfarin WordPress Agent.
- * Version: 0.2.0
+ * Description: Authenticated bridge for controlled SEO, indexing, and 301 redirect operations by the DigitalAfarin WordPress Agent.
+ * Version: 0.3.0
  * Author: DigitalAfarin
  * Requires at least: 6.5
  * Requires PHP: 8.1
@@ -13,9 +13,15 @@ defined('ABSPATH') || exit;
 final class DigitalAfarin_Agent_Bridge {
     private const NS = 'digitalafarin/v1';
     private const WRITABLE_STATUSES = ['draft', 'publish'];
+    private const NOINDEX_META = '_digitalafarin_agent_noindex';
+    private const REDIRECT_OPTION = 'digitalafarin_agent_redirects';
 
     public static function boot(): void {
         add_action('rest_api_init', [self::class, 'register_routes']);
+        add_action('template_redirect', [self::class, 'handle_redirect'], 0);
+        add_filter('wp_robots', [self::class, 'filter_core_robots']);
+        add_filter('wpseo_robots_array', [self::class, 'filter_seo_robots']);
+        add_filter('rank_math/frontend/robots', [self::class, 'filter_seo_robots']);
     }
 
     public static function register_routes(): void {
@@ -24,28 +30,68 @@ final class DigitalAfarin_Agent_Bridge {
                 'methods' => WP_REST_Server::READABLE,
                 'callback' => [self::class, 'get_seo'],
                 'permission_callback' => [self::class, 'can_edit_post'],
-                'args' => [
-                    'id' => [
-                        'validate_callback' => static fn($value): bool => is_numeric($value) && (int) $value > 0,
-                    ],
-                ],
+                'args' => self::post_id_args(),
             ],
             [
                 'methods' => WP_REST_Server::EDITABLE,
                 'callback' => [self::class, 'update_seo'],
                 'permission_callback' => [self::class, 'can_edit_post'],
-                'args' => [
-                    'id' => [
-                        'validate_callback' => static fn($value): bool => is_numeric($value) && (int) $value > 0,
-                    ],
-                ],
+                'args' => self::post_id_args(),
             ],
         ]);
+
+        register_rest_route(self::NS, '/posts/(?P<id>\d+)/indexing', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [self::class, 'get_indexing'],
+                'permission_callback' => [self::class, 'can_edit_post'],
+                'args' => self::post_id_args(),
+            ],
+            [
+                'methods' => WP_REST_Server::EDITABLE,
+                'callback' => [self::class, 'update_indexing'],
+                'permission_callback' => [self::class, 'can_edit_post'],
+                'args' => self::post_id_args(),
+            ],
+        ]);
+
+        register_rest_route(self::NS, '/redirects', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [self::class, 'list_redirects'],
+                'permission_callback' => [self::class, 'can_manage_redirects'],
+            ],
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [self::class, 'create_redirect'],
+                'permission_callback' => [self::class, 'can_manage_redirects'],
+            ],
+        ]);
+
+        register_rest_route(self::NS, '/redirects/(?P<id>[a-f0-9-]{36})', [
+            [
+                'methods' => WP_REST_Server::DELETABLE,
+                'callback' => [self::class, 'delete_redirect'],
+                'permission_callback' => [self::class, 'can_manage_redirects'],
+            ],
+        ]);
+    }
+
+    private static function post_id_args(): array {
+        return [
+            'id' => [
+                'validate_callback' => static fn($value): bool => is_numeric($value) && (int) $value > 0,
+            ],
+        ];
     }
 
     public static function can_edit_post(WP_REST_Request $request): bool {
         $post_id = (int) $request['id'];
         return $post_id > 0 && current_user_can('edit_post', $post_id);
+    }
+
+    public static function can_manage_redirects(): bool {
+        return current_user_can('manage_options');
     }
 
     private static function provider(): ?string {
@@ -173,6 +219,194 @@ final class DigitalAfarin_Agent_Bridge {
             'changed' => $changed,
             'fields' => self::response_fields($post_id, $provider),
         ]);
+    }
+
+    public static function get_indexing(WP_REST_Request $request) {
+        $post_id = (int) $request['id'];
+        $post = get_post($post_id);
+        if (!$post) {
+            return new WP_Error('digitalafarin_post_not_found', 'Post not found.', ['status' => 404]);
+        }
+        return rest_ensure_response([
+            'postId' => $post_id,
+            'status' => $post->post_status,
+            'noindex' => get_post_meta($post_id, self::NOINDEX_META, true) === '1',
+            'source' => 'digitalafarin-bridge',
+        ]);
+    }
+
+    public static function update_indexing(WP_REST_Request $request) {
+        $post_id = (int) $request['id'];
+        $post = get_post($post_id);
+        if (!$post) {
+            return new WP_Error('digitalafarin_post_not_found', 'Post not found.', ['status' => 404]);
+        }
+        if (!self::is_writable_status($post->post_status)) {
+            return new WP_Error(
+                'digitalafarin_status_not_writable',
+                'Noindex may only be changed for draft or published posts.',
+                ['status' => 409]
+            );
+        }
+
+        $params = $request->get_json_params();
+        if (!is_array($params) || !array_key_exists('noindex', $params) || !is_bool($params['noindex'])) {
+            return new WP_Error('digitalafarin_invalid_noindex', 'noindex must be a boolean.', ['status' => 400]);
+        }
+
+        if ($params['noindex']) {
+            update_post_meta($post_id, self::NOINDEX_META, '1');
+        } else {
+            delete_post_meta($post_id, self::NOINDEX_META);
+        }
+
+        return self::get_indexing($request);
+    }
+
+    private static function queried_post_is_noindex(): bool {
+        if (!is_singular()) {
+            return false;
+        }
+        $post_id = get_queried_object_id();
+        return $post_id > 0 && get_post_meta($post_id, self::NOINDEX_META, true) === '1';
+    }
+
+    public static function filter_core_robots(array $robots): array {
+        if (self::queried_post_is_noindex()) {
+            unset($robots['index']);
+            $robots['noindex'] = true;
+        }
+        return $robots;
+    }
+
+    public static function filter_seo_robots($robots) {
+        if (!self::queried_post_is_noindex() || !is_array($robots)) {
+            return $robots;
+        }
+        $robots['index'] = 'noindex';
+        return $robots;
+    }
+
+    private static function normalize_source_path(string $value): ?string {
+        $value = trim($value);
+        if ($value === '' || str_contains($value, '://') || str_starts_with($value, '//')) {
+            return null;
+        }
+        $path = wp_parse_url($value, PHP_URL_PATH);
+        if (!is_string($path)) {
+            return null;
+        }
+        $path = '/' . ltrim($path, '/');
+        if ($path !== '/') {
+            $path = untrailingslashit($path);
+        }
+        return $path;
+    }
+
+    private static function normalize_target(string $value): ?string {
+        $value = trim($value);
+        if ($value === '') {
+            return null;
+        }
+        if (str_starts_with($value, '/')) {
+            return '/' . ltrim($value, '/');
+        }
+        $url = wp_parse_url($value);
+        if (!is_array($url) || empty($url['scheme']) || empty($url['host'])) {
+            return null;
+        }
+        if (!in_array(strtolower((string) $url['scheme']), ['http', 'https'], true)) {
+            return null;
+        }
+        return esc_url_raw($value);
+    }
+
+    private static function redirects(): array {
+        $redirects = get_option(self::REDIRECT_OPTION, []);
+        return is_array($redirects) ? array_values(array_filter($redirects, 'is_array')) : [];
+    }
+
+    private static function save_redirects(array $redirects): void {
+        update_option(self::REDIRECT_OPTION, array_values($redirects), false);
+    }
+
+    public static function list_redirects() {
+        $redirects = self::redirects();
+        usort($redirects, static fn(array $a, array $b): int => strcmp((string) ($b['createdAt'] ?? ''), (string) ($a['createdAt'] ?? '')));
+        return rest_ensure_response(['redirects' => $redirects]);
+    }
+
+    public static function create_redirect(WP_REST_Request $request) {
+        $params = $request->get_json_params();
+        $source = self::normalize_source_path((string) ($params['source'] ?? ''));
+        $target = self::normalize_target((string) ($params['target'] ?? ''));
+        if (!$source || !$target) {
+            return new WP_Error('digitalafarin_invalid_redirect', 'A relative source path and valid HTTP(S) or relative target are required.', ['status' => 400]);
+        }
+        if (str_starts_with($target, '/') && self::normalize_source_path($target) === $source) {
+            return new WP_Error('digitalafarin_redirect_loop', 'Source and target cannot resolve to the same path.', ['status' => 409]);
+        }
+
+        $redirects = self::redirects();
+        foreach ($redirects as $redirect) {
+            if (($redirect['source'] ?? null) === $source) {
+                return new WP_Error('digitalafarin_redirect_exists', 'A redirect for this source path already exists.', ['status' => 409]);
+            }
+        }
+
+        $now = gmdate('c');
+        $redirect = [
+            'id' => wp_generate_uuid4(),
+            'source' => $source,
+            'target' => $target,
+            'statusCode' => 301,
+            'enabled' => true,
+            'createdAt' => $now,
+            'updatedAt' => $now,
+        ];
+        $redirects[] = $redirect;
+        self::save_redirects($redirects);
+        return new WP_REST_Response(['redirect' => $redirect], 201);
+    }
+
+    public static function delete_redirect(WP_REST_Request $request) {
+        $id = sanitize_text_field((string) $request['id']);
+        $redirects = self::redirects();
+        $found = null;
+        $kept = [];
+        foreach ($redirects as $redirect) {
+            if (($redirect['id'] ?? '') === $id) {
+                $found = $redirect;
+                continue;
+            }
+            $kept[] = $redirect;
+        }
+        if (!$found) {
+            return new WP_Error('digitalafarin_redirect_not_found', 'Redirect not found.', ['status' => 404]);
+        }
+        self::save_redirects($kept);
+        return rest_ensure_response(['deleted' => true, 'redirect' => $found]);
+    }
+
+    public static function handle_redirect(): void {
+        if (is_admin() || wp_doing_ajax() || wp_doing_cron() || (defined('REST_REQUEST') && REST_REQUEST)) {
+            return;
+        }
+        $request_uri = isset($_SERVER['REQUEST_URI']) ? (string) wp_unslash($_SERVER['REQUEST_URI']) : '/';
+        $path = wp_parse_url($request_uri, PHP_URL_PATH);
+        $source = self::normalize_source_path(is_string($path) ? $path : '/');
+        if (!$source) {
+            return;
+        }
+        foreach (self::redirects() as $redirect) {
+            if (!empty($redirect['enabled']) && ($redirect['source'] ?? null) === $source) {
+                $target = (string) ($redirect['target'] ?? '');
+                if ($target !== '') {
+                    wp_redirect($target, 301, 'DigitalAfarin Agent Bridge');
+                    exit;
+                }
+            }
+        }
     }
 }
 
