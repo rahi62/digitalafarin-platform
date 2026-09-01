@@ -1,0 +1,19 @@
+[Unit]
+Description=DigitalAfarin Platform Web
+After=network-online.target digitalafarin-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=deploy
+Group=www-data
+WorkingDirectory=/opt/digitalafarin-platform/apps/web
+EnvironmentFile=/etc/digitalafarin-platform/web.env
+ExecStart=/usr/bin/npm start -- --hostname 127.0.0.1 --port 9751
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
