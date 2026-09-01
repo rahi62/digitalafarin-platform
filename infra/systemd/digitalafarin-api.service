@@ -1,0 +1,19 @@
+[Unit]
+Description=DigitalAfarin Platform API
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=deploy
+Group=www-data
+WorkingDirectory=/opt/digitalafarin-platform/apps/api
+EnvironmentFile=/etc/digitalafarin-platform/api.env
+ExecStart=/opt/digitalafarin-platform/apps/api/.venv/bin/gunicorn platform_api.wsgi:application --bind 127.0.0.1:9750 --workers 2 --timeout 60
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

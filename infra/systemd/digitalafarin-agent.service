@@ -1,0 +1,27 @@
+[Unit]
+Description=DigitalAfarin Host Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=digitalafarin-agent
+Group=digitalafarin-agent
+SupplementaryGroups=systemd-journal
+WorkingDirectory=/opt/digitalafarin-platform/agent
+EnvironmentFile=/etc/digitalafarin-platform/agent.env
+ExecStart=/opt/digitalafarin-platform/agent/.venv/bin/uvicorn digitalafarin_agent.main:app --host 127.0.0.1 --port 9743
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
