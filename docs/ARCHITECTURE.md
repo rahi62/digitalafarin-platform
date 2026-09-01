@@ -1,44 +1,133 @@
-# Architecture decision record — MVP 0.1
+# Architecture decision record — multi-server read-only VPS MCP
 
 ## Goal
 
-Replace recurring SSH-only operational work with a safe internal control plane while preserving a strong security boundary.
+Replace recurring SSH-only operational inspection with a safe internal control plane that supports multiple VPS hosts without exposing inbound Agent ports or giving ChatGPT arbitrary server execution.
+
+## Data flow
+
+```text
+ChatGPT
+  -> OpenAI Secure MCP Tunnel
+  -> DigitalAfarin VPS MCP (127.0.0.1:3060/mcp)
+  -> Django scoped Control API
+  -> PostgreSQL snapshots
+
+Each VPS Host Agent
+  -> authenticated outbound HTTPS enrollment/heartbeat
+  -> Django Agent API
+```
+
+MCP is a client of Django only. It never contacts a Host Agent or PostgreSQL directly.
 
 ## Components
 
 ### Next.js Admin
-Presentation layer only. It never stores the host-agent token in browser JavaScript. Mutating browser requests go to Next.js route handlers, which call Django server-side.
+
+Presentation layer. The current UI can temporarily use the legacy API while it is migrated to UUID-based Control API reads. Browser code never receives Agent or MCP service credentials.
 
 ### Django Control Plane
-System of record for servers, service snapshots, deployments, domains, backups and audit events. In MVP 0.1 only server inventory sync is implemented.
+
+System of record for server identity, agent/service credentials, metrics, service snapshots and audit events. External server identity is a stable UUID; the legacy integer primary key remains internal during migration.
 
 ### Python Host Agent
-Small loopback-only process. It exposes typed endpoints and does not expose an arbitrary command endpoint. MVP 0.1 reads metrics and systemd inventory only.
+
+A small process installed on every VPS. It collects metrics and allow-listed systemd inventory, enrolls once with an expiring credential, persists its own independent agent credential, and sends periodic outbound heartbeats. Its legacy loopback read API remains temporarily for migration compatibility.
+
+### DigitalAfarin VPS MCP
+
+Read-only MCP Python SDK v2 service listening on `127.0.0.1:3060/mcp`. It authenticates to Django with a dedicated service principal scoped to:
+
+```text
+servers:read
+metrics:read
+services:read
+audit:read
+```
+
+Its six approved tools are:
+
+```text
+vps_list_servers
+vps_get_server
+vps_get_metrics
+vps_list_services
+vps_get_service
+vps_get_recent_audit_events
+```
+
+There is no generic shell tool and no write-capable VPS tool in v1.
+
+## Identity and credential boundaries
+
+- Enrollment credential: one-time, expiring, stored by Django as a digest and invalidated after use.
+- Agent credential: unique per VPS, revocable independently, cleartext persisted only on that VPS with file mode `0600`; Django stores only its digest.
+- MCP service credential: independent from every Agent credential and limited to read scopes.
+- ChatGPT/tool responses: never contain any of these credentials.
+
+A compromised secondary VPS therefore does not receive credentials for the primary VPS or for MCP.
+
+## Freshness model
+
+Agents target a 15-second heartbeat interval.
+
+```text
+age <= 45 seconds   -> online
+45 < age <= 120     -> stale
+age > 120 seconds   -> offline
+no heartbeat        -> offline
+```
+
+Server status is derived from `last_seen_at`; it is not stored as a second source of truth.
 
 ## Security rules
 
 1. No `shell=True`.
-2. No free-form command strings from the API or browser.
-3. Agent binds to loopback in the single-server MVP.
+2. No `os.system` or free-form command strings from Browser/API/MCP.
+3. Secondary VPS Agents require no inbound public port.
 4. Service discovery is prefix allow-listed.
-5. Browser never receives agent credentials.
-6. Privileged actions are not implemented until RBAC + audit + approved helper boundary exist.
-7. Nginx and deploy writes must use validate-before-switch semantics.
-8. Rollback must be modeled as a first-class deployment operation, not an ad-hoc script.
+5. Browser and ChatGPT never receive Agent credentials.
+6. MCP binds to loopback and is reachable from ChatGPT only through the Secure MCP Tunnel.
+7. Privileged actions are not implemented until typed operations, RBAC, audit and approval boundaries exist.
+8. Future Nginx/deploy writes must use validate-before-switch semantics.
+9. Future rollback must be a first-class typed operation, not an ad-hoc script.
 
-## Future executor interface
+## Migration / deprecation stages
 
-```python
-class ServiceExecutor(Protocol):
-    def status(self, service_id: str): ...
-    def restart(self, service_id: str): ...
-    def stop(self, service_id: str): ...
-    def start(self, service_id: str): ...
+### Stage A — implementation complete locally
 
-class DeploymentExecutor(Protocol):
-    def build_release(self, deployment_id: str): ...
-    def activate_release(self, release_id: str): ...
-    def rollback(self, release_id: str): ...
+Additive UUID identity, enrollment/agent credentials, outbound Agent API, scoped Control API and MCP source are implemented while legacy fields/routes stay intact.
+
+### Stage B — pending production acceptance
+
+Primary VPS Agent must be deployed and prove sustained authenticated outbound heartbeats with fresh real metrics/services. Local Agent tests alone do not mark this stage complete.
+
+### Stage C — pending production acceptance
+
+The MCP must be deployed on loopback, use the production Django API listener at `127.0.0.1:9750`, the existing `digitalafarin-vps` Secure MCP Tunnel must pass `doctor` under the MCP service account, and ChatGPT must return real primary-VPS data through the six read-only tools. Local source tests alone do not mark this stage complete.
+
+### Stage D — deferred cleanup
+
+Only after explicit production acceptance, remove the legacy shared agent token, `agent_url` pull path and manual sync flow in a separate reviewed change.
+
+## Future typed operation interface
+
+State-changing work will use a queued operation model rather than remote shell execution:
+
+```text
+queued -> claimed -> running -> succeeded | failed
 ```
 
-The first implementation will target systemd. Docker/Compose can be added later without changing the web product model.
+Approved future operation kinds may include:
+
+```text
+service.restart
+service.start
+service.stop
+deployment.deploy
+deployment.rollback
+backup.create
+nginx.reload
+```
+
+There will be no `shell.execute` operation.

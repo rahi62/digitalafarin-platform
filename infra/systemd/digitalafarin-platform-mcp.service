@@ -1,0 +1,26 @@
+[Unit]
+Description=DigitalAfarin VPS MCP
+After=network-online.target digitalafarin-platform-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=digitalafarin-mcp
+Group=digitalafarin-mcp
+WorkingDirectory=/opt/digitalafarin-platform/mcp
+EnvironmentFile=/etc/digitalafarin-platform/mcp.env
+ExecStart=/opt/digitalafarin-platform/mcp/.venv/bin/python -m digitalafarin_vps_mcp.server
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
