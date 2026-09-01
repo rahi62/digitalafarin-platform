@@ -83,6 +83,27 @@ class AgentCredential(models.Model):
     revoked_at = models.DateTimeField(null=True, blank=True)
 
 
+class ServicePrincipal(models.Model):
+    name = models.CharField(max_length=120, unique=True)
+    scopes = models.JSONField(default=list)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class ServiceCredential(models.Model):
+    principal = models.ForeignKey(
+        ServicePrincipal, related_name="credentials", on_delete=models.CASCADE
+    )
+    token_prefix = models.CharField(max_length=32, unique=True)
+    token_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+
 class ServiceSnapshot(models.Model):
     server = models.ForeignKey(Server, related_name="services", on_delete=models.CASCADE)
     unit_name = models.CharField(max_length=255)

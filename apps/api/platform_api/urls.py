@@ -11,5 +11,6 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("health/", health),
     path("api/agent/v1/", include("control.agent_urls")),
+    path("api/control/v1/", include("control.control_urls")),
     path("api/", include("control.urls")),
 ]
