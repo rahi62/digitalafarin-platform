@@ -63,6 +63,26 @@ class Server(models.Model):
         return self.name
 
 
+class EnrollmentToken(models.Model):
+    token_prefix = models.CharField(max_length=32, unique=True)
+    secret_hash = models.CharField(max_length=64)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.CharField(max_length=120)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class AgentCredential(models.Model):
+    server = models.ForeignKey(
+        Server, related_name="agent_credentials", on_delete=models.CASCADE
+    )
+    token_prefix = models.CharField(max_length=32, unique=True)
+    token_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+
 class ServiceSnapshot(models.Model):
     server = models.ForeignKey(Server, related_name="services", on_delete=models.CASCADE)
     unit_name = models.CharField(max_length=255)
