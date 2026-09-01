@@ -19,9 +19,14 @@ final class DigitalAfarin_Agent_Bridge {
     public static function boot(): void {
         add_action('rest_api_init', [self::class, 'register_routes']);
         add_action('template_redirect', [self::class, 'handle_redirect'], 0);
+
         add_filter('wp_robots', [self::class, 'filter_core_robots']);
         add_filter('wpseo_robots_array', [self::class, 'filter_seo_robots']);
         add_filter('rank_math/frontend/robots', [self::class, 'filter_seo_robots']);
+
+        // A custom noindex override should not leave the same URL advertised in XML sitemaps.
+        add_filter('wpseo_exclude_from_sitemap_by_post_ids', [self::class, 'filter_yoast_sitemap_excludes']);
+        add_filter('rank_math/sitemap/entry', [self::class, 'filter_rank_math_sitemap_entry'], 10, 3);
     }
 
     public static function register_routes(): void {
@@ -271,6 +276,10 @@ final class DigitalAfarin_Agent_Bridge {
         return $post_id > 0 && get_post_meta($post_id, self::NOINDEX_META, true) === '1';
     }
 
+    private static function post_is_noindex(int $post_id): bool {
+        return $post_id > 0 && get_post_meta($post_id, self::NOINDEX_META, true) === '1';
+    }
+
     public static function filter_core_robots(array $robots): array {
         if (self::queried_post_is_noindex()) {
             unset($robots['index']);
@@ -283,8 +292,32 @@ final class DigitalAfarin_Agent_Bridge {
         if (!self::queried_post_is_noindex() || !is_array($robots)) {
             return $robots;
         }
-        $robots['index'] = 'noindex';
+        unset($robots['index']);
+        $robots['noindex'] = 'noindex';
         return $robots;
+    }
+
+    public static function filter_yoast_sitemap_excludes($post_ids): array {
+        $ids = is_array($post_ids) ? array_map('intval', $post_ids) : [];
+        global $wpdb;
+        $forced = $wpdb->get_col(
+            $wpdb->prepare(
+                "SELECT DISTINCT post_id FROM {$wpdb->postmeta} WHERE meta_key = %s AND meta_value = %s",
+                self::NOINDEX_META,
+                '1'
+            )
+        );
+        foreach ($forced as $post_id) {
+            $ids[] = (int) $post_id;
+        }
+        return array_values(array_unique(array_filter($ids)));
+    }
+
+    public static function filter_rank_math_sitemap_entry($url, $type, $object) {
+        if ($type === 'post' && is_object($object) && isset($object->ID) && self::post_is_noindex((int) $object->ID)) {
+            return false;
+        }
+        return $url;
     }
 
     private static function normalize_source_path(string $value): ?string {
@@ -308,7 +341,7 @@ final class DigitalAfarin_Agent_Bridge {
         if ($value === '') {
             return null;
         }
-        if (str_starts_with($value, '/')) {
+        if (str_starts_with($value, '/') && !str_starts_with($value, '//')) {
             return '/' . ltrim($value, '/');
         }
         $url = wp_parse_url($value);
@@ -321,6 +354,23 @@ final class DigitalAfarin_Agent_Bridge {
         return esc_url_raw($value);
     }
 
+    private static function same_site_target_path(string $target): ?string {
+        if (str_starts_with($target, '/') && !str_starts_with($target, '//')) {
+            return self::normalize_source_path($target);
+        }
+        $target_url = wp_parse_url($target);
+        $home_url = wp_parse_url(home_url('/'));
+        if (!is_array($target_url) || !is_array($home_url) || empty($target_url['host']) || empty($home_url['host'])) {
+            return null;
+        }
+        $target_port = isset($target_url['port']) ? (int) $target_url['port'] : null;
+        $home_port = isset($home_url['port']) ? (int) $home_url['port'] : null;
+        if (strtolower((string) $target_url['host']) !== strtolower((string) $home_url['host']) || $target_port !== $home_port) {
+            return null;
+        }
+        return self::normalize_source_path((string) ($target_url['path'] ?? '/'));
+    }
+
     private static function redirects(): array {
         $redirects = get_option(self::REDIRECT_OPTION, []);
         return is_array($redirects) ? array_values(array_filter($redirects, 'is_array')) : [];
@@ -328,6 +378,29 @@ final class DigitalAfarin_Agent_Bridge {
 
     private static function save_redirects(array $redirects): void {
         update_option(self::REDIRECT_OPTION, array_values($redirects), false);
+    }
+
+    private static function would_create_redirect_cycle(string $source, string $target, array $redirects): bool {
+        $current = self::same_site_target_path($target);
+        if ($current === null) {
+            return false;
+        }
+        $visited = [];
+        for ($step = 0; $step < 100 && $current !== null; $step++) {
+            if ($current === $source || isset($visited[$current])) {
+                return true;
+            }
+            $visited[$current] = true;
+            $next = null;
+            foreach ($redirects as $redirect) {
+                if (!empty($redirect['enabled']) && ($redirect['source'] ?? null) === $current) {
+                    $next = self::same_site_target_path((string) ($redirect['target'] ?? ''));
+                    break;
+                }
+            }
+            $current = $next;
+        }
+        return $current !== null;
     }
 
     public static function list_redirects() {
@@ -343,15 +416,15 @@ final class DigitalAfarin_Agent_Bridge {
         if (!$source || !$target) {
             return new WP_Error('digitalafarin_invalid_redirect', 'A relative source path and valid HTTP(S) or relative target are required.', ['status' => 400]);
         }
-        if (str_starts_with($target, '/') && self::normalize_source_path($target) === $source) {
-            return new WP_Error('digitalafarin_redirect_loop', 'Source and target cannot resolve to the same path.', ['status' => 409]);
-        }
 
         $redirects = self::redirects();
         foreach ($redirects as $redirect) {
             if (($redirect['source'] ?? null) === $source) {
                 return new WP_Error('digitalafarin_redirect_exists', 'A redirect for this source path already exists.', ['status' => 409]);
             }
+        }
+        if (self::would_create_redirect_cycle($source, $target, $redirects)) {
+            return new WP_Error('digitalafarin_redirect_loop', 'This redirect would create a direct or chained redirect loop.', ['status' => 409]);
         }
 
         $now = gmdate('c');
