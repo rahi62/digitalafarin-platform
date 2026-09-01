@@ -53,8 +53,25 @@ export type WpTag = {
   slug: string;
 };
 
+export type WpIndexing = {
+  postId: number;
+  status: string;
+  noindex: boolean;
+  source: string;
+};
+
+export type WpRedirect = {
+  id: string;
+  source: string;
+  target: string;
+  statusCode: 301;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type RequestOptions = {
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "DELETE";
   query?: Record<string, string | number | boolean | undefined>;
   body?: unknown;
 };
@@ -118,7 +135,7 @@ export class WordPressClient {
         Authorization: this.authorization,
         Accept: "application/json",
         "Content-Type": "application/json; charset=utf-8",
-        "User-Agent": "DigitalAfarin-WordPress-MCP/0.4",
+        "User-Agent": "DigitalAfarin-WordPress-MCP/0.6",
       },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
       signal: AbortSignal.timeout(20_000),
@@ -248,6 +265,35 @@ export class WordPressClient {
     });
   }
 
+  async trashPost(id: number, expectedModified?: string) {
+    const current = await this.getPost(id);
+    if (current.status === "trash") {
+      throw new WordPressError(`Post ${id} is already in trash`, 409, "already_trashed");
+    }
+    this.assertUnchanged(current, expectedModified);
+    return this.request<WpPost>(`posts/${id}`, { method: "DELETE", query: { force: false } });
+  }
+
+  async permanentlyDeletePost(id: number, confirmation: string, expectedModified?: string) {
+    const current = await this.getPost(id);
+    if (current.status !== "trash") {
+      throw new WordPressError(
+        `Permanent deletion requires post ${id} to already be in trash; found ${current.status}`,
+        409,
+        "not_in_trash",
+      );
+    }
+    this.assertUnchanged(current, expectedModified);
+    const required = `PERMANENTLY DELETE POST ${id}`;
+    if (confirmation !== required) {
+      throw new WordPressError(`Permanent deletion confirmation must exactly equal: ${required}`, 400, "confirmation_required");
+    }
+    return this.request<{ deleted: boolean; previous: WpPost }>(`posts/${id}`, {
+      method: "DELETE",
+      query: { force: true },
+    });
+  }
+
   listCategories(search?: string) {
     return this.request<Array<{ id: number; count: number; name: string; slug: string }>>(
       "categories",
@@ -295,7 +341,7 @@ export class WordPressClient {
         Accept: "application/json",
         "Content-Type": input.contentType,
         "Content-Disposition": `attachment; filename="${input.filename}"`,
-        "User-Agent": "DigitalAfarin-WordPress-MCP/0.4",
+        "User-Agent": "DigitalAfarin-WordPress-MCP/0.6",
       },
       body: new Uint8Array(input.bytes),
       signal: AbortSignal.timeout(30_000),
@@ -428,5 +474,44 @@ export class WordPressClient {
       );
     }
     return this.updateSeo(postId, input, expectedModified);
+  }
+
+  async getIndexing(postId: number) {
+    return this.requestRest<WpIndexing>(`digitalafarin/v1/posts/${postId}/indexing`);
+  }
+
+  async setNoindex(postId: number, noindex: boolean, expectedModified?: string) {
+    const current = await this.getPost(postId);
+    if (!new Set(["draft", "publish"]).has(current.status)) {
+      throw new WordPressError(
+        `Refusing to change indexing for post ${postId}: unsupported status ${current.status}`,
+        409,
+        "unsupported_post_status",
+      );
+    }
+    this.assertUnchanged(current, expectedModified);
+    return this.requestRest<WpIndexing>(`digitalafarin/v1/posts/${postId}/indexing`, {
+      method: "POST",
+      body: { noindex },
+    });
+  }
+
+  async listRedirects() {
+    const result = await this.requestRest<{ redirects: WpRedirect[] }>("digitalafarin/v1/redirects");
+    return result.redirects;
+  }
+
+  async create301Redirect(source: string, target: string) {
+    const result = await this.requestRest<{ redirect: WpRedirect }>("digitalafarin/v1/redirects", {
+      method: "POST",
+      body: { source, target },
+    });
+    return result.redirect;
+  }
+
+  async deleteRedirect(id: string) {
+    return this.requestRest<{ deleted: boolean; redirect: WpRedirect }>(`digitalafarin/v1/redirects/${id}`, {
+      method: "DELETE",
+    });
   }
 }
