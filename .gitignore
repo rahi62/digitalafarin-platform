@@ -2,3 +2,4 @@ node_modules/
 dist/
 .env
 data/agency.json
+data/store.json
