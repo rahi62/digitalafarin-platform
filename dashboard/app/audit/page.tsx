@@ -14,6 +14,11 @@ const actionLabels: Record<string, string> = {
   "content.draft_updated": "ویرایش پیش‌نویس",
   "content.post_updated": "ویرایش نوشته منتشرشده",
   "content.published": "انتشار پیش‌نویس",
+  "content.trashed": "انتقال نوشته به Trash",
+  "content.permanently_deleted": "حذف دائمی نوشته",
+  "indexing.noindex_updated": "تغییر Noindex",
+  "redirect.created": "ساخت Redirect 301",
+  "redirect.deleted": "حذف Redirect",
   "gsc.oauth_config_updated": "تغییر تنظیمات Google OAuth",
   "gsc.oauth_config_removed": "حذف تنظیمات Google OAuth",
   "gsc.connected": "اتصال Search Console",
@@ -28,6 +33,9 @@ function detailText(details: Record<string, unknown>) {
   if (details.title) pieces.push(String(details.title));
   if (details.operation) pieces.push(String(details.operation));
   if (details.propertyUrl) pieces.push(String(details.propertyUrl));
+  if (details.source) pieces.push(String(details.source));
+  if (details.target) pieces.push(`→ ${String(details.target)}`);
+  if (details.noindex !== undefined) pieces.push(`noindex: ${String(details.noindex)}`);
   if (details.status) pieces.push(`status: ${String(details.status)}`);
   if (details.properties) pieces.push(`${String(details.properties)} properties`);
   if (details.connectionReset) pieces.push("GSC connection reset");

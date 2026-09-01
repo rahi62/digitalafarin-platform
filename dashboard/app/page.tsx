@@ -16,6 +16,11 @@ const actionLabels: Record<string, string> = {
   "content.draft_updated": "پیش‌نویس ویرایش شد",
   "content.post_updated": "نوشته منتشرشده ویرایش شد",
   "content.published": "پیش‌نویس منتشر شد",
+  "content.trashed": "نوشته به Trash منتقل شد",
+  "content.permanently_deleted": "نوشته برای همیشه حذف شد",
+  "indexing.noindex_updated": "Noindex تغییر کرد",
+  "redirect.created": "Redirect 301 ساخته شد",
+  "redirect.deleted": "Redirect حذف شد",
   "gsc.oauth_config_updated": "تنظیمات Google OAuth تغییر کرد",
   "gsc.oauth_config_removed": "تنظیمات Google OAuth حذف شد",
   "gsc.connected": "Search Console متصل شد",
@@ -90,10 +95,10 @@ export default async function DashboardPage() {
     </div>
 
     <section className="quick-section">
-      <div className="section-heading"><div><p className="eyebrow">QUICK ACTIONS</p><h2>دسترسی سریع</h2></div><p>Agent می‌تواند Draft بسازد، منتشر کند و با درخواست صریح، محتوای زنده را به‌روزرسانی کند.</p></div>
+      <div className="section-heading"><div><p className="eyebrow">QUICK ACTIONS</p><h2>دسترسی سریع</h2></div><p>محتوا، Search Console و عملیات حساس SEO از یک Control Center مدیریت می‌شوند.</p></div>
       <div className="quick-actions">
-        <Link className="quick-card" href="/content"><span>✦</span><div><strong>مدیریت محتوا</strong><small>Draft و نوشته‌های منتشرشده</small></div><b>←</b></Link>
-        <Link className="quick-card" href="/content/new"><span>＋</span><div><strong>نوشته جدید</strong><small>ساخت Draft و انتشار بعد از تکمیل</small></div><b>←</b></Link>
+        <Link className="quick-card" href="/content"><span>✦</span><div><strong>مدیریت محتوا</strong><small>Draft، انتشار و نوشته جدید</small></div><b>←</b></Link>
+        <Link className="quick-card" href="/admin-tools"><span>↗</span><div><strong>ابزارهای ادمین و SEO</strong><small>301 · Noindex · Trash/Delete</small></div><b>←</b></Link>
         <Link className="quick-card" href="/settings"><span>G</span><div><strong>Search Console</strong><small>تنظیم OAuth، اتصال حساب و Propertyها از پنل</small></div><b>←</b></Link>
       </div>
     </section>

@@ -16,6 +16,8 @@ export type WordPressPost = {
 };
 
 export type WordPressCategory = { id: number; name: string; slug: string; count: number };
+export type WordPressIndexing = { postId: number; status: string; noindex: boolean; source: string };
+export type WordPressRedirect = { id: string; source: string; target: string; statusCode: 301; enabled: boolean; createdAt: string; updatedAt: string };
 
 type PostInput = { title: string; content: string; excerpt?: string; slug?: string; categoryIds?: number[] };
 
@@ -30,7 +32,7 @@ async function wpRequest<T>(input: WordPressAuth, path: string, init: RequestIni
       Authorization: authorization(input),
       Accept: "application/json",
       ...(init.body ? { "Content-Type": "application/json" } : {}),
-      "User-Agent": "DigitalAfarin-WP-Agent-Dashboard/0.5",
+      "User-Agent": "DigitalAfarin-WP-Agent-Dashboard/0.6",
       ...(init.headers ?? {}),
     },
     cache: "no-store",
@@ -43,8 +45,8 @@ async function wpRequest<T>(input: WordPressAuth, path: string, init: RequestIni
 }
 
 export async function checkWordPressConnection(input: WordPressAuth) {
-  const data = await wpRequest<{ id?: number; name?: string; roles?: string[] }>(input, "/wp-json/wp/v2/users/me?context=edit");
-  return { id: data.id, name: data.name, roles: data.roles ?? [] };
+  const data = await wpRequest<{ id?: number; name?: string; roles?: string[]; capabilities?: Record<string, boolean> }>(input, "/wp-json/wp/v2/users/me?context=edit");
+  return { id: data.id, name: data.name, roles: data.roles ?? [], capabilities: data.capabilities ?? {} };
 }
 
 export async function listWordPressPosts(input: WordPressAuth, options: { status?: string; search?: string; perPage?: number } = {}) {
@@ -114,4 +116,46 @@ export async function publishWordPressDraft(input: WordPressAuth, postId: number
     method: "POST",
     body: JSON.stringify({ status: "publish" }),
   });
+}
+
+export function getWordPressIndexing(input: WordPressAuth, postId: number) {
+  return wpRequest<WordPressIndexing>(input, `/wp-json/digitalafarin/v1/posts/${postId}/indexing`);
+}
+
+export function setWordPressNoindex(input: WordPressAuth, postId: number, noindex: boolean) {
+  return wpRequest<WordPressIndexing>(input, `/wp-json/digitalafarin/v1/posts/${postId}/indexing`, {
+    method: "POST",
+    body: JSON.stringify({ noindex }),
+  });
+}
+
+export async function listWordPressRedirects(input: WordPressAuth) {
+  const result = await wpRequest<{ redirects: WordPressRedirect[] }>(input, "/wp-json/digitalafarin/v1/redirects");
+  return result.redirects;
+}
+
+export async function createWordPress301Redirect(input: WordPressAuth, source: string, target: string) {
+  const result = await wpRequest<{ redirect: WordPressRedirect }>(input, "/wp-json/digitalafarin/v1/redirects", {
+    method: "POST",
+    body: JSON.stringify({ source, target }),
+  });
+  return result.redirect;
+}
+
+export function deleteWordPressRedirect(input: WordPressAuth, redirectId: string) {
+  return wpRequest<{ deleted: boolean; redirect: WordPressRedirect }>(input, `/wp-json/digitalafarin/v1/redirects/${redirectId}`, { method: "DELETE" });
+}
+
+export async function trashWordPressPost(input: WordPressAuth, postId: number) {
+  const current = await getWordPressPost(input, postId);
+  if (current.status === "trash") throw new Error("این نوشته قبلاً به زباله‌دان منتقل شده است.");
+  return wpRequest<WordPressPost>(input, `/wp-json/wp/v2/posts/${postId}?force=false`, { method: "DELETE" });
+}
+
+export async function permanentlyDeleteWordPressPost(input: WordPressAuth, postId: number, confirmation: string) {
+  const current = await getWordPressPost(input, postId);
+  if (current.status !== "trash") throw new Error("حذف دائمی فقط برای نوشته‌ای مجاز است که از قبل داخل Trash باشد.");
+  const required = `PERMANENTLY DELETE POST ${postId}`;
+  if (confirmation !== required) throw new Error(`عبارت تأیید باید دقیقاً این باشد: ${required}`);
+  return wpRequest<{ deleted: boolean; previous: WordPressPost }>(input, `/wp-json/wp/v2/posts/${postId}?force=true`, { method: "DELETE" });
 }

@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { logoutAction } from "@/app/actions";
 
-type NavKey = "dashboard" | "sites" | "content" | "audit" | "settings";
+type NavKey = "dashboard" | "sites" | "content" | "adminTools" | "audit" | "settings";
 
 const items: Array<{ key: NavKey; href: string; label: string; icon: string }> = [
   { key: "dashboard", href: "/", label: "داشبورد", icon: "⌂" },
   { key: "sites", href: "/sites", label: "سایت‌ها", icon: "◎" },
   { key: "content", href: "/content", label: "مدیریت محتوا", icon: "✦" },
+  { key: "adminTools", href: "/admin-tools", label: "ابزارهای ادمین و SEO", icon: "↗" },
   { key: "audit", href: "/audit", label: "گزارش فعالیت", icon: "≋" },
   { key: "settings", href: "/settings", label: "تنظیمات و اتصال‌ها", icon: "⚙" },
 ];

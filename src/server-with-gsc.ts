@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { registerAdminTools } from "./admin-tools.js";
 import { GscApiError, inspectGscUrl, listGscSitemaps, querySearchAnalytics } from "./gsc.js";
 import { GscRegistryError, listGscSites, resolveGscSite } from "./gsc-registry.js";
 import { createMcpServer as createWordPressMcpServer } from "./server.js";
@@ -26,6 +27,7 @@ const filterOperatorSchema = z.enum(["contains", "equals", "notContains", "notEq
 
 export function createMcpServer() {
   const server = createWordPressMcpServer();
+  registerAdminTools(server);
 
   server.registerTool(
     "gsc_list_sites",
