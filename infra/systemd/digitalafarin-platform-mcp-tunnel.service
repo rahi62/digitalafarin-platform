@@ -1,0 +1,26 @@
+[Unit]
+Description=DigitalAfarin VPS MCP Secure Tunnel
+After=network-online.target digitalafarin-platform-mcp.service
+Wants=network-online.target
+Requires=digitalafarin-platform-mcp.service
+
+[Service]
+Type=simple
+User=digitalafarin-mcp
+Group=digitalafarin-mcp
+EnvironmentFile=/home/digitalafarin-mcp/.config/tunnel-client/digitalafarin-vps.env
+ExecStart=/usr/local/bin/tunnel-client run --profile digitalafarin-vps
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

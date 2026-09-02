@@ -1,6 +1,6 @@
 [Unit]
 Description=DigitalAfarin Platform Web
-After=network-online.target digitalafarin-api.service
+After=network-online.target digitalafarin-platform-api.service
 Wants=network-online.target
 
 [Service]
