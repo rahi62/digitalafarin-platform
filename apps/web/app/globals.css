@@ -221,3 +221,9 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
   .auditRow { grid-template-columns: 1fr; }
   .auditTime { white-space: normal; }
 }
+
+.identityGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.identityField { display: grid; gap: 7px; min-width: 0; padding: 12px; border: 1px solid var(--line-soft); border-radius: 10px; background: #0e1217; }
+.identityField span { color: var(--muted); font-size: 9px; }
+.identityField code { color: var(--text-soft); font-size: 10px; direction: ltr; text-align: right; overflow-wrap: anywhere; }
+@media (max-width: 680px) { .identityGrid { grid-template-columns: 1fr; } }
