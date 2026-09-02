@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { EmptyState } from "@/components/EmptyState";
 import { StatusBadge } from "@/components/StatusBadge";
-import { listServers } from "@/lib/control-plane";
+import { listServers, type ServerSummary } from "@/lib/control-plane";
 import { formatAge } from "@/lib/dashboard";
 
 export const dynamic = "force-dynamic";
 
 export default async function ServersPage() {
-  let servers;
+  let servers: ServerSummary[];
   try {
     servers = await listServers();
   } catch {
