@@ -1,104 +1,162 @@
-import { SyncButton } from "@/components/SyncButton";
-import { getServer } from "@/lib/api";
+import Link from "next/link";
+import { AuditList } from "@/components/AuditList";
+import { EmptyState } from "@/components/EmptyState";
+import { MetricCard } from "@/components/MetricCard";
+import { ServiceTable } from "@/components/ServiceTable";
+import { StatusBadge } from "@/components/StatusBadge";
+import {
+  ControlPlaneError,
+  getMetrics,
+  getServer,
+  listAuditEvents,
+  listServers,
+  listServices,
+} from "@/lib/control-plane";
+import { formatAge, formatPercent, formatUptime, summarizeServices } from "@/lib/dashboard";
 
-function formatUptime(seconds: number) {
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
-  return days > 0 ? `${days} روز و ${hours} ساعت` : `${hours} ساعت`;
-}
+export const dynamic = "force-dynamic";
 
-function MetricCard({ label, value, suffix = "%" }: { label: string; value: number | string; suffix?: string }) {
-  return (
-    <article className="metricCard">
-      <span>{label}</span>
-      <strong>{value}{suffix}</strong>
-    </article>
-  );
+function metricState(value: number, warning: number, danger: number): "normal" | "warning" | "danger" {
+  if (value >= danger) return "danger";
+  if (value >= warning) return "warning";
+  return "normal";
 }
 
 export default async function Home() {
-  const server = await getServer();
+  const [serversResult, serverResult, metricsResult, servicesResult, auditResult] = await Promise.allSettled([
+    listServers(),
+    getServer("default"),
+    getMetrics("default"),
+    listServices("default"),
+    listAuditEvents({ limit: 8 }),
+  ]);
+
+  const servers = serversResult.status === "fulfilled" ? serversResult.value : [];
+  const server = serverResult.status === "fulfilled" ? serverResult.value : null;
+  const metrics = metricsResult.status === "fulfilled" ? metricsResult.value : null;
+  const services = servicesResult.status === "fulfilled" ? servicesResult.value : [];
+  const audits = auditResult.status === "fulfilled" ? auditResult.value : [];
+  const serviceSummary = summarizeServices(services);
+  const unhealthy = services.filter((service) => service.active_state !== "active");
+  const onlineServers = servers.filter((item) => item.status === "online").length;
+
+  const metricsError = metricsResult.status === "rejected" && metricsResult.reason instanceof ControlPlaneError
+    ? metricsResult.reason
+    : null;
 
   return (
-    <main className="shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <span className="brandMark">DA</span>
-          <div><strong>DigitalAfarin</strong><small>Platform</small></div>
+    <main className="page">
+      <header className="pageHeader">
+        <div>
+          <p className="eyebrow">INFRASTRUCTURE OVERVIEW</p>
+          <h1>نمای کلی زیرساخت</h1>
+          <p className="pageLead">
+            وضعیت زنده سرورها، منابع سیستم و سرویس‌های allow-listed از Control Plane مرکزی.
+          </p>
         </div>
-        <nav>
-          <a className="active">Overview</a>
-          <a>Applications</a>
-          <a>Databases</a>
-          <a>Domains</a>
-          <a>Backups</a>
-          <a>Activity</a>
-          <a>Settings</a>
-        </nav>
-        <div className="phaseBadge">MVP · Read only</div>
-      </aside>
-
-      <section className="content">
-        <header className="topbar">
-          <div>
-            <p className="eyebrow">PERSONAL VPS CONTROL PLANE</p>
-            <h1>{server?.name ?? "DigitalAfarin Server"}</h1>
-            <p className="muted">{server?.hostname || "API هنوز به سرور متصل نشده است."}</p>
+        {server ? (
+          <div className="pageActions">
+            <StatusBadge status={server.status} />
           </div>
-          <SyncButton />
-        </header>
+        ) : null}
+      </header>
 
-        {!server ? (
-          <div className="emptyState">
-            <strong>Control Plane آماده است، اما Server record پیدا نشد.</strong>
-            <code>python manage.py seed_local_server --agent-url http://127.0.0.1:9743</code>
-          </div>
-        ) : (
-          <>
-            <div className="metricsGrid">
-              <MetricCard label="CPU" value={server.cpu_percent} />
-              <MetricCard label="RAM" value={server.memory_percent} />
-              <MetricCard label="Disk" value={server.disk_percent} />
-              <MetricCard label="Uptime" value={formatUptime(server.uptime_seconds)} suffix="" />
+      {!server ? (
+        <section className="panel errorPanel">
+          <EmptyState
+            title="Control Plane در دسترس نیست"
+            description="سرور پیش‌فرض از API خوانده نشد. اتصال و Service Principal پنل را بررسی کنید."
+          />
+        </section>
+      ) : (
+        <>
+          {server.status !== "online" ? (
+            <div className="notice">
+              آخرین heartbeat این سرور {formatAge(server.age_seconds)} ثبت شده و وضعیت فعلی «{server.status}» است.
             </div>
+          ) : null}
+
+          <div className="metricsGrid">
+            <MetricCard
+              label="CPU"
+              value={metrics ? formatPercent(metrics.cpu_percent) : "—"}
+              level={metrics?.cpu_percent}
+              state={metrics ? metricState(metrics.cpu_percent, 70, 90) : "warning"}
+              hint={metrics ? `نمونه ${formatAge(metrics.age_seconds)}` : metricsError?.message ?? "داده در دسترس نیست"}
+            />
+            <MetricCard
+              label="RAM"
+              value={metrics ? formatPercent(metrics.memory_percent) : "—"}
+              level={metrics?.memory_percent}
+              state={metrics ? metricState(metrics.memory_percent, 75, 90) : "warning"}
+              hint={metrics ? `Agent ${server.agent_version || "—"}` : "Metrics unavailable"}
+            />
+            <MetricCard
+              label="Disk"
+              value={metrics ? formatPercent(metrics.disk_percent) : "—"}
+              level={metrics?.disk_percent}
+              state={metrics ? metricState(metrics.disk_percent, 75, 90) : "warning"}
+              hint={metrics ? "پارتیشن اصلی سرور" : "Metrics unavailable"}
+            />
+            <MetricCard
+              label="Uptime"
+              value={metrics ? formatUptime(metrics.uptime_seconds) : "—"}
+              hint={server.hostname || "بدون hostname"}
+            />
+          </div>
+
+          <div className="kpiStrip" style={{ marginTop: 12 }}>
+            <div className="kpiItem"><strong>{servers.length}</strong><span>کل سرورها</span></div>
+            <div className="kpiItem"><strong>{onlineServers}</strong><span>سرور آنلاین</span></div>
+            <div className="kpiItem"><strong>{serviceSummary.active}</strong><span>سرویس فعال</span></div>
+            <div className="kpiItem"><strong>{serviceSummary.failed}</strong><span>سرویس خطادار</span></div>
+          </div>
+
+          <div className="sectionGrid">
+            <section className="panel">
+              <div className="panelHeader">
+                <div><h2>سرویس‌های نیازمند توجه</h2><p>{serviceSummary.total} سرویس روی {server.name} مشاهده شده است.</p></div>
+                <Link className="panelLink" href="/services">همه سرویس‌ها</Link>
+              </div>
+              {unhealthy.length > 0 ? (
+                <ServiceTable services={unhealthy.slice(0, 6)} compact />
+              ) : (
+                <EmptyState title="همه سرویس‌ها سالم‌اند" description="در snapshot فعلی هیچ سرویس inactive یا failed وجود ندارد." />
+              )}
+            </section>
 
             <section className="panel">
               <div className="panelHeader">
-                <div>
-                  <p className="eyebrow">SYSTEMD INVENTORY</p>
-                  <h2>Services</h2>
-                </div>
-                <span className="countBadge">{server.services.length}</span>
+                <div><h2>سرور پیش‌فرض</h2><p>Identity و freshness فعلی Agent</p></div>
+                <Link className="panelLink" href={`/servers/${server.id}`}>جزئیات</Link>
               </div>
-
-              <div className="serviceList">
-                {server.services.length === 0 ? (
-                  <div className="emptyInline">هیچ سرویسی با prefixهای مجاز Agent پیدا نشده است.</div>
-                ) : server.services.map((service) => {
-                  const healthy = service.active_state === "active";
-                  return (
-                    <article className="serviceRow" key={service.id}>
-                      <span className={`statusDot ${healthy ? "up" : "down"}`} />
-                      <div className="serviceMain">
-                        <strong dir="ltr">{service.unit_name}</strong>
-                        <span>{service.description}</span>
-                      </div>
-                      <div className="serviceState" dir="ltr">
-                        <strong>{service.active_state}</strong>
-                        <span>{service.sub_state}</span>
-                      </div>
-                    </article>
-                  );
-                })}
+              <div className="panelBody">
+                <div className="serverCardTop">
+                  <div className="serverIdentity">
+                    <strong>{server.name}</strong>
+                    <code>{server.hostname}</code>
+                  </div>
+                  <StatusBadge status={server.status} />
+                </div>
+                <div className="serverMeta" style={{ marginTop: 20 }}>
+                  <div className="metaCell"><span>Heartbeat</span><strong>{formatAge(server.age_seconds)}</strong></div>
+                  <div className="metaCell"><span>Agent</span><strong dir="ltr">v{server.agent_version || "—"}</strong></div>
+                  <div className="metaCell"><span>Capabilities</span><strong>{server.capabilities.length}</strong></div>
+                  <div className="metaCell"><span>UUID</span><strong dir="ltr">{server.id.slice(0, 8)}…</strong></div>
+                </div>
               </div>
             </section>
+          </div>
 
-            <footer>
-              Last sync: {server.last_seen_at ? new Date(server.last_seen_at).toLocaleString("fa-IR") : "never"}
-            </footer>
-          </>
-        )}
-      </section>
+          <section className="panel" style={{ marginTop: 12 }}>
+            <div className="panelHeader">
+              <div><h2>آخرین فعالیت‌ها</h2><p>Audit trail مربوط به MCP، Agent و Control Plane</p></div>
+              <Link className="panelLink" href="/activity">مشاهده کامل</Link>
+            </div>
+            <AuditList events={audits} />
+          </section>
+        </>
+      )}
     </main>
   );
 }
