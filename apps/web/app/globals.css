@@ -227,3 +227,12 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 .identityField span { color: var(--muted); font-size: 9px; }
 .identityField code { color: var(--text-soft); font-size: 10px; direction: ltr; text-align: right; overflow-wrap: anywhere; }
 @media (max-width: 680px) { .identityGrid { grid-template-columns: 1fr; } }
+
+.filterBar { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.filterBar label { display: grid; gap: 6px; }
+.filterBar label > span { color: var(--muted); font-size: 9px; }
+.filterBar select { min-width: 230px; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; outline: none; color: var(--text-soft); background: var(--surface); }
+.filterBar select:focus { border-color: #4c526f; }
+.filterBar button { min-height: 36px; padding: 0 13px; border: 1px solid #3b3a6c; border-radius: 8px; color: #d4cffd; background: #17172a; cursor: pointer; }
+.filterBar button:hover { background: #1d1d34; }
+.countPill { display: inline-flex; align-items: center; min-height: 25px; padding: 0 9px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font: 600 9px/1 "SFMono-Regular", Consolas, monospace; direction: ltr; }
