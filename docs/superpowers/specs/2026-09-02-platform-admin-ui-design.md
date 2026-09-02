@@ -78,6 +78,7 @@ The API client throws `ControlPlaneError` with status/code/message. Page-level c
 - `PLATFORM_API_TOKEN` is server-only and never prefixed with `NEXT_PUBLIC_`.
 - No browser fetch route proxies the raw token.
 - No write endpoint is called in Phase 1.
+- Public publication requires HTTPS plus Nginx Basic Auth until application-level authentication/RBAC is implemented.
 - No arbitrary system command or systemd action is exposed.
 - Technical IDs and API error details are escaped by React and not rendered via raw HTML.
 

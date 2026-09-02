@@ -108,16 +108,25 @@ The MCP endpoint is `http://127.0.0.1:3060/mcp`.
 
 ### 4. Next.js admin
 
-The existing web dashboard can continue using the legacy read API while the frontend is migrated to UUID-based endpoints:
+The admin UI reads only the UUID-based Control Plane API and keeps its credential on the Next.js server runtime. Create a separate read-only principal for the web app rather than reusing the ChatGPT MCP credential:
 
 ```bash
-cd apps/web
+cd apps/api
+source .venv/bin/activate
+python manage.py create_service_principal platform-web
+```
+
+Store the one-time credential outside Git, then run the web app:
+
+```bash
+cd ../../apps/web
 npm install
 export PLATFORM_API_URL=http://127.0.0.1:8000
-export PLATFORM_API_TOKEN=dev-api-token
-export PLATFORM_SERVER_ID=1
+export PLATFORM_API_TOKEN='<platform-web service credential>'
 npm run dev
 ```
+
+The browser never receives `PLATFORM_API_TOKEN`; Server Components call `/api/control/v1/*` directly.
 
 ## Production bootstrap: first VPS + MCP
 
@@ -189,7 +198,48 @@ MCP_PATH=/mcp
 
 Do **not** paste enrollment credentials, agent credentials or MCP service credentials into ChatGPT, issue trackers, Git commits, screenshots or logs.
 
-### 4. Start MCP and the already-created Secure MCP Tunnel
+### 4. Configure the read-only admin web identity
+
+Create a dedicated read-only identity for the Next.js panel:
+
+```bash
+cd /opt/digitalafarin-platform/apps/api
+source .venv/bin/activate
+python manage.py create_service_principal platform-web
+```
+
+Write the one-time credential to `/etc/digitalafarin-platform/web.env` without printing it into logs or shell history:
+
+```dotenv
+PLATFORM_API_URL=http://127.0.0.1:9750
+PLATFORM_API_TOKEN=<platform-web service-principal credential>
+```
+
+The committed web unit listens only on `127.0.0.1:9751`. Build before starting it:
+
+```bash
+cd /opt/digitalafarin-platform/apps/web
+npm ci || npm install
+npm run test
+npm run lint
+npm run build
+sudo systemctl enable --now digitalafarin-platform-web
+```
+
+Do not expose port `9751` directly to the Internet. Publish it only through the HTTPS Nginx virtual host. The Phase 1 panel has no application-level login yet, so the Nginx vhost must require HTTP Basic Authentication using a root-managed htpasswd file (for example `/etc/nginx/.htpasswd-digitalafarin-platform`).
+
+For `platform.digitalafarin.ir`, point DNS to the VPS before enabling the public vhost, then create the Basic Auth file interactively so the password is not stored in shell history:
+
+```bash
+sudo apt-get install -y apache2-utils
+sudo htpasswd -c /etc/nginx/.htpasswd-digitalafarin-platform rahi
+sudo chmod 640 /etc/nginx/.htpasswd-digitalafarin-platform
+sudo chown root:www-data /etc/nginx/.htpasswd-digitalafarin-platform
+```
+
+Install the HTTP vhost, validate Nginx, obtain the certificate with Certbot, and only then enable the HTTPS server block from `infra/nginx/platform.conf.example`. DNS changes and certificate issuance are production publication steps and must not be guessed or performed against an unrelated hostname.
+
+### 5. Start MCP and the already-created Secure MCP Tunnel
 
 Before enabling the tunnel service, verify the actual binary location:
 

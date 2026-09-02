@@ -116,7 +116,7 @@
 
 **Interfaces:**
 - Web runtime uses `PLATFORM_API_URL=http://127.0.0.1:9750` and existing read-only service-principal token.
-- Next.js listens only on `127.0.0.1:9760` pending Nginx publication.
+- Next.js listens only on `127.0.0.1:9751`; Nginx publication requires HTTPS + Basic Auth.
 
 - [ ] Document environment and startup commands.
 - [ ] Add the systemd unit with loopback binding.
