@@ -14,6 +14,10 @@ const actionLabels: Record<string, string> = {
   "content.draft_updated": "ویرایش پیش‌نویس",
   "content.post_updated": "ویرایش نوشته منتشرشده",
   "content.published": "انتشار پیش‌نویس",
+  "content.page_draft_created": "ایجاد پیش‌نویس برگه",
+  "content.page_draft_updated": "ویرایش پیش‌نویس برگه",
+  "content.page_updated": "ویرایش برگه منتشرشده",
+  "content.page_published": "انتشار برگه",
   "content.trashed": "انتقال نوشته به Trash",
   "content.permanently_deleted": "حذف دائمی نوشته",
   "indexing.noindex_updated": "تغییر Noindex",
@@ -30,6 +34,7 @@ const actionLabels: Record<string, string> = {
 function detailText(details: Record<string, unknown>) {
   const pieces: string[] = [];
   if (details.postId) pieces.push(`Post #${String(details.postId)}`);
+  if (details.pageId) pieces.push(`Page #${String(details.pageId)}`);
   if (details.title) pieces.push(String(details.title));
   if (details.operation) pieces.push(String(details.operation));
   if (details.propertyUrl) pieces.push(String(details.propertyUrl));
