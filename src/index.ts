@@ -32,7 +32,7 @@ function requestAllowed(req: Request, res: Response): boolean {
 }
 
 app.get("/health", (_req, res) => {
-  res.json({ ok: true, service: "digitalafarin-wordpress-mcp", version: "0.6.0" });
+  res.json({ ok: true, service: "digitalafarin-wordpress-mcp", version: "0.7.0" });
 });
 
 app.post("/mcp", async (req, res) => {
