@@ -9,12 +9,15 @@ async function read(relativePath: string) {
 }
 
 describe("Agency Control Center deployment contract", () => {
-  it("runs the admin as deploy on localhost port 3060", async () => {
+  it("runs the admin as deploy on localhost port 3061", async () => {
     const service = await read("deploy/digitalafarin-agency-admin.service");
+    const adminPackage = await read("admin/package.json");
     expect(service).toContain("User=deploy");
     expect(service).toContain("WorkingDirectory=/var/www/digitalafarin-agency-mcp/admin");
     expect(service).toContain("ExecStart=/usr/bin/npm run start");
     expect(service).toContain("ReadWritePaths=/var/www/digitalafarin-agency-mcp/admin/.next/cache");
+    expect(adminPackage).toContain("next dev -H 127.0.0.1 -p 3061");
+    expect(adminPackage).toContain("next start -H 127.0.0.1 -p 3061");
   });
 
   it("keeps MCP private while routing admin and REST API", async () => {
@@ -23,7 +26,7 @@ describe("Agency Control Center deployment contract", () => {
     expect(nginx).toContain("location ^~ /mcp");
     expect(nginx).toContain("return 404");
     expect(nginx).toContain("proxy_pass http://127.0.0.1:3050");
-    expect(nginx).toContain("proxy_pass http://127.0.0.1:3060");
+    expect(nginx).toContain("proxy_pass http://127.0.0.1:3061");
   });
 
   it("installer verifies the admin before enabling it", async () => {
@@ -32,7 +35,7 @@ describe("Agency Control Center deployment contract", () => {
     expect(installer).toContain("npm run check:rtl");
     expect(installer).toContain("npm run test:rtl");
     expect(installer).toContain("npm run build");
-    expect(installer).toContain("http://127.0.0.1:3060/login");
+    expect(installer).toContain("http://127.0.0.1:3061/login");
   });
 
   it("creates a safe JSON-first production env template for new installs", async () => {
@@ -73,7 +76,7 @@ describe("Agency Control Center deployment contract", () => {
     const verify = await read("deploy/verify-production.sh");
     expect(verify).toContain("http://127.0.0.1:3050/health");
     expect(verify).toContain("http://127.0.0.1:3030/health");
-    expect(verify).toContain("http://127.0.0.1:3060/login");
+    expect(verify).toContain("http://127.0.0.1:3061/login");
     expect(verify).toContain('PUBLIC_ORIGIN="${PUBLIC_ORIGIN:-https://agency.digitalafarin.ir}"');
     expect(verify).toContain('"$PUBLIC_ORIGIN/mcp"');
     expect(verify).toContain('[[ "$MCP_PUBLIC_STATUS" == "404" ]]');

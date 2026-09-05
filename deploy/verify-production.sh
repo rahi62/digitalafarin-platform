@@ -45,10 +45,10 @@ pass "Agency MCP local health"
 curl --fail --silent --show-error http://127.0.0.1:3030/health >/dev/null || fail "WordPress MCP local health failed"
 pass "WordPress MCP local health"
 
-curl --fail --silent --show-error http://127.0.0.1:3060/login >/dev/null || fail "Agency Admin local login route failed"
+curl --fail --silent --show-error http://127.0.0.1:3061/login >/dev/null || fail "Agency Admin local login route failed"
 pass "Agency Admin local route"
 
-for port in 3030 3050 3060; do
+for port in 3030 3050 3061; do
   LISTENERS="$(ss -ltnH | awk '{print $4}')"
   if ! grep -Eq "(^|:)127\.0\.0\.1:${port}$|^\[::1\]:${port}$" <<<"$LISTENERS"; then
     fail "Expected localhost listener missing on port $port"

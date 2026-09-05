@@ -36,6 +36,6 @@ systemctl daemon-reload
 systemctl enable --now digitalafarin-agency-admin.service
 sleep 2
 
-curl --fail --silent --show-error http://127.0.0.1:3060/login >/dev/null
+curl --fail --silent --show-error http://127.0.0.1:3061/login >/dev/null
 systemctl --no-pager --full status digitalafarin-agency-admin.service | sed -n '1,20p'
-echo "Agency Control Center admin is healthy on http://127.0.0.1:3060"
+echo "Agency Control Center admin is healthy on http://127.0.0.1:3061"

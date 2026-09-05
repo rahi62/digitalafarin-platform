@@ -6,13 +6,14 @@ This runbook covers the first production rollout and recovery of Agency Core, Po
 
 - Agency Core / MCP: `127.0.0.1:3050`
 - WordPress MCP: `127.0.0.1:3030`
-- Agency Admin: `127.0.0.1:3060`
+- DigitalAfarin Platform MCP: `127.0.0.1:3060` (existing unrelated service; do not relocate or modify as part of Agency rollout)
+- Agency Admin: `127.0.0.1:3061`
 - Public Admin origin: `https://agency.digitalafarin.ir`
 - Public `/mcp`: must return `404`
 - PostgreSQL: local/private only
 - Legacy JSON: retained as a rollback source after PostgreSQL cutover
 
-Do not modify the existing WordPress MCP tunnel while deploying the Agency Control Center.
+Do not modify the existing WordPress MCP tunnel, Agency tunnel, or DigitalAfarin Platform MCP service while deploying the Agency Control Center.
 
 ## Preflight
 
@@ -24,7 +25,7 @@ curl -fsS http://127.0.0.1:3030/health
 systemctl is-active digitalafarin-agency-mcp.service
 ```
 
-Confirm `agency.digitalafarin.ir` resolves to the VPS before requesting TLS. Confirm ports `3030`, `3050` and `3060` are not exposed on wildcard interfaces.
+Confirm `agency.digitalafarin.ir` resolves to the VPS before requesting TLS. Confirm ports `3030`, `3050` and `3061` are not exposed on wildcard interfaces. Confirm `127.0.0.1:3061` is free before installing Admin. Port `3060` is intentionally reserved by `digitalafarin-platform-mcp.service` and must remain untouched.
 
 ## PostgreSQL provisioning
 
@@ -112,8 +113,9 @@ Build and install the localhost-only Next.js Admin service:
 
 ```bash
 cd /var/www/digitalafarin-agency-mcp
+ss -ltnp | grep ':3061 ' && { echo 'Port 3061 is occupied; stop and investigate.'; exit 1; } || true
 sudo bash deploy/install-admin.sh
-curl -fsS http://127.0.0.1:3060/login >/dev/null
+curl -fsS http://127.0.0.1:3061/login >/dev/null
 systemctl is-active digitalafarin-agency-admin.service
 ```
 
@@ -128,7 +130,7 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-Obtain/deploy TLS using the VPS's existing Certbot procedure, then test Nginx again. The public vhost must proxy `/api/` to `127.0.0.1:3050`, the UI to `127.0.0.1:3060`, and explicitly return `404` for `/mcp`.
+Obtain/deploy TLS using the VPS's existing Certbot procedure, then test Nginx again. The public vhost must proxy `/api/` to `127.0.0.1:3050`, the UI to `127.0.0.1:3061`, and explicitly return `404` for `/mcp`.
 
 ## Production acceptance
 
