@@ -2,10 +2,12 @@ import express, { type Request, type Response } from "express";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { config } from "./config.js";
+import { createAdminApiRouter } from "./http.js";
 import { createMcpServer } from "./server.js";
 
 const app = express();
 app.disable("x-powered-by");
+app.set("trust proxy", "loopback");
 app.use(express.json({ limit: "1mb" }));
 
 function equalsSecret(left: string, right: string) {
@@ -31,8 +33,10 @@ function requestAllowed(req: Request, res: Response): boolean {
 }
 
 app.get("/health", (_req, res) => {
-  res.json({ ok: true, service: "digitalafarin-agency-mcp", version: "0.1.0" });
+  res.json({ ok: true, service: "digitalafarin-agency-mcp", version: "0.2.0" });
 });
+
+app.use("/api/v1", createAdminApiRouter());
 
 app.post("/mcp", async (req, res) => {
   if (!requestAllowed(req, res)) return;
@@ -69,5 +73,5 @@ app.delete("/mcp", (req, res) => {
 });
 
 app.listen(config.port, config.host, () => {
-  console.log(`DigitalAfarin Agency MCP listening on http://${config.host}:${config.port}/mcp`);
+  console.log(`DigitalAfarin Agency Core listening on http://${config.host}:${config.port}`);
 });

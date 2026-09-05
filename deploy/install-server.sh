@@ -32,20 +32,28 @@ mkdir -p "$APP_DIR/data"
 chown -R deploy:deploy "$APP_DIR"
 
 if [[ ! -f "$ENV_FILE" ]]; then
+  GENERATED_CSRF_SECRET="$(openssl rand -hex 32)"
   cat > "$ENV_FILE" <<ENV
 HOST=127.0.0.1
 PORT=3050
 ALLOWED_ORIGINS=https://chatgpt.com
 BEARER_TOKEN=
 DATA_FILE=/var/www/digitalafarin-agency-mcp/data/agency.json
+STORE_DRIVER=json
+DATABASE_URL=postgresql://digitalafarin_agency:change-me@127.0.0.1:5432/digitalafarin_agency
+SESSION_COOKIE_NAME=digitalafarin_agency_session
+SESSION_TTL_HOURS=168
+ADMIN_ORIGIN=https://agency.digitalafarin.ir
+CSRF_SECRET=$GENERATED_CSRF_SECRET
 ENV
   chmod 600 "$ENV_FILE"
-  echo "Created $ENV_FILE. MCP remains bound to localhost; Secure MCP Tunnel provides external access."
+  echo "Created $ENV_FILE with JSON persistence. Configure DATABASE_URL before PostgreSQL cutover."
+  echo "MCP remains bound to localhost; Secure MCP Tunnel provides external access."
 else
   echo "Keeping existing $ENV_FILE"
 fi
 
-sudo -u deploy bash -lc "cd '$APP_DIR' && npm install --no-audit --no-fund && npm run check && npm run build"
+sudo -u deploy bash -lc "cd '$APP_DIR' && npm install --no-audit --no-fund && npm run check && npm test && npm run build"
 install -m 0644 "$APP_DIR/deploy/digitalafarin-agency-mcp.service" "$SERVICE_FILE"
 systemctl daemon-reload
 systemctl enable --now digitalafarin-agency-mcp.service

@@ -2,23 +2,25 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
+import { addNoteInPostgres } from "./domain/notes/service.js";
+import { recordDecisionInPostgres } from "./domain/decisions/service.js";
+import {
+  getProjectFromPostgres,
+  listProjectsFromPostgres,
+  upsertProjectInPostgres,
+} from "./domain/projects/service.js";
+import { createTaskInPostgres, updateTaskInPostgres } from "./domain/tasks/service.js";
+import type {
+  CreateTaskInput,
+  ProjectListItem,
+  ProjectSnapshot,
+  UpdateTaskPatch,
+  UpsertProjectInput,
+} from "./domain/projects/types.js";
 
-export type Project = {
-  id: string;
-  name: string;
-  description?: string;
-  status: "active" | "paused" | "archived";
-  goals: string[];
-  stack: string[];
-  links: Record<string, string>;
-  notes: Array<{ id: string; text: string; createdAt: string }>;
-  decisions: Array<{ id: string; title: string; decision: string; rationale?: string; createdAt: string }>;
-  tasks: Array<{ id: string; title: string; status: "todo" | "doing" | "done" | "blocked"; priority: "low" | "medium" | "high" | "critical"; owner?: string; details?: string; createdAt: string; updatedAt: string }>;
-  createdAt: string;
-  updatedAt: string;
-};
+export type Project = ProjectSnapshot;
 
-type Store = { projects: Project[] };
+type Store = { projects: ProjectSnapshot[] };
 
 let writeQueue: Promise<void> = Promise.resolve();
 
@@ -28,49 +30,56 @@ function withWriteLock<T>(operation: () => Promise<T>): Promise<T> {
   return run;
 }
 
-async function ensureStore(): Promise<Store> {
+function isMissingFile(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT");
+}
+
+async function ensureJsonStore(): Promise<Store> {
   await fs.mkdir(path.dirname(config.dataFile), { recursive: true });
   try {
-    return JSON.parse(await fs.readFile(config.dataFile, "utf8")) as Store;
-  } catch {
+    const raw = await fs.readFile(config.dataFile, "utf8");
+    return JSON.parse(raw) as Store;
+  } catch (error) {
+    if (!isMissingFile(error)) throw error;
     const empty: Store = { projects: [] };
-    await fs.writeFile(config.dataFile, JSON.stringify(empty, null, 2), "utf8");
+    await fs.writeFile(config.dataFile, JSON.stringify(empty, null, 2), { encoding: "utf8", flag: "wx" });
     return empty;
   }
 }
 
-async function save(store: Store) {
+async function saveJsonStore(store: Store) {
   const temp = `${config.dataFile}.tmp`;
   await fs.writeFile(temp, JSON.stringify(store, null, 2), "utf8");
   await fs.rename(temp, config.dataFile);
 }
 
-export async function listProjects() {
-  const store = await ensureStore();
-  return store.projects.map(({ notes, decisions, tasks, ...p }) => ({
-    ...p,
+async function listProjectsFromJson(): Promise<ProjectListItem[]> {
+  const store = await ensureJsonStore();
+  return store.projects.map(({ notes, decisions, tasks, ...project }) => ({
+    ...project,
     noteCount: notes.length,
     decisionCount: decisions.length,
     taskCount: tasks.length,
   }));
 }
 
-export async function getProject(id: string) {
-  const store = await ensureStore();
-  return store.projects.find((p) => p.id === id) ?? null;
+async function getProjectFromJson(id: string): Promise<ProjectSnapshot | null> {
+  const store = await ensureJsonStore();
+  return store.projects.find((project) => project.id === id) ?? null;
 }
 
-export function upsertProject(input: { id?: string; name: string; description?: string; goals?: string[]; stack?: string[]; links?: Record<string, string>; status?: Project["status"] }) {
+function upsertProjectInJson(input: UpsertProjectInput): Promise<ProjectSnapshot> {
   return withWriteLock(async () => {
-    const store = await ensureStore();
+    const store = await ensureJsonStore();
     const now = new Date().toISOString();
-    let project = input.id ? store.projects.find((p) => p.id === input.id) : undefined;
+    let project = input.id ? store.projects.find((item) => item.id === input.id) : undefined;
 
     if (!project) {
       project = {
         id: input.id ?? randomUUID(),
         name: input.name,
-        description: input.description,
+        ...(input.slug ? { slug: input.slug } : {}),
+        ...(input.description !== undefined ? { description: input.description } : {}),
         status: input.status ?? "active",
         goals: input.goals ?? [],
         stack: input.stack ?? [],
@@ -84,6 +93,7 @@ export function upsertProject(input: { id?: string; name: string; description?: 
       store.projects.push(project);
     } else {
       project.name = input.name;
+      if (input.slug !== undefined) project.slug = input.slug;
       if (input.description !== undefined) project.description = input.description;
       if (input.goals !== undefined) project.goals = input.goals;
       if (input.stack !== undefined) project.stack = input.stack;
@@ -92,70 +102,113 @@ export function upsertProject(input: { id?: string; name: string; description?: 
       project.updatedAt = now;
     }
 
-    await save(store);
+    await saveJsonStore(store);
     return project;
   });
 }
 
-export function addNote(projectId: string, text: string) {
+function addNoteInJson(projectId: string, text: string) {
   return withWriteLock(async () => {
-    const store = await ensureStore();
-    const project = store.projects.find((p) => p.id === projectId);
+    const store = await ensureJsonStore();
+    const project = store.projects.find((item) => item.id === projectId);
     if (!project) throw new Error("Project not found");
     const note = { id: randomUUID(), text, createdAt: new Date().toISOString() };
     project.notes.push(note);
     project.updatedAt = note.createdAt;
-    await save(store);
+    await saveJsonStore(store);
     return note;
   });
 }
 
-export function recordDecision(projectId: string, title: string, decision: string, rationale?: string) {
+function recordDecisionInJson(projectId: string, title: string, decision: string, rationale?: string) {
   return withWriteLock(async () => {
-    const store = await ensureStore();
-    const project = store.projects.find((p) => p.id === projectId);
+    const store = await ensureJsonStore();
+    const project = store.projects.find((item) => item.id === projectId);
     if (!project) throw new Error("Project not found");
-    const item = { id: randomUUID(), title, decision, rationale, createdAt: new Date().toISOString() };
+    const item = {
+      id: randomUUID(),
+      title,
+      decision,
+      ...(rationale !== undefined ? { rationale } : {}),
+      createdAt: new Date().toISOString(),
+    };
     project.decisions.push(item);
     project.updatedAt = item.createdAt;
-    await save(store);
+    await saveJsonStore(store);
     return item;
   });
 }
 
-export function createTask(projectId: string, input: { title: string; details?: string; priority?: Project["tasks"][number]["priority"]; owner?: string }) {
+function createTaskInJson(projectId: string, input: CreateTaskInput) {
   return withWriteLock(async () => {
-    const store = await ensureStore();
-    const project = store.projects.find((p) => p.id === projectId);
+    const store = await ensureJsonStore();
+    const project = store.projects.find((item) => item.id === projectId);
     if (!project) throw new Error("Project not found");
     const now = new Date().toISOString();
-    const task: Project["tasks"][number] = {
+    const task: ProjectSnapshot["tasks"][number] = {
       id: randomUUID(),
       title: input.title,
-      details: input.details,
+      ...(input.details !== undefined ? { details: input.details } : {}),
       priority: input.priority ?? "medium",
-      owner: input.owner,
+      ...(input.owner !== undefined ? { owner: input.owner } : {}),
       status: "todo",
       createdAt: now,
       updatedAt: now,
     };
     project.tasks.push(task);
     project.updatedAt = now;
-    await save(store);
+    await saveJsonStore(store);
     return task;
   });
 }
 
-export function updateTask(projectId: string, taskId: string, patch: { status?: Project["tasks"][number]["status"]; priority?: Project["tasks"][number]["priority"]; owner?: string; details?: string }) {
+function updateTaskInJson(projectId: string, taskId: string, patch: UpdateTaskPatch) {
   return withWriteLock(async () => {
-    const store = await ensureStore();
-    const project = store.projects.find((p) => p.id === projectId);
+    const store = await ensureJsonStore();
+    const project = store.projects.find((item) => item.id === projectId);
     if (!project) throw new Error("Project not found");
-    const task = project.tasks.find((t) => t.id === taskId);
+    const task = project.tasks.find((item) => item.id === taskId);
     if (!task) throw new Error("Task not found");
-    Object.assign(task, patch, { updatedAt: new Date().toISOString() });
+
+    if (patch.status !== undefined) task.status = patch.status;
+    if (patch.priority !== undefined) task.priority = patch.priority;
+    if (patch.owner !== undefined) task.owner = patch.owner;
+    if (patch.details !== undefined) task.details = patch.details;
+    task.updatedAt = new Date().toISOString();
     project.updatedAt = task.updatedAt;
-    await save(store);
+    await saveJsonStore(store);
     return task;
   });
+}
+
+export function listProjects() {
+  return config.storeDriver === "postgres" ? listProjectsFromPostgres() : listProjectsFromJson();
+}
+
+export function getProject(id: string) {
+  return config.storeDriver === "postgres" ? getProjectFromPostgres(id) : getProjectFromJson(id);
+}
+
+export function upsertProject(input: UpsertProjectInput) {
+  return config.storeDriver === "postgres" ? upsertProjectInPostgres(input) : upsertProjectInJson(input);
+}
+
+export function addNote(projectId: string, text: string) {
+  return config.storeDriver === "postgres" ? addNoteInPostgres(projectId, text) : addNoteInJson(projectId, text);
+}
+
+export function recordDecision(projectId: string, title: string, decision: string, rationale?: string) {
+  return config.storeDriver === "postgres"
+    ? recordDecisionInPostgres(projectId, title, decision, rationale)
+    : recordDecisionInJson(projectId, title, decision, rationale);
+}
+
+export function createTask(projectId: string, input: CreateTaskInput) {
+  return config.storeDriver === "postgres" ? createTaskInPostgres(projectId, input) : createTaskInJson(projectId, input);
+}
+
+export function updateTask(projectId: string, taskId: string, patch: UpdateTaskPatch) {
+  return config.storeDriver === "postgres"
+    ? updateTaskInPostgres(projectId, taskId, patch)
+    : updateTaskInJson(projectId, taskId, patch);
 }

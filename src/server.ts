@@ -3,6 +3,18 @@ import { z } from "zod";
 import { agencyTeam, operatingPolicy } from "./team.js";
 import { addNote, createTask, getProject, listProjects, recordDecision, updateTask, upsertProject } from "./store.js";
 
+export const agencyToolNames = [
+  "agency_get_team",
+  "agency_prepare_council",
+  "agency_list_projects",
+  "agency_get_project",
+  "agency_upsert_project",
+  "agency_add_note",
+  "agency_record_decision",
+  "agency_create_task",
+  "agency_update_task",
+] as const;
+
 function text(value: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] };
 }
@@ -12,9 +24,10 @@ function failure(error: unknown) {
 }
 
 const projectId = z.string().uuid();
+const projectSlug = z.string().trim().min(1).max(200).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 
 export function createMcpServer() {
-  const server = new McpServer({ name: "DigitalAfarin Agency", version: "0.1.0" });
+  const server = new McpServer({ name: "DigitalAfarin Agency", version: "0.2.0" });
 
   server.registerTool("agency_get_team", {
     title: "Get DigitalAfarin virtual agency team",
@@ -65,10 +78,11 @@ export function createMcpServer() {
 
   server.registerTool("agency_upsert_project", {
     title: "Create or update agency project",
-    description: "Create a project or update its durable context in the Agency connector.",
+    description: "Create a project or update its durable context in the Agency connector. Slug is optional and backward-compatible.",
     inputSchema: {
       id: projectId.optional(),
       name: z.string().trim().min(1).max(200),
+      slug: projectSlug.optional(),
       description: z.string().max(5000).optional(),
       goals: z.array(z.string().max(1000)).max(30).optional(),
       stack: z.array(z.string().max(100)).max(30).optional(),
