@@ -1,3 +1,4 @@
+import "./theme-automation.css";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
