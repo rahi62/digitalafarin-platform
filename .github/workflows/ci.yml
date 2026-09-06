@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/ci
+      ADMIN_PASSWORD_SHA256: 0000000000000000000000000000000000000000000000000000000000000000
+      SESSION_SECRET: ci-session-secret-not-used-at-runtime
+      CREDENTIALS_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            dashboard/package-lock.json
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+
+      - name: Bridge behavior tests
+        run: php wordpress-plugin/digitalafarin-agent-bridge/tests/run.php
+
+      - name: Bridge PHP syntax
+        run: find wordpress-plugin/digitalafarin-agent-bridge -name '*.php' -print0 | xargs -0 -n1 php -l
+
+      - name: MCP install and tests
+        run: |
+          npm ci
+          npm test
+
+      - name: Dashboard install and build
+        run: |
+          npm --prefix dashboard ci
+          NEXT_TELEMETRY_DISABLED=1 npm --prefix dashboard run build
+
+      - name: Diff whitespace check
+        run: git diff --check origin/main...HEAD
