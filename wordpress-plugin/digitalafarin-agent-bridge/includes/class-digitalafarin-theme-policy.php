@@ -20,6 +20,50 @@ final class DigitalAfarin_Theme_Policy {
         return new self();
     }
 
+    public static function hard_denied_files(): array {
+        return self::HARD_DENY;
+    }
+
+    public static function validate_update(array $raw): array {
+        $errors = [];
+        $rawFiles = $raw['allowedFiles'] ?? [];
+        $rawDirs = $raw['allowedDirectories'] ?? [];
+        if (!is_array($rawFiles)) {
+            $errors[] = 'allowed_files_must_be_array';
+            $rawFiles = [];
+        }
+        if (!is_array($rawDirs)) {
+            $errors[] = 'allowed_directories_must_be_array';
+            $rawDirs = [];
+        }
+        foreach ($rawFiles as $value) {
+            $value = (string) $value;
+            $normalized = self::normalize_relative_path($value, false);
+            if ($normalized === null) {
+                $errors[] = 'invalid_file:' . $value;
+                continue;
+            }
+            if (self::is_hard_denied($normalized)) $errors[] = 'hard_denied_file:' . $normalized;
+        }
+        foreach ($rawDirs as $value) {
+            $value = (string) $value;
+            if (self::normalize_relative_path($value, true) === null) $errors[] = 'invalid_directory:' . $value;
+        }
+        if (array_key_exists('maxFileBytes', $raw)) {
+            $value = (int) $raw['maxFileBytes'];
+            if ($value < 1 || $value > self::MAX_FILE_BYTES_CEILING) $errors[] = 'max_file_bytes_out_of_range';
+        }
+        if (array_key_exists('backupRetentionPerFile', $raw)) {
+            $value = (int) $raw['backupRetentionPerFile'];
+            if ($value < 1 || $value > self::MAX_BACKUP_RETENTION) $errors[] = 'backup_retention_out_of_range';
+        }
+        return [
+            'valid' => count($errors) === 0,
+            'errors' => array_values(array_unique($errors)),
+            'policy' => self::normalize($raw),
+        ];
+    }
+
     public static function normalize(array $raw): array {
         $files = [];
         foreach (($raw['allowedFiles'] ?? []) as $value) {
