@@ -63,4 +63,25 @@ assert_same(['template-parts/pillars/'], $normalized['allowedDirectories']);
 assert_same(DigitalAfarin_Theme_Policy::MAX_FILE_BYTES_CEILING, $normalized['maxFileBytes']);
 assert_same(DigitalAfarin_Theme_Policy::MAX_BACKUP_RETENTION, $normalized['backupRetentionPerFile']);
 
+$validated = DigitalAfarin_Theme_Policy::validate_update([
+    'enabled' => true,
+    'fullFileWriteEnabled' => true,
+    'allowedFiles' => ['templates/pillar-loan.php'],
+    'allowedDirectories' => ['template-parts/pillars/'],
+    'maxFileBytes' => 1048576,
+    'backupRetentionPerFile' => 10,
+]);
+assert_true($validated['valid'], 'valid admin policy update should be accepted');
+
+$blockedPolicy = DigitalAfarin_Theme_Policy::validate_update([
+    'enabled' => true,
+    'fullFileWriteEnabled' => true,
+    'allowedFiles' => ['functions.php', '../bad.php'],
+    'allowedDirectories' => ['/absolute/'],
+]);
+assert_false($blockedPolicy['valid'], 'unsafe admin policy entries must be rejected, not silently dropped');
+assert_true(in_array('hard_denied_file:functions.php', $blockedPolicy['errors'], true));
+assert_true(in_array('invalid_file:../bad.php', $blockedPolicy['errors'], true));
+assert_true(in_array('invalid_directory:/absolute/', $blockedPolicy['errors'], true));
+
 echo "Task 1 theme policy tests passed\n";
