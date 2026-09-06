@@ -52,9 +52,9 @@ async def test_publish_tool_forwards_alias_text_and_preview_option():
             },
         )
 
-    assert result.structuredContent["channel"] == "seo"
-    assert result.structuredContent["message_ids"] == [11]
-    assert result.structuredContent["disable_web_page_preview"] is True
+    assert result.structured_content["channel"] == "seo"
+    assert result.structured_content["message_ids"] == [11]
+    assert result.structured_content["disable_web_page_preview"] is True
 
 
 @pytest.mark.asyncio
@@ -63,5 +63,5 @@ async def test_test_channel_tool_forwards_alias():
     async with Client(server, raise_exceptions=True) as client:
         result = await client.call_tool("telegram_test_channel", {"channel": "seo"})
 
-    assert result.structuredContent["ok"] is True
-    assert result.structuredContent["channel"] == "seo"
+    assert result.structured_content["ok"] is True
+    assert result.structured_content["channel"] == "seo"
