@@ -74,15 +74,19 @@ final class DigitalAfarin_Theme_Validator {
             if (file_put_contents($phpTmp, $content, LOCK_EX) === false) {
                 return ['available' => false, 'valid' => false, 'output' => ['temp_write_failed']];
             }
-            if ($this->lintRunner) {
-                $result = ($this->lintRunner)($phpTmp);
-                return $this->normalize_lint_result($result);
-            }
-            return $this->run_php_lint($phpTmp);
+            return $this->lint_file($phpTmp);
         } finally {
             @unlink($phpTmp);
             @unlink($tmp);
         }
+    }
+
+    public function lint_file(string $path): array {
+        if ($this->lintRunner) {
+            $result = ($this->lintRunner)($path);
+            return $this->normalize_lint_result($result);
+        }
+        return $this->run_php_lint($path);
     }
 
     public function php_lint_available(): bool {
