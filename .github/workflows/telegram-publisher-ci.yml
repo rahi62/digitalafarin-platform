@@ -8,9 +8,8 @@ on:
       - "apps/web/**"
       - "telegram-mcp/**"
       - "infra/**"
+      - ".env.example"
       - ".github/workflows/telegram-publisher-ci.yml"
-  push:
-    branches: [feat/telegram-publisher]
 
 jobs:
   backend:
@@ -33,6 +32,7 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python manage.py test control.tests -v 2
       - run: python manage.py check
+      - run: python manage.py makemigrations --check --dry-run
 
   telegram-mcp:
     runs-on: ubuntu-latest
@@ -65,3 +65,20 @@ jobs:
       - run: npm test
       - run: npm run lint
       - run: npm run build
+
+  infra:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate deployment shell
+        run: bash -n infra/deploy-telegram-publisher.sh
+      - name: Verify MCP remains localhost-only
+        run: |
+          grep -q 'TELEGRAM_MCP_HOST=127.0.0.1' .env.example
+          grep -q 'TELEGRAM_MCP_PORT=3061' .env.example
+      - name: Verify committed files do not contain live Telegram bot tokens
+        run: |
+          if git grep -E '[0-9]{8,12}:[A-Za-z0-9_-]{30,}' -- ':!apps/api/control/tests/**' ':!docs/**'; then
+            echo 'Possible Telegram bot token detected in committed runtime files.' >&2
+            exit 1
+          fi
