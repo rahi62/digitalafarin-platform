@@ -6,8 +6,10 @@ import { ThemeAutomationForm } from "@/components/theme-automation-form";
 import { requireAdmin } from "@/lib/session";
 import { getSiteConnection, listSites } from "@/lib/sites";
 import {
+  getThemeAutomationAudit,
   getThemeAutomationPolicy,
   getThemeAutomationStatus,
+  type ThemeAutomationAuditEvent,
   type ThemeAutomationPolicy,
   type ThemeAutomationStatus,
 } from "@/lib/theme-automation";
@@ -22,12 +24,40 @@ const DEFAULT_POLICY: ThemeAutomationPolicy = {
   autoRollbackOnQaFailure: true,
 };
 
+const eventLabels: Record<string, string> = {
+  "theme.policy_updated": "Policy updated",
+  "theme.template_resolved": "Template resolved",
+  "theme.template_read": "Template read",
+  "theme.preview_created": "Preview created",
+  "theme.write_started": "Write started",
+  "theme.write_succeeded": "Write succeeded",
+  "theme.write_blocked": "Write blocked",
+  "theme.qa_failed": "HTTP QA failed",
+  "theme.auto_rollback_succeeded": "Auto rollback succeeded",
+  "theme.auto_rollback_failed": "Auto rollback failed",
+  "theme.backup_restored": "Backup restored",
+};
+
 function Gate({ label, ok }: { label: string; ok: boolean }) {
   return <div className={`theme-gate ${ok ? "ready" : "blocked"}`}>
     <span className="status-dot" />
     <strong>{label}</strong>
     <small>{ok ? "آماده" : "در دسترس نیست"}</small>
   </div>;
+}
+
+function auditDetails(event: ThemeAutomationAuditEvent) {
+  const details = event.details ?? {};
+  const pieces: string[] = [];
+  if (details.pageId) pieces.push(`Page #${String(details.pageId)}`);
+  if (details.relativePath) pieces.push(String(details.relativePath));
+  if (details.reason) pieces.push(`reason: ${String(details.reason)}`);
+  if (details.code) pieces.push(String(details.code));
+  if (details.operationId) pieces.push(`op: ${String(details.operationId)}`);
+  if (details.backupId) pieces.push(`backup: ${String(details.backupId)}`);
+  if (details.currentHash) pieces.push(`hash: ${String(details.currentHash).slice(0, 12)}`);
+  if (details.proposedHash) pieces.push(`→ ${String(details.proposedHash).slice(0, 12)}`);
+  return pieces.join(" · ") || "—";
 }
 
 export default async function ThemeAutomationPage({
@@ -43,6 +73,7 @@ export default async function ThemeAutomationPage({
 
   let status: ThemeAutomationStatus | null = null;
   let policy = DEFAULT_POLICY;
+  let auditEvents: ThemeAutomationAuditEvent[] = [];
   let hardDeniedFiles = ["functions.php", "header.php", "footer.php", "index.php"];
   let maxFileBytes = 2_097_152;
   let maxBackupRetentionPerFile = 50;
@@ -53,12 +84,14 @@ export default async function ThemeAutomationPage({
   } else {
     try {
       const connection = await getSiteConnection(siteId);
-      const [statusResult, policyResult] = await Promise.all([
+      const [statusResult, policyResult, auditResult] = await Promise.all([
         getThemeAutomationStatus(connection),
         getThemeAutomationPolicy(connection),
+        getThemeAutomationAudit(connection, 25),
       ]);
       status = statusResult;
       policy = policyResult.policy;
+      auditEvents = auditResult.events ?? [];
       hardDeniedFiles = policyResult.hardDeniedFiles;
       maxFileBytes = policyResult.limits?.maxFileBytes ?? maxFileBytes;
       maxBackupRetentionPerFile = policyResult.limits?.maxBackupRetentionPerFile ?? maxBackupRetentionPerFile;
@@ -106,6 +139,11 @@ export default async function ThemeAutomationPage({
             maxFileBytes={maxFileBytes}
             maxBackupRetentionPerFile={maxBackupRetentionPerFile}
           />
+        </section>
+
+        <section className="panel">
+          <div className="panel-head"><div><p className="eyebrow">RECENT THEME AUDIT</p><h2>فعالیت‌های اخیر Bridge</h2></div><span className="count-pill">{auditEvents.length} رویداد</span></div>
+          {auditEvents.length === 0 ? <div className="empty">هنوز رویداد Theme Automation ثبت نشده است.</div> : <div className="content-table-wrap"><table className="content-table"><thead><tr><th>رویداد</th><th>جزئیات</th><th>زمان</th></tr></thead><tbody>{auditEvents.map((event) => <tr key={event.id}><td><span className="audit-action">{eventLabels[event.action] ?? event.action}</span><small className="audit-code">{event.action}</small></td><td className="detail-cell">{auditDetails(event)}</td><td className="date-cell">{new Date(event.createdAt).toLocaleString("fa-IR")}</td></tr>)}</tbody></table></div>}
         </section>
 
         <section className="panel">
