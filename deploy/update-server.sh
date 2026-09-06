@@ -6,6 +6,7 @@ APP_DIR="/var/www/${APP_NAME}"
 DASHBOARD_DIR="${APP_DIR}/dashboard"
 DASHBOARD_ENV="/etc/digitalafarin-wp-agent.env"
 MCP_ENV="/etc/${APP_NAME}.env"
+EXPECTED_VERSION="0.8.0"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Run as root or via the restricted sudo rule." >&2
@@ -25,6 +26,18 @@ if ! grep -q '^GSC_BROKER_URL=' "${MCP_ENV}"; then
 fi
 
 chown -R deploy:deploy "${APP_DIR}"
+
+# Theme Automation can modify production PHP only when its own Bridge safety
+# harness and syntax checks pass. Skip these gates only on hosts without PHP;
+# those hosts will report ZIP fallback for direct template writes.
+if command -v php >/dev/null 2>&1; then
+  sudo -u deploy bash -c "
+    set -Eeuo pipefail
+    cd '${APP_DIR}'
+    php wordpress-plugin/digitalafarin-agent-bridge/tests/run.php
+    find wordpress-plugin/digitalafarin-agent-bridge -name '*.php' -print0 | xargs -0 -n1 php -l
+  "
+fi
 
 # Build and restart the dashboard first because MCP resolves WordPress and GSC
 # credentials through localhost-only broker endpoints. Product integration
@@ -52,6 +65,12 @@ for attempt in {1..15}; do
 done
 
 sudo -u deploy npm --prefix "${APP_DIR}" ci
-sudo -u deploy npm --prefix "${APP_DIR}" run build
+sudo -u deploy npm --prefix "${APP_DIR}" test
 systemctl restart "${APP_NAME}.service"
-curl --fail --silent --show-error "http://127.0.0.1:3030/health"
+
+health="$(curl --fail --silent --show-error "http://127.0.0.1:3030/health")"
+printf '%s\n' "${health}"
+if ! grep -q "\"version\":\"${EXPECTED_VERSION}\"" <<<"${health}"; then
+  echo "Unexpected MCP health version; expected ${EXPECTED_VERSION}." >&2
+  exit 1
+fi
