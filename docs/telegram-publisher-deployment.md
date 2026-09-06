@@ -27,12 +27,10 @@ Run this only after the feature PR has been merged.
 
 ## 2. Backend encryption key
 
-The Telegram bot token is stored encrypted in Django. Generate the encryption key once:
+The Telegram bot token is stored encrypted in Django. Generate the Fernet-compatible key once using only Python's standard library, so this bootstrap step does not depend on the new `cryptography` package already being installed:
 
 ```bash
-cd /opt/digitalafarin-platform/apps/api
-source .venv/bin/activate
-python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
+python3 -c 'import base64,secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())'
 ```
 
 Add the resulting value to `/etc/digitalafarin-platform/api.env`:
