@@ -45,6 +45,9 @@ final class DigitalAfarin_Theme_Resolver {
         $readDecision = $this->policy->can_read($relativePath);
         $writeDecision = $this->policy->can_write($relativePath);
         $theme = wp_get_theme();
+        $validator = class_exists('DigitalAfarin_Theme_Validator') ? new DigitalAfarin_Theme_Validator($this->policy) : null;
+        $fileSize = filesize($actualPath) ?: 0;
+        $maxFileBytes = (int) ($this->policy->policy()['maxFileBytes'] ?? 1048576);
 
         return [
             'page' => [
@@ -63,20 +66,23 @@ final class DigitalAfarin_Theme_Resolver {
                 'assignedSlug' => $assignedSlug ?: 'default',
                 'relativePath' => $relativePath,
                 'themeRoot' => $template['themeRoot'],
-                'sizeBytes' => filesize($actualPath) ?: 0,
+                'sizeBytes' => $fileSize,
                 'modifiedAt' => filemtime($actualPath) ?: 0,
                 'sha256' => hash_file('sha256', $actualPath) ?: '',
                 'sharedTemplate' => $assignments['sharedTemplate'],
                 'assignedPageCount' => count($assignments['pageIds']),
                 'assignedPageIds' => $assignments['pageIds'],
-                'readAllowed' => (bool) ($readDecision['allowed'] ?? false),
+                'readAllowed' => (bool) ($readDecision['allowed'] ?? false) && $fileSize <= $maxFileBytes,
                 'writeAllowed' => (bool) ($writeDecision['allowed'] ?? false),
                 'writeBlockReasons' => ($writeDecision['allowed'] ?? false) ? [] : [(string) ($writeDecision['reason'] ?? 'theme_write_blocked')],
+                'readBlockReasons' => $fileSize > $maxFileBytes
+                    ? ['theme_file_too_large']
+                    : (($readDecision['allowed'] ?? false) ? [] : [(string) ($readDecision['reason'] ?? 'theme_read_blocked')]),
             ],
             'capabilities' => [
-                'phpLint' => false,
+                'phpLint' => $validator ? $validator->php_lint_available() : false,
                 'atomicRename' => is_writable(dirname($actualPath)),
-                'backup' => false,
+                'backup' => class_exists('DigitalAfarin_Theme_Backups'),
                 'httpQa' => function_exists('wp_remote_get'),
             ],
         ];
@@ -90,6 +96,15 @@ final class DigitalAfarin_Theme_Resolver {
             ]);
         }
         $path = $decision['absolutePath'];
+        $size = filesize($path);
+        $maxFileBytes = (int) ($this->policy->policy()['maxFileBytes'] ?? 1048576);
+        if ($size !== false && $size > $maxFileBytes) {
+            return $this->error('digitalafarin_theme_file_too_large', 'Theme file exceeds the configured safe read/write size limit.', 413, [
+                'sizeBytes' => $size,
+                'maxFileBytes' => $maxFileBytes,
+                'zipFallbackRecommended' => true,
+            ]);
+        }
         $content = file_get_contents($path);
         if ($content === false) {
             return $this->error('digitalafarin_theme_read_failed', 'Theme file could not be read.', 500);
