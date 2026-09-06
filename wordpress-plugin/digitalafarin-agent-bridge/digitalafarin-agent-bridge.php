@@ -1,14 +1,27 @@
 <?php
 /**
  * Plugin Name: DigitalAfarin Agent Bridge
- * Description: Authenticated bridge for controlled SEO, indexing, and 301 redirect operations by the DigitalAfarin WordPress Agent.
- * Version: 0.3.0
+ * Description: Authenticated bridge for controlled SEO, indexing, redirects, and safe theme template automation by the DigitalAfarin WordPress Agent.
+ * Version: 0.4.0
  * Author: DigitalAfarin
  * Requires at least: 6.5
  * Requires PHP: 8.1
  */
 
 defined('ABSPATH') || exit;
+
+foreach ([
+    'class-digitalafarin-theme-policy.php',
+    'class-digitalafarin-theme-resolver.php',
+    'class-digitalafarin-theme-validator.php',
+    'class-digitalafarin-theme-backups.php',
+    'class-digitalafarin-theme-writer.php',
+    'class-digitalafarin-theme-audit.php',
+    'class-digitalafarin-theme-rest.php',
+] as $digitalafarin_theme_file) {
+    require_once __DIR__ . '/includes/' . $digitalafarin_theme_file;
+}
+unset($digitalafarin_theme_file);
 
 final class DigitalAfarin_Agent_Bridge {
     private const NS = 'digitalafarin/v1';
@@ -484,3 +497,5 @@ final class DigitalAfarin_Agent_Bridge {
 }
 
 DigitalAfarin_Agent_Bridge::boot();
+DigitalAfarin_Theme_Audit::boot();
+DigitalAfarin_Theme_REST::boot();

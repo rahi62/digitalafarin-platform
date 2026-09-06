@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { registerAdminTools } from "./admin-tools.js";
 import { registerPageTools } from "./page-tools.js";
+import { registerThemeTemplateTools } from "./theme-template-tools.js";
 import { GscApiError, inspectGscUrl, listGscSitemaps, querySearchAnalytics } from "./gsc.js";
 import { GscRegistryError, listGscSites, resolveGscSite } from "./gsc-registry.js";
 import { createMcpServer as createWordPressMcpServer } from "./server.js";
@@ -30,6 +31,7 @@ export function createMcpServer() {
   const server = createWordPressMcpServer();
   registerAdminTools(server);
   registerPageTools(server);
+  registerThemeTemplateTools(server);
 
   server.registerTool(
     "gsc_list_sites",
