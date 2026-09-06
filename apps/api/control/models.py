@@ -1,3 +1,4 @@
+import re
 import uuid
 from datetime import datetime
 
@@ -129,6 +130,78 @@ class AuditEvent(models.Model):
     target_id = models.CharField(max_length=100, blank=True)
     actor = models.CharField(max_length=120, default="system")
     metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class TelegramBotCredential(models.Model):
+    name = models.CharField(max_length=120, unique=True, default="primary")
+    is_active = models.BooleanField(default=True)
+    token_ciphertext = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class TelegramChannel(models.Model):
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    alias = models.CharField(max_length=80, unique=True)
+    name = models.CharField(max_length=120)
+    chat_id = models.CharField(max_length=255)
+    is_active = models.BooleanField(default=True)
+    description = models.CharField(max_length=500, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["alias"]
+
+    def save(self, *args, **kwargs):
+        alias = (self.alias or "").strip().lower()
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,79}", alias):
+            raise ValueError("invalid channel alias")
+        self.alias = alias
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"{self.alias}: {self.name}"
+
+
+class TelegramPublishAudit(models.Model):
+    ACTION_TEST = "test"
+    ACTION_PUBLISH = "publish"
+    STATUS_SUCCESS = "success"
+    STATUS_FAILED = "failed"
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    channel = models.ForeignKey(
+        TelegramChannel,
+        related_name="publish_audits",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+    )
+    action = models.CharField(
+        max_length=16,
+        choices=[(ACTION_TEST, "Test"), (ACTION_PUBLISH, "Publish")],
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=[(STATUS_SUCCESS, "Success"), (STATUS_FAILED, "Failed")],
+    )
+    message_ids = models.JSONField(default=list, blank=True)
+    content_preview = models.CharField(max_length=280, blank=True)
+    content_sha256 = models.CharField(max_length=64, blank=True)
+    error_code = models.CharField(max_length=100, blank=True)
+    error_message = models.CharField(max_length=500, blank=True)
+    actor_principal = models.CharField(max_length=120, default="system")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -1,0 +1,26 @@
+[Unit]
+Description=DigitalAfarin Telegram MCP Secure Tunnel
+After=network-online.target digitalafarin-telegram-mcp.service
+Wants=network-online.target
+Requires=digitalafarin-telegram-mcp.service
+
+[Service]
+Type=simple
+User=digitalafarin-mcp
+Group=digitalafarin-mcp
+EnvironmentFile=/home/digitalafarin-mcp/.config/tunnel-client/digitalafarin-telegram.env
+ExecStart=/usr/local/bin/tunnel-client run --profile digitalafarin-telegram
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

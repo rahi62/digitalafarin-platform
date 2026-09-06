@@ -1,0 +1,27 @@
+[Unit]
+Description=DigitalAfarin Telegram Publisher MCP
+After=network-online.target digitalafarin-platform-api.service
+Wants=network-online.target
+Requires=digitalafarin-platform-api.service
+
+[Service]
+Type=simple
+User=digitalafarin-mcp
+Group=digitalafarin-mcp
+WorkingDirectory=/opt/digitalafarin-platform/telegram-mcp
+EnvironmentFile=/etc/digitalafarin-platform/telegram-mcp.env
+ExecStart=/opt/digitalafarin-platform/telegram-mcp/.venv/bin/python -m digitalafarin_telegram_mcp.server
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

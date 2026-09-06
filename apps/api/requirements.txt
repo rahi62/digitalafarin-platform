@@ -4,4 +4,5 @@ django-cors-headers>=4.7,<5
 dj-database-url>=2.3,<3
 psycopg[binary]>=3.2,<4
 httpx>=0.28,<1
+cryptography>=43,<47
 gunicorn>=23,<24
