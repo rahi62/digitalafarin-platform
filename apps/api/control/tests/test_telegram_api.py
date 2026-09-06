@@ -110,6 +110,26 @@ class TelegramAPITests(TestCase):
         self.assertEqual(listed.status_code, 200)
         self.assertEqual(listed.json()["items"][0]["alias"], "seo")
 
+    def test_invalid_channel_alias_returns_validation_error(self):
+        admin = self._client_for(
+            "telegram-admin-invalid-alias",
+            ["telegram:admin", "telegram:read", "telegram:publish"],
+        )
+
+        response = admin.post(
+            "/api/control/v1/telegram/channels/",
+            {
+                "alias": "SEO channel!",
+                "name": "Bad Channel",
+                "chat_id": "@bad_channel",
+                "is_active": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("alias", response.json())
+
     @patch("control.telegram_views.TelegramClient", FakeTelegramClient)
     def test_publish_scope_can_publish_and_creates_audit(self):
         TelegramBotCredential.objects.create(
