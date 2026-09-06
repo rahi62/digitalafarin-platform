@@ -37,9 +37,18 @@ export type ThemeAutomationPolicyEnvelope = {
   updated?: boolean;
 };
 
+export type ThemeAutomationAuditEvent = {
+  id: string;
+  action: string;
+  details: Record<string, unknown>;
+  userId: number;
+  createdAt: string;
+};
+
 type RequestOptions = {
   method?: "GET" | "POST";
   body?: unknown;
+  query?: Record<string, string | number | undefined>;
 };
 
 function authorization(connection: WordPressConnection) {
@@ -55,6 +64,9 @@ async function requestBridge<T>(
   options: RequestOptions = {},
 ): Promise<T> {
   const url = new URL(`/wp-json/digitalafarin/v1/theme/${route.replace(/^\//, "")}`, connection.baseUrl);
+  for (const [key, value] of Object.entries(options.query ?? {})) {
+    if (value !== undefined) url.searchParams.set(key, String(value));
+  }
   const response = await fetch(url, {
     method: options.method ?? "GET",
     headers: {
@@ -90,6 +102,12 @@ export function getThemeAutomationStatus(connection: WordPressConnection) {
 
 export function getThemeAutomationPolicy(connection: WordPressConnection) {
   return requestBridge<ThemeAutomationPolicyEnvelope>(connection, "policy");
+}
+
+export function getThemeAutomationAudit(connection: WordPressConnection, limit = 30) {
+  return requestBridge<{ events: ThemeAutomationAuditEvent[] }>(connection, "audit", {
+    query: { limit: Math.max(1, Math.min(100, limit)) },
+  });
 }
 
 export function updateThemeAutomationPolicy(
