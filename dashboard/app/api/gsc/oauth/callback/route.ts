@@ -13,6 +13,7 @@ function settingsUrl(request: NextRequest, params: Record<string, string>) {
 }
 
 export async function GET(request: NextRequest) {
+  console.info(JSON.stringify({ event: "gsc_oauth_callback_route_reached", hasError: request.nextUrl.searchParams.has("error"), hasCode: request.nextUrl.searchParams.has("code"), hasState: request.nextUrl.searchParams.has("state") }));
   const error = request.nextUrl.searchParams.get("error");
   if (error) {
     return NextResponse.redirect(settingsUrl(request, { gscError: error }));

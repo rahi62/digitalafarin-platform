@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, initializeDatabase } from "@/lib/db";
 import { getGscAccessToken } from "@/lib/gsc";
+import { GscAuthError } from "@/lib/gsc-oauth-core";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,6 +42,9 @@ export async function GET(request: NextRequest) {
       accessToken,
     });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to resolve GSC access" }, { status: 502 });
+    if (error instanceof GscAuthError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+    }
+    return NextResponse.json({ error: "Unable to resolve GSC access", code: "gsc_refresh_failed" }, { status: 502 });
   }
 }

@@ -46,6 +46,8 @@ export async function initializeDatabase() {
     CREATE TABLE IF NOT EXISTS gsc_connection (
       id SMALLINT PRIMARY KEY CHECK (id = 1),
       encrypted_refresh_token TEXT NOT NULL,
+      encrypted_access_token TEXT,
+      access_token_expires_at TIMESTAMPTZ,
       scope TEXT,
       last_check_status VARCHAR(32),
       last_check_message TEXT,
@@ -53,6 +55,8 @@ export async function initializeDatabase() {
       connected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    ALTER TABLE gsc_connection ADD COLUMN IF NOT EXISTS encrypted_access_token TEXT;
+    ALTER TABLE gsc_connection ADD COLUMN IF NOT EXISTS access_token_expires_at TIMESTAMPTZ;
 
     CREATE TABLE IF NOT EXISTS gsc_oauth_states (
       state_hash CHAR(64) PRIMARY KEY,

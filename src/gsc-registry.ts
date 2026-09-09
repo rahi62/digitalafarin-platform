@@ -13,10 +13,17 @@ export type ResolvedGscSite = {
 };
 
 export class GscRegistryError extends Error {
-  constructor(message: string, readonly status = 500) {
+  constructor(message: string, readonly status = 500, readonly code = "gsc_registry_error") {
     super(message);
     this.name = "GscRegistryError";
   }
+}
+
+export function classifyGscRegistryFailure(data: { error?: string; status: number; code?: string }) {
+  const code = data.code === "gsc_reauthorization_required" || data.code === "gsc_refresh_failed"
+    ? data.code
+    : "gsc_registry_error";
+  return new GscRegistryError(data.error || `GSC broker returned HTTP ${data.status}`, data.status, code);
 }
 
 const internalHeaders = {
@@ -29,7 +36,7 @@ export async function listGscSites(): Promise<RegisteredGscSite[]> {
     headers: internalHeaders,
     signal: AbortSignal.timeout(15_000),
   });
-  const data = await response.json().catch(() => null) as { sites?: RegisteredGscSite[]; error?: string } | null;
+  const data = await response.json().catch(() => null) as { sites?: RegisteredGscSite[]; error?: string; code?: string } | null;
   if (!response.ok) throw new GscRegistryError(data?.error || `GSC broker returned HTTP ${response.status}`, response.status);
   return data?.sites ?? [];
 }
@@ -55,9 +62,9 @@ export async function resolveGscSite(siteId: string | undefined, operation: stri
     headers: internalHeaders,
     signal: AbortSignal.timeout(20_000),
   });
-  const data = await response.json().catch(() => null) as { site?: RegisteredGscSite; accessToken?: string; error?: string } | null;
+  const data = await response.json().catch(() => null) as { site?: RegisteredGscSite; accessToken?: string; error?: string; code?: string } | null;
   if (!response.ok || !data?.site || !data.accessToken) {
-    throw new GscRegistryError(data?.error || `GSC broker returned HTTP ${response.status}`, response.status);
+    throw classifyGscRegistryFailure({ error: data?.error, code: data?.code, status: response.status });
   }
   return { site: data.site, accessToken: data.accessToken };
 }

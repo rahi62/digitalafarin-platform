@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
+import { GscOAuthLink } from "@/components/gsc-oauth-link";
 import { GscOAuthConfigForm } from "@/components/gsc-oauth-config-form";
 import { db, initializeDatabase } from "@/lib/db";
 import { listGscProperties } from "@/lib/gsc";
@@ -74,7 +75,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
 
         {!oauthApp.configured ? <div className="empty gsc-config-empty"><strong>ابتدا Google OAuth App را در همین صفحه ثبت کنید.</strong><p>پس از ذخیره Client ID و Client Secret، دکمه اتصال حساب Google فعال می‌شود.</p></div> : !connection ? <div className="integration-connect">
           <div><strong>اتصال Read-only به Google Search Console</strong><p>Agent فقط داده‌های Search Console را می‌خواند و هیچ Property یا تنظیمی را در حساب Google تغییر نمی‌دهد.</p></div>
-          <Link className="button-link primary" href="/api/gsc/oauth/start">اتصال حساب Google</Link>
+          <GscOAuthLink className="button-link primary" label="اتصال حساب Google" />
         </div> : <>
           <div className="integration-status-grid">
             <div><span>وضعیت</span><strong>{connection.last_check_status === "ok" ? "سالم" : "نیازمند بررسی"}</strong></div>
@@ -83,7 +84,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           </div>
           {connection.last_check_message && <p className="security-note">{connection.last_check_message}</p>}
           {propertyError && <div className="error-banner"><strong>خطا در GSC</strong><span>{propertyError}</span></div>}
-          <div className="site-actions settings-actions"><form action={testGscAction}><button className="secondary" type="submit">تست اتصال</button></form><Link className="button-link secondary" href="/api/gsc/oauth/start">اتصال مجدد</Link><form action={disconnectGscAction}><button className="ghost" type="submit">قطع اتصال</button></form></div>
+          <div className="site-actions settings-actions"><form action={testGscAction}><button className="secondary" type="submit">تست اتصال</button></form><GscOAuthLink className="button-link secondary" label="اتصال مجدد" /><form action={disconnectGscAction}><button className="ghost" type="submit">قطع اتصال</button></form></div>
         </>}
       </section>
 

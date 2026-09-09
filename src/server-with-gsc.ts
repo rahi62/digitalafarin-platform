@@ -14,7 +14,7 @@ function failure(error: unknown) {
   const safe = error instanceof GscApiError
     ? { error: error.message, status: error.status, code: "gsc_api_error" }
     : error instanceof GscRegistryError
-      ? { error: error.message, status: error.status, code: "gsc_registry_error" }
+      ? { error: error.message, status: error.status, code: error.code }
       : { error: error instanceof Error ? error.message : "Unexpected error" };
   return { ...text(safe), isError: true };
 }
