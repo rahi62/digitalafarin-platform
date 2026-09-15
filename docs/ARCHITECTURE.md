@@ -32,7 +32,13 @@ System of record for server identity, agent/service credentials, metrics, servic
 
 ### Python Host Agent
 
-A small process installed on every VPS. It collects metrics and allow-listed systemd inventory, enrolls once with an expiring credential, persists its own independent agent credential, and sends periodic outbound heartbeats. Its legacy loopback read API remains temporarily for migration compatibility.
+A small process installed on every VPS. It collects metrics and allow-listed
+systemd inventory, enrolls once with an expiring credential, persists its own
+independent agent credential, and sends periodic outbound heartbeats. During the
+same outbound loop it claims typed operations, reports `started`, executes a
+fixed handler, and completes the operation. It exposes no inbound management
+route. Its legacy loopback read API remains temporarily for migration
+compatibility.
 
 ### DigitalAfarin VPS MCP
 
@@ -110,24 +116,24 @@ The MCP must be deployed on loopback, use the production Django API listener at 
 
 Only after explicit production acceptance, remove the legacy shared agent token, `agent_url` pull path and manual sync flow in a separate reviewed change.
 
-## Future typed operation interface
+## Typed operation interface
 
-State-changing work will use a queued operation model rather than remote shell execution:
+State-changing work uses a queued operation model rather than remote shell execution:
 
 ```text
 queued -> claimed -> running -> succeeded | failed
 ```
 
-Approved future operation kinds may include:
+Current operation kinds are:
 
 ```text
-service.restart
 service.start
 service.stop
-deployment.deploy
-deployment.rollback
-backup.create
-nginx.reload
+service.restart
+service.logs
 ```
 
-There will be no `shell.execute` operation.
+Claim leases recover operations abandoned before `running`; every accepted
+transition writes an audit event in the same transaction. `service.logs` uses
+fixed journal arguments, line/time/byte bounds, and redaction before persistence.
+There is no `shell.execute` operation.

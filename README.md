@@ -36,7 +36,21 @@ The browser and ChatGPT never receive agent credentials. The MCP does not contac
 - Read-only MCP tools for servers, metrics, services and audit events
 - Legacy single-server pull/manual sync kept temporarily for migration compatibility
 
-The MCP v1 intentionally has no restart, deploy, shell, backup, Nginx-write or other state-changing tool.
+The operation foundation supports only audited `service.start`, `service.stop`,
+`service.restart`, and bounded/redacted `service.logs` requests. Agents claim and
+execute these operations outbound; no inbound Agent management port or arbitrary
+command interface exists.
+
+Operation-capable service principals use independent scopes:
+
+```text
+operations:read
+operations:create
+logs:read
+```
+
+All `digitalafarin-platform-*`, MCP, tunnel, and platform-management units are
+protected from mutation even when their names match a discovery allow-list.
 
 ## Local development
 
@@ -335,7 +349,8 @@ Acceptance requires actual primary-VPS values, a recent snapshot with `stale=fal
 3. Every VPS receives a different agent credential; Django stores only credential digests.
 4. MCP uses an independent read-only principal with explicit scopes.
 5. MCP listens on `127.0.0.1` and is exposed to ChatGPT only through the Secure MCP Tunnel.
-6. Write operations remain deferred until typed operations, RBAC, audit and approval boundaries are implemented.
+6. Write operations use typed payloads, scoped identities, full lifecycle audit,
+   bounded output, and protected-unit enforcement. There is no arbitrary shell.
 7. Legacy `agent_url`, shared agent token and manual-sync paths remain only for migration compatibility and will be removed in an explicit cleanup change after production acceptance.
 
 ## Next milestones
