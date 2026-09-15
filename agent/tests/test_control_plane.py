@@ -47,3 +47,33 @@ async def test_heartbeat_error_is_sanitized():
     assert str(exc.value) == "agent heartbeat failed"
     assert "secret" not in str(exc.value)
     await http.aclose()
+
+
+@pytest.mark.asyncio
+async def test_operation_client_uses_outbound_agent_routes():
+    requests = []
+
+    async def handler(request: httpx.Request):
+        requests.append((request.method, request.url.path))
+        if request.url.path.endswith("/claim"):
+            return httpx.Response(204)
+        return httpx.Response(200, json={"state": "running"})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = AgentControlPlaneClient("https://control.example", http=http)
+
+    assert await client.claim_operation("agent-token") is None
+    await client.start_operation("agent-token", "operation-id", "claim-token")
+    await client.complete_operation(
+        "agent-token",
+        "operation-id",
+        "claim-token",
+        {"succeeded": True, "result": {}},
+    )
+
+    assert requests == [
+        ("POST", "/api/agent/v1/operations/claim"),
+        ("POST", "/api/agent/v1/operations/operation-id/started"),
+        ("POST", "/api/agent/v1/operations/operation-id/complete"),
+    ]
+    await http.aclose()

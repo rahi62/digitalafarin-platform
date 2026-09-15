@@ -46,6 +46,67 @@ class AgentControlPlaneClient:
         except httpx.HTTPError as exc:
             raise ControlPlaneError("agent heartbeat failed") from exc
 
+    def _agent_headers(self, agent_token: str) -> dict[str, str]:
+        return {"Authorization": f"Bearer {agent_token}"}
+
+    async def claim_operation(self, agent_token: str) -> dict | None:
+        try:
+            response = await self.http.post(
+                f"{self.base_url}/api/agent/v1/operations/claim",
+                headers=self._agent_headers(agent_token),
+                json={},
+            )
+            if response.status_code == 204:
+                return None
+            response.raise_for_status()
+            return response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise ControlPlaneError("operation claim failed") from exc
+
+    async def start_operation(
+        self, agent_token: str, operation_id: str, claim_token: str
+    ) -> None:
+        await self._operation_post(
+            agent_token,
+            operation_id,
+            "started",
+            {"claim_token": claim_token},
+            "operation start failed",
+        )
+
+    async def complete_operation(
+        self,
+        agent_token: str,
+        operation_id: str,
+        claim_token: str,
+        payload: dict,
+    ) -> None:
+        await self._operation_post(
+            agent_token,
+            operation_id,
+            "complete",
+            {"claim_token": claim_token, **payload},
+            "operation completion failed",
+        )
+
+    async def _operation_post(
+        self,
+        agent_token: str,
+        operation_id: str,
+        action: str,
+        payload: dict,
+        error_message: str,
+    ) -> None:
+        try:
+            response = await self.http.post(
+                f"{self.base_url}/api/agent/v1/operations/{operation_id}/{action}",
+                headers=self._agent_headers(agent_token),
+                json=payload,
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise ControlPlaneError(error_message) from exc
+
     async def close(self) -> None:
         if self._owns_http:
             await self.http.aclose()
