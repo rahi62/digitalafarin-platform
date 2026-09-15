@@ -145,6 +145,8 @@ class Operation(models.Model):
     KIND_SERVER_BOOTSTRAP = "server.bootstrap"
     KIND_DATABASE_CREATE = "database.create"
     KIND_DATABASE_RESTORE = "database.restore"
+    KIND_DEPLOYMENT_DEPLOY = "deployment.deploy"
+    KIND_DEPLOYMENT_ROLLBACK = "deployment.rollback"
     KIND_CHOICES = [
         (KIND_SERVICE_START, "Start service"),
         (KIND_SERVICE_STOP, "Stop service"),
@@ -154,6 +156,8 @@ class Operation(models.Model):
         (KIND_SERVER_BOOTSTRAP, "Bootstrap server"),
         (KIND_DATABASE_CREATE, "Create database"),
         (KIND_DATABASE_RESTORE, "Restore database"),
+        (KIND_DEPLOYMENT_DEPLOY, "Deploy release"),
+        (KIND_DEPLOYMENT_ROLLBACK, "Rollback release"),
     ]
 
     STATE_QUEUED = "queued"
@@ -442,6 +446,16 @@ class DatabaseResource(models.Model):
             models.UniqueConstraint(fields=["server", "database_name"], name="uniq_server_database"),
             models.UniqueConstraint(fields=["server", "username"], name="uniq_server_database_user"),
         ]
+
+
+class GitHubDelivery(models.Model):
+    delivery_id = models.CharField(max_length=100, unique=True)
+    service = models.ForeignKey(
+        Service, related_name="github_deliveries", on_delete=models.CASCADE
+    )
+    event = models.CharField(max_length=50)
+    commit = models.CharField(max_length=40)
+    received_at = models.DateTimeField(auto_now_add=True)
 
 
 class TelegramBotCredential(models.Model):

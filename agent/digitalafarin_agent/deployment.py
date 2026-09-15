@@ -4,7 +4,7 @@ from pathlib import Path
 
 from .executors.systemd import SystemdExecutor
 from .health import HealthCheckError, check_http_health
-from .releases import atomic_activate, cleanup_releases, prepare_release, rollback
+from .releases import atomic_activate, cleanup_releases, prepare_release, resolve_exact_commit, rollback
 
 
 SAFE_ROOT = re.compile(r"^(?:\.|[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)$")
@@ -54,13 +54,16 @@ def deploy_release(
     executor = executor or SystemdExecutor()
     events: list[dict] = []
     _event(events, "preparing")
+    exact_commit = payload.get("exact_commit") or resolve_exact_commit(
+        payload["repository"], payload["requested_ref"]
+    )
     service_root = apps_root.resolve() / payload["project_slug"] / payload["service_name"]
     _event(events, "cloning")
     release = prepare_release(
         payload["project_slug"],
         payload["service_name"],
         payload["repository"],
-        payload["exact_commit"],
+        exact_commit,
         apps_root=apps_root,
     )
     _write_environment(release, payload.get("environment", {}))
@@ -99,6 +102,7 @@ def deploy_release(
             "deployment_id": payload["deployment_id"],
             "final_state": "rolled_back",
             "release_name": release.name,
+            "exact_commit": exact_commit,
             "events": events,
         }
     _event(events, "succeeded")
@@ -107,5 +111,28 @@ def deploy_release(
         "deployment_id": payload["deployment_id"],
         "final_state": "succeeded",
         "release_name": release.name,
+        "exact_commit": exact_commit,
         "events": events,
+    }
+
+
+def rollback_release(payload: dict, *, executor=None) -> dict:
+    executor = executor or SystemdExecutor()
+    service_root = Path(payload["service_root"])
+    release = Path(payload["release_path"])
+    rollback(service_root, release)
+    executor.restart(payload["unit_name"])
+    check_http_health(payload["health_check"])
+    return {
+        "deployment_id": payload["deployment_id"],
+        "final_state": "succeeded",
+        "release_name": release.name,
+        "exact_commit": payload["exact_commit"],
+        "events": [
+            {"state": state, "message": "Rollback activation"}
+            for state in (
+                "preparing", "cloning", "building", "releasing", "health_check",
+                "activating", "verifying", "succeeded",
+            )
+        ],
     }

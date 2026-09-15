@@ -10,14 +10,15 @@ from control.agent_serializers import (
     OperationStartedSerializer,
 )
 from control.operation_serializers import serialize_operation
-from control.models import DatabaseResource, Operation
 from control.services.operations import (
     OperationTransitionError,
     claim_next_operation,
     complete_operation,
     start_operation,
 )
-from control.services.secrets import decrypt_secret
+from control.services.execution import build_execution_context
+from control.models import Operation
+from control.services.deployments import apply_deployment_result
 from control.authentication import AgentTokenAuthentication
 from control.services.enrollment import EnrollmentError, enroll_agent
 from control.services.heartbeat import apply_heartbeat
@@ -78,26 +79,9 @@ class OperationClaimView(AgentOperationView):
         if claimed is None:
             return Response(status=status.HTTP_204_NO_CONTENT)
         operation_data = serialize_operation(claimed.operation, include_result=False)
-        if claimed.operation.kind in {
-            Operation.KIND_DATABASE_CREATE,
-            Operation.KIND_DATABASE_RESTORE,
-        }:
-            database = DatabaseResource.objects.get(
-                public_id=claimed.operation.payload["database_resource_id"],
-                server=request.user.server,
-            )
-            operation_data["execution"] = {
-                "database_name": database.database_name,
-                "username": database.username,
-            }
-            if claimed.operation.kind == Operation.KIND_DATABASE_CREATE:
-                operation_data["execution"]["password"] = decrypt_secret(
-                    database.password_ciphertext
-                )
-            else:
-                operation_data["execution"]["backup_name"] = claimed.operation.payload[
-                    "backup_name"
-                ]
+        execution = build_execution_context(claimed.operation)
+        if execution is not None:
+            operation_data["execution"] = execution
         return Response({"operation": operation_data, "claim_token": claimed.claim_token})
 
 
@@ -124,6 +108,19 @@ class OperationCompleteView(AgentOperationView):
         serializer = OperationCompleteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
+            operation_record = Operation.objects.get(
+                public_id=operation_id, server=request.user.server
+            )
+            if operation_record.kind in {
+                Operation.KIND_DEPLOYMENT_DEPLOY,
+                Operation.KIND_DEPLOYMENT_ROLLBACK,
+            }:
+                apply_deployment_result(
+                    operation_record,
+                    succeeded=serializer.validated_data["succeeded"],
+                    result=serializer.validated_data.get("result", {}),
+                    error_code=serializer.validated_data.get("error_code", ""),
+                )
             operation = complete_operation(
                 operation_id=operation_id,
                 server=request.user.server,

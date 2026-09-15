@@ -1,7 +1,7 @@
 import subprocess
 from pathlib import Path
 
-from digitalafarin_agent.releases import atomic_activate, cleanup_releases, prepare_release, rollback
+from digitalafarin_agent.releases import atomic_activate, cleanup_releases, prepare_release, resolve_exact_commit, rollback
 
 
 def git(repo: Path, *args: str) -> str:
@@ -33,6 +33,14 @@ def test_prepare_release_checks_out_exact_commit_before_activation(tmp_path):
     assert (release / "version.txt").read_text(encoding="utf-8") == "one"
     assert release.name == f"20260915-183015-{first[:7]}"
     assert not (apps / "oily" / "web" / "current").exists()
+
+
+def test_resolve_exact_commit_resolves_branch_once(tmp_path):
+    repo, _first, second = make_repo(tmp_path)
+
+    resolved = resolve_exact_commit(str(repo), "master")
+
+    assert resolved == second
 
 
 def test_atomic_activation_and_rollback_only_switch_symlink(tmp_path):

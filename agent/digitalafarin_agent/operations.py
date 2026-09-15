@@ -3,6 +3,7 @@ import subprocess
 
 from .bootstrap import BootstrapError, bootstrap_server
 from .postgres import DatabaseError, create_database, restore_database
+from .deployment import DeploymentFailure, deploy_release, rollback_release
 from .redaction import redact
 from .volumes import VolumeError, create_volume
 
@@ -65,6 +66,18 @@ def _bounded(text: str) -> tuple[str, bool]:
 
 
 def execute_operation(kind: str, payload: dict) -> dict:
+    if kind == "deployment.deploy":
+        try:
+            return deploy_release(payload)
+        except Exception as exc:
+            if isinstance(exc, OperationExecutionError):
+                raise
+            raise OperationExecutionError("deployment_failed", redact(str(exc))[:500]) from exc
+    if kind == "deployment.rollback":
+        try:
+            return rollback_release(payload)
+        except Exception as exc:
+            raise OperationExecutionError("rollback_failed", redact(str(exc))[:500]) from exc
     if kind == "database.create":
         try:
             return create_database(payload)

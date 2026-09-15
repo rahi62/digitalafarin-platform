@@ -5,12 +5,14 @@ from control import (
     database_views,
     deployment_views,
     environment_views,
+    github_views,
     operation_views,
     telegram_views,
     volume_views,
 )
 
 urlpatterns = [
+    path("github/webhook/", github_views.GitHubWebhookView.as_view()),
     path(
         "servers/<uuid:server_id>/bootstrap/",
         deployment_views.ServerBootstrapView.as_view(),
@@ -19,6 +21,18 @@ urlpatterns = [
     path(
         "projects/<uuid:project_id>/services/",
         deployment_views.ProjectServiceListCreateView.as_view(),
+    ),
+    path(
+        "services/<uuid:service_id>/deployments/",
+        deployment_views.ServiceDeploymentListCreateView.as_view(),
+    ),
+    path(
+        "deployments/<uuid:deployment_id>/redeploy/",
+        deployment_views.DeploymentRedeployView.as_view(),
+    ),
+    path(
+        "deployments/<uuid:deployment_id>/rollback/",
+        deployment_views.DeploymentRollbackView.as_view(),
     ),
     path(
         "projects/<uuid:project_id>/variables/",

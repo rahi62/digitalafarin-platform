@@ -28,6 +28,26 @@ def _run(argv: list[str], timeout: int = 300) -> None:
         raise ReleaseError("release command failed") from exc
 
 
+def resolve_exact_commit(repository: str, ref: str) -> str:
+    if not re.fullmatch(r"[A-Za-z0-9._/-]+", ref):
+        raise ReleaseError("invalid Git ref")
+    try:
+        result = subprocess.run(
+            ["git", "ls-remote", "--exit-code", "--refs", repository, ref, f"refs/heads/{ref}"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            shell=False,
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ReleaseError("unable to resolve Git ref") from exc
+    matches = [line.split()[0] for line in result.stdout.splitlines() if line.split()]
+    if not matches or not COMMIT.fullmatch(matches[0]):
+        raise ReleaseError("Git ref did not resolve to an exact commit")
+    return matches[0]
+
+
 def prepare_release(
     project_slug: str,
     service_name: str,
