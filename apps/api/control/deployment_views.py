@@ -4,8 +4,9 @@ from rest_framework.views import APIView
 
 from control.authentication import ServicePrincipalAuthentication
 from control.deployment_serializers import ProjectSerializer, ServiceSerializer
-from control.models import Project
+from control.models import Operation, Project, Server
 from control.permissions import require_scope
+from control.services.operations import create_operation
 
 
 class ProjectListCreateView(APIView):
@@ -55,4 +56,35 @@ class ProjectServiceListCreateView(APIView):
         service = serializer.save()
         return Response(
             ServiceSerializer(service).data, status=status.HTTP_201_CREATED
+        )
+
+
+class ServerBootstrapView(APIView):
+    authentication_classes = [ServicePrincipalAuthentication]
+    permission_classes = [require_scope("operations:create")]
+
+    def post(self, request, server_id):
+        if request.data:
+            return Response(
+                {"error": "invalid_request", "message": "Bootstrap accepts no caller configuration."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            server = Server.objects.get(public_id=server_id, is_active=True)
+        except Server.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        if server.status != "online":
+            return Response(
+                {"error": "server_offline", "message": "Server is not online."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        operation = create_operation(
+            server=server,
+            kind=Operation.KIND_SERVER_BOOTSTRAP,
+            payload={},
+            actor=request.user.name,
+        )
+        return Response(
+            {"id": str(operation.public_id), "kind": operation.kind, "state": operation.state},
+            status=status.HTTP_201_CREATED,
         )

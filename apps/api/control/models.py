@@ -142,12 +142,14 @@ class Operation(models.Model):
     KIND_SERVICE_RESTART = "service.restart"
     KIND_SERVICE_LOGS = "service.logs"
     KIND_VOLUME_CREATE = "volume.create"
+    KIND_SERVER_BOOTSTRAP = "server.bootstrap"
     KIND_CHOICES = [
         (KIND_SERVICE_START, "Start service"),
         (KIND_SERVICE_STOP, "Stop service"),
         (KIND_SERVICE_RESTART, "Restart service"),
         (KIND_SERVICE_LOGS, "Read service logs"),
         (KIND_VOLUME_CREATE, "Create managed volume"),
+        (KIND_SERVER_BOOTSTRAP, "Bootstrap server"),
     ]
 
     STATE_QUEUED = "queued"

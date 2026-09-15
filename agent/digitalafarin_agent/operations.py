@@ -1,6 +1,7 @@
 import re
 import subprocess
 
+from .bootstrap import BootstrapError, bootstrap_server
 from .redaction import redact
 from .volumes import VolumeError, create_volume
 
@@ -63,6 +64,11 @@ def _bounded(text: str) -> tuple[str, bool]:
 
 
 def execute_operation(kind: str, payload: dict) -> dict:
+    if kind == "server.bootstrap":
+        try:
+            return bootstrap_server(payload)
+        except BootstrapError as exc:
+            raise OperationExecutionError("bootstrap_failed", str(exc)) from exc
     if kind == "volume.create":
         try:
             return create_volume(payload)

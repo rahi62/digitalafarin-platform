@@ -10,6 +10,10 @@ from control import (
 )
 
 urlpatterns = [
+    path(
+        "servers/<uuid:server_id>/bootstrap/",
+        deployment_views.ServerBootstrapView.as_view(),
+    ),
     path("projects/", deployment_views.ProjectListCreateView.as_view()),
     path(
         "projects/<uuid:project_id>/services/",
