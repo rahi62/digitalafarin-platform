@@ -6,6 +6,7 @@ from control import (
     environment_views,
     operation_views,
     telegram_views,
+    volume_views,
 )
 
 urlpatterns = [
@@ -17,6 +18,10 @@ urlpatterns = [
     path(
         "projects/<uuid:project_id>/variables/",
         environment_views.EnvironmentVariableListCreateView.as_view(),
+    ),
+    path(
+        "projects/<uuid:project_id>/volumes/",
+        volume_views.VolumeListCreateView.as_view(),
     ),
     path("operations/", operation_views.OperationListCreateView.as_view()),
     path(

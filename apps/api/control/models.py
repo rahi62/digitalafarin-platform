@@ -141,11 +141,13 @@ class Operation(models.Model):
     KIND_SERVICE_STOP = "service.stop"
     KIND_SERVICE_RESTART = "service.restart"
     KIND_SERVICE_LOGS = "service.logs"
+    KIND_VOLUME_CREATE = "volume.create"
     KIND_CHOICES = [
         (KIND_SERVICE_START, "Start service"),
         (KIND_SERVICE_STOP, "Stop service"),
         (KIND_SERVICE_RESTART, "Restart service"),
         (KIND_SERVICE_LOGS, "Read service logs"),
+        (KIND_VOLUME_CREATE, "Create managed volume"),
     ]
 
     STATE_QUEUED = "queued"
@@ -385,6 +387,29 @@ class EnvironmentVariable(models.Model):
                 condition=Q(scope="environment"),
                 name="uniq_environment_variable",
             ),
+        ]
+
+
+class Volume(models.Model):
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    project = models.ForeignKey(Project, related_name="volumes", on_delete=models.CASCADE)
+    server = models.ForeignKey(Server, related_name="volumes", on_delete=models.PROTECT)
+    service = models.ForeignKey(Service, related_name="volumes", on_delete=models.PROTECT)
+    name = models.SlugField(max_length=80)
+    host_path = models.CharField(max_length=500)
+    mount_path = models.CharField(max_length=500)
+    owner = models.CharField(max_length=64)
+    group = models.CharField(max_length=64)
+    mode = models.CharField(max_length=4, default="0750")
+    backup_policy = models.CharField(
+        max_length=16, choices=[("none", "None"), ("daily", "Daily")], default="none"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(fields=["project", "name"], name="uniq_project_volume")
         ]
 
 

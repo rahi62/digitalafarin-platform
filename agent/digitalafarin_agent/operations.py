@@ -2,6 +2,7 @@ import re
 import subprocess
 
 from .redaction import redact
+from .volumes import VolumeError, create_volume
 
 
 UNIT_PATTERN = re.compile(r"^[A-Za-z0-9_.@:-]+\.service$")
@@ -62,6 +63,11 @@ def _bounded(text: str) -> tuple[str, bool]:
 
 
 def execute_operation(kind: str, payload: dict) -> dict:
+    if kind == "volume.create":
+        try:
+            return create_volume(payload)
+        except VolumeError as exc:
+            raise OperationExecutionError("volume_failed", str(exc)) from exc
     if kind in SERVICE_ACTIONS:
         unit = _validate_unit(payload)
         if set(payload) != {"unit_name"}:
