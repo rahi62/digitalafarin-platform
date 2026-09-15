@@ -107,6 +107,38 @@ def create_mcp(control_plane: ControlPlaneClient | Any | None = None) -> MCPServ
         """Get one typed operation and any scope-authorized redacted result."""
         return await _safe(client.get_operation(operation_id))
 
+    @mcp.tool()
+    async def vps_list_projects() -> dict[str, Any]:
+        """List migration projects without secret values."""
+        return await _safe(client.list_projects())
+
+    @mcp.tool()
+    async def vps_get_project(project_id: str) -> dict[str, Any]:
+        """Get project services and secret-free resource metadata."""
+        return await _safe(client.get_project(project_id))
+
+    @mcp.tool()
+    async def vps_deploy_service(
+        service_id: str, commit: str | None = None
+    ) -> dict[str, Any]:
+        """Queue deploy-latest or an exact lowercase 40-character Git commit."""
+        return await _safe(client.deploy_service(service_id, commit))
+
+    @mcp.tool()
+    async def vps_get_deployment(deployment_id: str) -> dict[str, Any]:
+        """Get deployment state, releases, and redacted events."""
+        return await _safe(client.get_deployment(deployment_id))
+
+    @mcp.tool()
+    async def vps_redeploy_deployment(deployment_id: str) -> dict[str, Any]:
+        """Queue a new deployment of the same exact commit."""
+        return await _safe(client.redeploy(deployment_id))
+
+    @mcp.tool()
+    async def vps_rollback_deployment(deployment_id: str) -> dict[str, Any]:
+        """Queue activation of an existing retained release without rebuilding."""
+        return await _safe(client.rollback(deployment_id))
+
     return mcp
 
 

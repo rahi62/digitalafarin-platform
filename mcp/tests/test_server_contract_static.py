@@ -13,6 +13,12 @@ EXPECTED = {
     "vps_create_service_logs_operation",
     "vps_list_operations",
     "vps_get_operation",
+    "vps_list_projects",
+    "vps_get_project",
+    "vps_deploy_service",
+    "vps_get_deployment",
+    "vps_redeploy_deployment",
+    "vps_rollback_deployment",
 }
 BANNED_FRAGMENTS = {"shell", "command", "exec", "terminal", "sql"}
 

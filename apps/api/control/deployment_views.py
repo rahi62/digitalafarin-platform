@@ -8,6 +8,10 @@ from control.models import Deployment, Operation, Project, Server, Service
 from control.permissions import require_scope
 from control.services.operations import create_operation
 from control.services.deployments import DeploymentAdmissionError, queue_deployment, queue_rollback
+from control.environment_views import EnvironmentVariableSerializer
+from control.volume_views import serialize_volume
+from control.database_views import serialize_database
+from control.domain_views import serialize_domain
 
 
 class ProjectListCreateView(APIView):
@@ -58,6 +62,26 @@ class ProjectServiceListCreateView(APIView):
         return Response(
             ServiceSerializer(service).data, status=status.HTTP_201_CREATED
         )
+
+
+class ProjectDetailView(APIView):
+    authentication_classes = [ServicePrincipalAuthentication]
+    permission_classes = [require_scope("operations:read")]
+
+    def get(self, request, project_id):
+        try:
+            project = Project.objects.get(public_id=project_id)
+        except Project.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        data = ProjectSerializer(project).data
+        data.update(
+            services=ServiceSerializer(project.services.all(), many=True).data,
+            variables=EnvironmentVariableSerializer(project.environment_variables.all(), many=True).data,
+            volumes=[serialize_volume(item) for item in project.volumes.all()],
+            databases=[serialize_database(item) for item in project.databases.all()],
+            domains=[serialize_domain(item) for item in project.domains.all()],
+        )
+        return Response(data)
 
 
 class ServerBootstrapView(APIView):
@@ -186,3 +210,22 @@ class DeploymentRollbackView(APIView):
             return Response(status=status.HTTP_409_CONFLICT)
         deployment, operation = queue_rollback(source=source, release=release, requested_by=request.user.name)
         return Response(serialize_deployment(deployment, operation), status=status.HTTP_201_CREATED)
+
+
+class DeploymentDetailView(APIView):
+    authentication_classes = [ServicePrincipalAuthentication]
+    permission_classes = [require_scope("operations:read")]
+
+    def get(self, request, deployment_id):
+        try:
+            deployment = Deployment.objects.select_related("service", "active_release", "previous_release").get(public_id=deployment_id)
+        except Deployment.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        data = serialize_deployment(deployment)
+        data["active_release"] = deployment.active_release.name if deployment.active_release else None
+        data["previous_release"] = deployment.previous_release.name if deployment.previous_release else None
+        data["events"] = [
+            {"id": str(item.public_id), "state": item.state, "message": item.message, "metadata": item.metadata, "created_at": item.created_at}
+            for item in deployment.events.all()
+        ]
+        return Response(data)

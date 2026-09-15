@@ -69,3 +69,8 @@ class ServiceSerializer(StrictSerializer):
 
     def create(self, validated_data):
         return Service.objects.create(project=self.context["project"], **validated_data)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["target_server_id"] = str(instance.target_server.public_id)
+        return data

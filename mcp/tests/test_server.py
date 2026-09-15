@@ -51,6 +51,24 @@ class FakeControlPlane:
     async def get_operation(self, operation_id):
         return {"id": operation_id, "state": "succeeded"}
 
+    async def list_projects(self):
+        return {"items": [{"id": "project-id", "name": "Oily"}]}
+
+    async def get_project(self, project_id):
+        return {"id": project_id, "variables": [{"key": "SECRET", "has_value": True}]}
+
+    async def deploy_service(self, service_id, commit):
+        return {"id": "deployment-id", "state": "queued"}
+
+    async def get_deployment(self, deployment_id):
+        return {"id": deployment_id, "state": "succeeded"}
+
+    async def redeploy(self, deployment_id):
+        return {"id": "redeployment-id", "state": "queued"}
+
+    async def rollback(self, deployment_id):
+        return {"id": "rollback-id", "state": "queued"}
+
 
 @pytest.mark.asyncio
 async def test_server_discovers_only_inventory_and_typed_operation_tools():
@@ -70,6 +88,12 @@ async def test_server_discovers_only_inventory_and_typed_operation_tools():
         "vps_create_service_logs_operation",
         "vps_list_operations",
         "vps_get_operation",
+        "vps_list_projects",
+        "vps_get_project",
+        "vps_deploy_service",
+        "vps_get_deployment",
+        "vps_redeploy_deployment",
+        "vps_rollback_deployment",
     }
 
 
@@ -87,3 +111,13 @@ async def test_typed_service_operation_tool_accepts_only_declared_action():
         )
 
     assert result.structured_content["kind"] == "service.restart"
+
+
+@pytest.mark.asyncio
+async def test_project_tool_returns_secret_metadata_only():
+    server = create_mcp(FakeControlPlane())
+    async with Client(server, raise_exceptions=True) as client:
+        result = await client.call_tool("vps_get_project", {"project_id": "project-id"})
+
+    assert result.structured_content["variables"] == [{"key": "SECRET", "has_value": True}]
+    assert "sentinel-secret" not in str(result)

@@ -1,5 +1,6 @@
 import "server-only";
 import { buildServiceOperation, type ServiceAction } from "./operations";
+import { buildDeployRequest, projectPath } from "./deployments";
 
 export type ServerStatus = "online" | "stale" | "offline" | string;
 
@@ -60,6 +61,28 @@ export type Operation = {
   claimed_at: string | null;
   started_at: string | null;
   completed_at: string | null;
+};
+
+export type ManagedService = {
+  id: string; project_id: string; name: string; executor: "systemd";
+  repository: string; branch: string; root_directory: string;
+  runtime: "node-nextjs" | "python-django"; service_port: number; target_server_id: string;
+};
+
+export type Project = {
+  id: string; name: string; slug: string;
+  services?: ManagedService[];
+  variables?: Array<{ id: string; key: string; value_type: "plain" | "secret"; scope: string; has_value: boolean; value?: string }>;
+  volumes?: Array<{ id: string; name: string; host_path: string; mount_path: string }>;
+  databases?: Array<{ id: string; database_name: string; username: string; status: string; has_credential: boolean }>;
+  domains?: Array<{ id: string; hostname: string; status: string; ssl_enabled: boolean }>;
+};
+
+export type Deployment = {
+  id: string; service_id: string; requested_ref: string; resolved_commit: string;
+  state: string; requested_by: string; queued_at: string; started_at: string | null;
+  completed_at: string | null; active_release?: string | null; previous_release?: string | null;
+  events?: Array<{ id: string; state: string; message: string; created_at: string }>;
 };
 
 export class ControlPlaneError extends Error {
@@ -178,4 +201,36 @@ export function createServiceLogsOperation(
       payload: { unit_name: unitName, lines, since_seconds: sinceSeconds },
     }),
   });
+}
+
+export async function listProjects(): Promise<Project[]> {
+  const result = await request<{ items: Project[] }>("/api/control/v1/projects/");
+  return result.items;
+}
+
+export function getProject(projectId: string): Promise<Project> {
+  return request(projectPath(projectId));
+}
+
+export async function listDeployments(serviceId: string): Promise<Deployment[]> {
+  const result = await request<{ items: Deployment[] }>(`/api/control/v1/services/${encodeURIComponent(serviceId)}/deployments/`);
+  return result.items;
+}
+
+export function getDeployment(deploymentId: string): Promise<Deployment> {
+  return request(`/api/control/v1/deployments/${encodeURIComponent(deploymentId)}/`);
+}
+
+export function deployService(serviceId: string, commit?: string): Promise<Deployment> {
+  return request(`/api/control/v1/services/${encodeURIComponent(serviceId)}/deployments/`, {
+    method: "POST", body: JSON.stringify(buildDeployRequest(commit)),
+  });
+}
+
+export function redeployDeployment(deploymentId: string): Promise<Deployment> {
+  return request(`/api/control/v1/deployments/${encodeURIComponent(deploymentId)}/redeploy/`, { method: "POST", body: "{}" });
+}
+
+export function rollbackDeployment(deploymentId: string): Promise<Deployment> {
+  return request(`/api/control/v1/deployments/${encodeURIComponent(deploymentId)}/rollback/`, { method: "POST", body: "{}" });
 }

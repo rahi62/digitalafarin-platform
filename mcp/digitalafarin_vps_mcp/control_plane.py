@@ -228,6 +228,29 @@ class ControlPlaneClient:
             raise MCPDomainError("invalid_request", "operation_id must be a UUID.")
         return await self._get(f"/api/control/v1/operations/{operation_id}/")
 
+    async def list_projects(self) -> dict:
+        return await self._get("/api/control/v1/projects/")
+
+    async def get_project(self, project_id: str) -> dict:
+        return await self._get(f"/api/control/v1/projects/{quote(project_id, safe='')}/")
+
+    async def deploy_service(self, service_id: str, commit: str | None) -> dict:
+        if commit and not re.fullmatch(r"[0-9a-f]{40}", commit):
+            raise MCPDomainError("invalid_request", "commit must be an exact lowercase SHA-1.")
+        return await self._post(
+            f"/api/control/v1/services/{quote(service_id, safe='')}/deployments/",
+            {"commit": commit} if commit else {},
+        )
+
+    async def get_deployment(self, deployment_id: str) -> dict:
+        return await self._get(f"/api/control/v1/deployments/{quote(deployment_id, safe='')}/")
+
+    async def redeploy(self, deployment_id: str) -> dict:
+        return await self._post(f"/api/control/v1/deployments/{quote(deployment_id, safe='')}/redeploy/", {})
+
+    async def rollback(self, deployment_id: str) -> dict:
+        return await self._post(f"/api/control/v1/deployments/{quote(deployment_id, safe='')}/rollback/", {})
+
     async def close(self) -> None:
         if self._owns_http:
             await self.http.aclose()
