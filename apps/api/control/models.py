@@ -195,6 +195,142 @@ class Operation(models.Model):
         indexes = [models.Index(fields=["server", "state", "created_at"])]
 
 
+class Project(models.Model):
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    name = models.CharField(max_length=120)
+    slug = models.SlugField(max_length=80, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+
+
+class Service(models.Model):
+    EXECUTOR_SYSTEMD = "systemd"
+    RUNTIME_NODE = "node-nextjs"
+    RUNTIME_DJANGO = "python-django"
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    project = models.ForeignKey(Project, related_name="services", on_delete=models.CASCADE)
+    name = models.SlugField(max_length=80)
+    executor = models.CharField(
+        max_length=20,
+        choices=[(EXECUTOR_SYSTEMD, "Systemd")],
+        default=EXECUTOR_SYSTEMD,
+    )
+    repository = models.URLField(max_length=500)
+    branch = models.CharField(max_length=255, default="main")
+    root_directory = models.CharField(max_length=255, default=".")
+    runtime = models.CharField(
+        max_length=32,
+        choices=[(RUNTIME_NODE, "Node/Next.js"), (RUNTIME_DJANGO, "Python/Django")],
+    )
+    install_configuration = models.JSONField(default=dict, blank=True)
+    build_configuration = models.JSONField(default=dict, blank=True)
+    service_port = models.PositiveIntegerField()
+    target_server = models.ForeignKey(
+        Server, related_name="managed_services", on_delete=models.PROTECT
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["project__name", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "name"], name="uniq_project_service"
+            )
+        ]
+
+
+class HealthCheck(models.Model):
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    service = models.OneToOneField(
+        Service, related_name="health_check", on_delete=models.CASCADE
+    )
+    path = models.CharField(max_length=255, default="/health")
+    expected_status = models.PositiveIntegerField(default=200)
+    timeout_seconds = models.PositiveIntegerField(default=10)
+    interval_seconds = models.PositiveIntegerField(default=5)
+    attempts = models.PositiveIntegerField(default=6)
+
+
+class Deployment(models.Model):
+    STATES = [
+        (state, state.replace("_", " ").title())
+        for state in (
+            "queued",
+            "preparing",
+            "cloning",
+            "building",
+            "releasing",
+            "health_check",
+            "activating",
+            "verifying",
+            "succeeded",
+            "failed",
+            "rolled_back",
+        )
+    ]
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    service = models.ForeignKey(
+        Service, related_name="deployments", on_delete=models.CASCADE
+    )
+    requested_ref = models.CharField(max_length=255)
+    resolved_commit = models.CharField(max_length=40, blank=True)
+    state = models.CharField(max_length=20, choices=STATES, default="queued")
+    requested_by = models.CharField(max_length=120)
+    source_deployment = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL
+    )
+    active_release = models.ForeignKey(
+        "Release", null=True, blank=True, related_name="active_deployments", on_delete=models.SET_NULL
+    )
+    previous_release = models.ForeignKey(
+        "Release", null=True, blank=True, related_name="rollback_deployments", on_delete=models.SET_NULL
+    )
+    failure_code = models.CharField(max_length=100, blank=True)
+    queued_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-queued_at"]
+
+
+class Release(models.Model):
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    service = models.ForeignKey(Service, related_name="releases", on_delete=models.CASCADE)
+    deployment = models.OneToOneField(
+        Deployment, related_name="release", on_delete=models.PROTECT
+    )
+    name = models.CharField(max_length=80)
+    exact_commit = models.CharField(max_length=40)
+    path = models.CharField(max_length=500)
+    activated_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["service", "name"], name="uniq_service_release")
+        ]
+
+
+class DeploymentEvent(models.Model):
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    deployment = models.ForeignKey(
+        Deployment, related_name="events", on_delete=models.CASCADE
+    )
+    state = models.CharField(max_length=20, choices=Deployment.STATES)
+    message = models.CharField(max_length=500, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+
 class TelegramBotCredential(models.Model):
     name = models.CharField(max_length=120, unique=True, default="primary")
     is_active = models.BooleanField(default=True)
