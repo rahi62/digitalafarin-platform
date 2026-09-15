@@ -331,6 +331,63 @@ class DeploymentEvent(models.Model):
         ordering = ["created_at"]
 
 
+class EnvironmentVariable(models.Model):
+    TYPE_PLAIN = "plain"
+    TYPE_SECRET = "secret"
+    SCOPE_PROJECT = "project"
+    SCOPE_SERVICE = "service"
+    SCOPE_ENVIRONMENT = "environment"
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    project = models.ForeignKey(
+        Project, related_name="environment_variables", on_delete=models.CASCADE
+    )
+    service = models.ForeignKey(
+        Service,
+        related_name="environment_variables",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+    )
+    key = models.CharField(max_length=128)
+    value_type = models.CharField(
+        max_length=10, choices=[(TYPE_PLAIN, "Plain"), (TYPE_SECRET, "Secret")]
+    )
+    scope = models.CharField(
+        max_length=16,
+        choices=[
+            (SCOPE_PROJECT, "Project"),
+            (SCOPE_SERVICE, "Service"),
+            (SCOPE_ENVIRONMENT, "Environment"),
+        ],
+    )
+    environment = models.SlugField(max_length=80, blank=True)
+    plain_value = models.TextField(blank=True)
+    secret_ciphertext = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["key"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "key"],
+                condition=Q(scope="project"),
+                name="uniq_project_variable",
+            ),
+            models.UniqueConstraint(
+                fields=["service", "key"],
+                condition=Q(scope="service"),
+                name="uniq_service_variable",
+            ),
+            models.UniqueConstraint(
+                fields=["service", "environment", "key"],
+                condition=Q(scope="environment"),
+                name="uniq_environment_variable",
+            ),
+        ]
+
+
 class TelegramBotCredential(models.Model):
     name = models.CharField(max_length=120, unique=True, default="primary")
     is_active = models.BooleanField(default=True)
