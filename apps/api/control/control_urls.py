@@ -1,8 +1,13 @@
 from django.urls import path
 
-from control import control_views, telegram_views
+from control import control_views, operation_views, telegram_views
 
 urlpatterns = [
+    path("operations/", operation_views.OperationListCreateView.as_view()),
+    path(
+        "operations/<uuid:operation_id>/",
+        operation_views.OperationDetailView.as_view(),
+    ),
     path("servers/", control_views.ServerListView.as_view()),
     path("servers/<str:server_id>/", control_views.ServerDetailView.as_view()),
     path("servers/<str:server_id>/metrics/", control_views.ServerMetricsView.as_view()),

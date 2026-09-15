@@ -42,3 +42,14 @@ class HeartbeatRequestSerializer(serializers.Serializer):
     )
     metrics = MetricsSerializer()
     services = ServiceHeartbeatSerializer(many=True)
+
+
+class OperationStartedSerializer(serializers.Serializer):
+    claim_token = serializers.CharField(max_length=64)
+
+
+class OperationCompleteSerializer(OperationStartedSerializer):
+    succeeded = serializers.BooleanField()
+    result = serializers.DictField(required=False, default=dict)
+    error_code = serializers.CharField(max_length=100, required=False, default="")
+    error_message = serializers.CharField(max_length=500, required=False, default="")
