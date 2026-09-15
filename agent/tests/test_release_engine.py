@@ -43,6 +43,17 @@ def test_resolve_exact_commit_resolves_branch_once(tmp_path):
     assert resolved == second
 
 
+def test_redeploy_same_commit_in_same_second_allocates_unique_release(tmp_path):
+    repo, first, _second = make_repo(tmp_path)
+    apps = tmp_path / "apps"
+
+    first_release = prepare_release("oily", "web", str(repo), first, apps_root=apps, timestamp="20260915-183015")
+    second_release = prepare_release("oily", "web", str(repo), first, apps_root=apps, timestamp="20260915-183015")
+
+    assert first_release.name == f"20260915-183015-{first[:7]}"
+    assert second_release.name == f"20260915-183015-{first[:7]}-2"
+
+
 def test_atomic_activation_and_rollback_only_switch_symlink(tmp_path):
     root = tmp_path / "apps" / "oily" / "web"
     first = root / "releases" / "first"

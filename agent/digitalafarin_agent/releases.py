@@ -69,9 +69,12 @@ def prepare_release(
     (service_root / "shared").mkdir(parents=True, exist_ok=True)
     releases.mkdir(parents=True, exist_ok=True)
     stamp = timestamp or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    release = releases / f"{stamp}-{exact_commit[:7]}"
-    if release.exists():
-        raise ReleaseError("release already exists")
+    base_name = f"{stamp}-{exact_commit[:7]}"
+    release = releases / base_name
+    sequence = 2
+    while release.exists():
+        release = releases / f"{base_name}-{sequence}"
+        sequence += 1
     _run(["git", "clone", "--no-checkout", "--", repository, str(release)])
     _run(["git", "-C", str(release), "checkout", "--detach", exact_commit])
     return release
