@@ -1,4 +1,5 @@
 import "server-only";
+import { buildServiceOperation, type ServiceAction } from "./operations";
 
 export type ServerStatus = "online" | "stale" | "offline" | string;
 
@@ -45,6 +46,22 @@ export type AuditEvent = {
   created_at: string;
 };
 
+export type Operation = {
+  id: string;
+  server_id: string;
+  kind: "service.start" | "service.stop" | "service.restart" | "service.logs";
+  state: "queued" | "claimed" | "running" | "succeeded" | "failed";
+  payload: { unit_name: string; lines?: number; since_seconds?: number };
+  result?: { message?: string; logs?: string; truncated?: boolean };
+  error_code: string;
+  error_message: string;
+  actor: string;
+  created_at: string;
+  claimed_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+};
+
 export class ControlPlaneError extends Error {
   constructor(
     public readonly status: number,
@@ -63,12 +80,15 @@ function getConfig() {
   return { baseUrl, token };
 }
 
-async function request<T>(path: string): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const { baseUrl, token } = getConfig();
   const response = await fetch(`${baseUrl}${path}`, {
+    ...init,
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
+      ...(init.body ? { "Content-Type": "application/json" } : {}),
+      ...init.headers,
     },
     cache: "no-store",
   });
@@ -121,4 +141,41 @@ export async function listAuditEvents(options: { serverId?: string; limit?: numb
   params.set("limit", String(Math.min(100, Math.max(1, options.limit ?? 20))));
   const result = await request<{ items: AuditEvent[] }>(`/api/control/v1/audit/?${params.toString()}`);
   return result.items;
+}
+
+export async function listOperations(): Promise<Operation[]> {
+  const result = await request<{ items: Operation[] }>("/api/control/v1/operations/");
+  return result.items;
+}
+
+export function getOperation(operationId: string): Promise<Operation> {
+  return request(`/api/control/v1/operations/${encodeURIComponent(operationId)}/`);
+}
+
+export function createServiceOperation(
+  serverId: string,
+  action: ServiceAction,
+  unitName: string,
+  idempotencyKey: string,
+): Promise<Operation> {
+  return request("/api/control/v1/operations/", {
+    method: "POST",
+    body: JSON.stringify(buildServiceOperation(serverId, action, unitName, idempotencyKey)),
+  });
+}
+
+export function createServiceLogsOperation(
+  serverId: string,
+  unitName: string,
+  lines = 100,
+  sinceSeconds = 3600,
+): Promise<Operation> {
+  return request("/api/control/v1/operations/", {
+    method: "POST",
+    body: JSON.stringify({
+      server_id: serverId,
+      kind: "service.logs",
+      payload: { unit_name: unitName, lines, since_seconds: sinceSeconds },
+    }),
+  });
 }

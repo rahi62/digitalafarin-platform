@@ -83,6 +83,10 @@ export default async function ServerDetailPage({ params }: { params: Promise<{ s
       </section>
 
       <section className="panel" style={{ marginTop: 12 }}>
+        <div className="panelHeader"><div><h2>عملیات مدیریت‌شده</h2><p>Start، stop، restart و logs با audit کامل</p></div><Link className="panelLink" href="/operations">باز کردن عملیات</Link></div>
+      </section>
+
+      <section className="panel" style={{ marginTop: 12 }}>
         <div className="panelHeader"><div><h2>هویت Agent</h2><p>شناسه عمومی و capabilityهای این Node</p></div></div>
         <div className="panelBody identityGrid">
           <div className="identityField"><span>Public UUID</span><code>{server.id}</code></div>
