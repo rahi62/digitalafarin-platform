@@ -147,6 +147,8 @@ class Operation(models.Model):
     KIND_DATABASE_RESTORE = "database.restore"
     KIND_DEPLOYMENT_DEPLOY = "deployment.deploy"
     KIND_DEPLOYMENT_ROLLBACK = "deployment.rollback"
+    KIND_DOMAIN_CONFIGURE = "domain.configure"
+    KIND_DOMAIN_SSL = "domain.ssl"
     KIND_CHOICES = [
         (KIND_SERVICE_START, "Start service"),
         (KIND_SERVICE_STOP, "Stop service"),
@@ -158,6 +160,8 @@ class Operation(models.Model):
         (KIND_DATABASE_RESTORE, "Restore database"),
         (KIND_DEPLOYMENT_DEPLOY, "Deploy release"),
         (KIND_DEPLOYMENT_ROLLBACK, "Rollback release"),
+        (KIND_DOMAIN_CONFIGURE, "Configure domain"),
+        (KIND_DOMAIN_SSL, "Enable domain SSL"),
     ]
 
     STATE_QUEUED = "queued"
@@ -456,6 +460,25 @@ class GitHubDelivery(models.Model):
     event = models.CharField(max_length=50)
     commit = models.CharField(max_length=40)
     received_at = models.DateTimeField(auto_now_add=True)
+
+
+class Domain(models.Model):
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    project = models.ForeignKey(Project, related_name="domains", on_delete=models.CASCADE)
+    service = models.ForeignKey(Service, related_name="domains", on_delete=models.PROTECT)
+    server = models.ForeignKey(Server, related_name="domains", on_delete=models.PROTECT)
+    hostname = models.CharField(max_length=253, unique=True)
+    status = models.CharField(
+        max_length=16,
+        choices=[("queued", "Queued"), ("configured", "Configured"), ("failed", "Failed")],
+        default="queued",
+    )
+    ssl_enabled = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["hostname"]
 
 
 class TelegramBotCredential(models.Model):

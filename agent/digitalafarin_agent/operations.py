@@ -4,6 +4,7 @@ import subprocess
 from .bootstrap import BootstrapError, bootstrap_server
 from .postgres import DatabaseError, create_database, restore_database
 from .deployment import DeploymentFailure, deploy_release, rollback_release
+from .domains import DomainError, configure_domain, enable_ssl
 from .redaction import redact
 from .volumes import VolumeError, create_volume
 
@@ -66,6 +67,16 @@ def _bounded(text: str) -> tuple[str, bool]:
 
 
 def execute_operation(kind: str, payload: dict) -> dict:
+    if kind == "domain.configure":
+        try:
+            return configure_domain(payload)
+        except DomainError as exc:
+            raise OperationExecutionError("domain_configure_failed", str(exc)) from exc
+    if kind == "domain.ssl":
+        try:
+            return enable_ssl(payload)
+        except DomainError as exc:
+            raise OperationExecutionError("domain_ssl_failed", str(exc)) from exc
     if kind == "deployment.deploy":
         try:
             return deploy_release(payload)

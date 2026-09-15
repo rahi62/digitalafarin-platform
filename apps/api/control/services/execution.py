@@ -2,7 +2,9 @@ from urllib.parse import quote
 
 from django.core.exceptions import ObjectDoesNotExist
 
-from control.models import DatabaseResource, Deployment, Operation, Release
+import os
+
+from control.models import DatabaseResource, Deployment, Domain, Operation, Release
 from control.services.secrets import decrypt_secret
 from control.services.variables import resolve_environment
 
@@ -39,6 +41,14 @@ def _deployment_environment(service) -> dict[str, str]:
 
 
 def build_execution_context(operation: Operation) -> dict | None:
+    if operation.kind in {Operation.KIND_DOMAIN_CONFIGURE, Operation.KIND_DOMAIN_SSL}:
+        domain = Domain.objects.select_related("service").get(
+            public_id=operation.payload["domain_id"], server=operation.server
+        )
+        context = {"hostname": domain.hostname, "service_port": domain.service.service_port}
+        if operation.kind == Operation.KIND_DOMAIN_SSL:
+            context = {"hostname": domain.hostname, "email": os.getenv("PLATFORM_CERTBOT_EMAIL", "")}
+        return context
     if operation.kind in {Operation.KIND_DATABASE_CREATE, Operation.KIND_DATABASE_RESTORE}:
         database = DatabaseResource.objects.get(
             public_id=operation.payload["database_resource_id"], server=operation.server

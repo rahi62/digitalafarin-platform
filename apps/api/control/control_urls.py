@@ -3,6 +3,7 @@ from django.urls import path
 from control import (
     control_views,
     database_views,
+    domain_views,
     deployment_views,
     environment_views,
     github_views,
@@ -46,6 +47,11 @@ urlpatterns = [
         "projects/<uuid:project_id>/databases/",
         database_views.DatabaseListCreateView.as_view(),
     ),
+    path(
+        "projects/<uuid:project_id>/domains/",
+        domain_views.DomainListCreateView.as_view(),
+    ),
+    path("domains/<uuid:domain_id>/ssl/", domain_views.DomainSSLView.as_view()),
     path(
         "databases/<uuid:database_id>/restore/",
         database_views.DatabaseRestoreView.as_view(),
