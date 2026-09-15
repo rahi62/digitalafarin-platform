@@ -9,11 +9,15 @@ EXPECTED = {
     "vps_list_services",
     "vps_get_service",
     "vps_get_recent_audit_events",
+    "vps_create_service_operation",
+    "vps_create_service_logs_operation",
+    "vps_list_operations",
+    "vps_get_operation",
 }
-BANNED_FRAGMENTS = {"shell", "command", "exec", "restart", "deploy", "stop", "start", "write"}
+BANNED_FRAGMENTS = {"shell", "command", "exec", "terminal", "sql"}
 
 
-def test_server_source_registers_only_the_six_approved_read_tools():
+def test_server_source_registers_only_inventory_and_typed_operation_tools():
     source_path = Path(__file__).parents[1] / "digitalafarin_vps_mcp" / "server.py"
     tree = ast.parse(source_path.read_text(encoding="utf-8"))
     tool_names = set()

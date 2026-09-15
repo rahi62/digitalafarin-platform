@@ -55,3 +55,36 @@ async def test_default_server_identifier_is_used_when_server_id_omitted():
 
     assert seen == ["/api/control/v1/servers/default/"]
     await http.aclose()
+
+
+@pytest.mark.asyncio
+async def test_create_service_operation_posts_strict_typed_payload():
+    seen = []
+
+    async def handler(request: httpx.Request):
+        seen.append((request.url.path, request.read().decode()))
+        return httpx.Response(201, json={"id": "operation-id", "state": "queued"})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = ControlPlaneClient("http://control", "service-secret", http=http)
+
+    result = await client.create_service_operation(
+        "server-id", "restart", "oily-api.service", "request-1"
+    )
+
+    assert result["state"] == "queued"
+    assert seen[0][0] == "/api/control/v1/operations/"
+    assert '"kind":"service.restart"' in seen[0][1]
+    assert '"unit_name":"oily-api.service"' in seen[0][1]
+    await http.aclose()
+
+
+@pytest.mark.asyncio
+async def test_create_service_operation_rejects_unknown_action_before_http():
+    client = ControlPlaneClient("http://control", "service-secret")
+
+    with pytest.raises(MCPDomainError) as exc:
+        await client.create_service_operation(None, "reload", "oily-api.service", "")
+
+    assert exc.value.code == "invalid_request"
+    await client.close()

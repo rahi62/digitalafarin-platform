@@ -1,4 +1,4 @@
-from typing import Any, Awaitable
+from typing import Any, Awaitable, Literal
 
 from mcp.server import MCPServer
 
@@ -24,9 +24,8 @@ def create_mcp(control_plane: ControlPlaneClient | Any | None = None) -> MCPServ
     mcp = MCPServer(
         "DigitalAfarin VPS",
         instructions=(
-            "Read-only access to DigitalAfarin VPS inventory, health, systemd "
-            "services, metrics, and audit events. Do not claim that this server "
-            "can mutate VPS state."
+            "Inventory reads and strictly typed DigitalAfarin VPS operations. "
+            "No arbitrary shell, command, systemctl, filesystem, or SQL access."
         ),
     )
 
@@ -68,6 +67,45 @@ def create_mcp(control_plane: ControlPlaneClient | Any | None = None) -> MCPServ
     ) -> dict[str, Any]:
         """Read recent platform audit events, optionally scoped to one VPS."""
         return await _safe(client.get_audit(server_id, limit))
+
+    @mcp.tool()
+    async def vps_create_service_operation(
+        action: Literal["start", "stop", "restart"],
+        service_name: str,
+        server_id: str | None = None,
+        idempotency_key: str = "",
+    ) -> dict[str, Any]:
+        """Queue one typed action for an exact managed, non-protected service."""
+        return await _safe(
+            client.create_service_operation(
+                server_id, action, service_name, idempotency_key
+            )
+        )
+
+    @mcp.tool()
+    async def vps_create_service_logs_operation(
+        service_name: str,
+        server_id: str | None = None,
+        lines: int = 100,
+        since_seconds: int = 3600,
+        idempotency_key: str = "",
+    ) -> dict[str, Any]:
+        """Queue a bounded redacted journal read for one managed service."""
+        return await _safe(
+            client.create_logs_operation(
+                server_id, service_name, lines, since_seconds, idempotency_key
+            )
+        )
+
+    @mcp.tool()
+    async def vps_list_operations() -> dict[str, Any]:
+        """List recent typed VPS operations visible to this identity."""
+        return await _safe(client.list_operations())
+
+    @mcp.tool()
+    async def vps_get_operation(operation_id: str) -> dict[str, Any]:
+        """Get one typed operation and any scope-authorized redacted result."""
+        return await _safe(client.get_operation(operation_id))
 
     return mcp
 
