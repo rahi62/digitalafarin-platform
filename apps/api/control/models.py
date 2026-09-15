@@ -136,6 +136,65 @@ class AuditEvent(models.Model):
         ordering = ["-created_at"]
 
 
+class Operation(models.Model):
+    KIND_SERVICE_START = "service.start"
+    KIND_SERVICE_STOP = "service.stop"
+    KIND_SERVICE_RESTART = "service.restart"
+    KIND_SERVICE_LOGS = "service.logs"
+    KIND_CHOICES = [
+        (KIND_SERVICE_START, "Start service"),
+        (KIND_SERVICE_STOP, "Stop service"),
+        (KIND_SERVICE_RESTART, "Restart service"),
+        (KIND_SERVICE_LOGS, "Read service logs"),
+    ]
+
+    STATE_QUEUED = "queued"
+    STATE_CLAIMED = "claimed"
+    STATE_RUNNING = "running"
+    STATE_SUCCEEDED = "succeeded"
+    STATE_FAILED = "failed"
+    STATE_CHOICES = [
+        (STATE_QUEUED, "Queued"),
+        (STATE_CLAIMED, "Claimed"),
+        (STATE_RUNNING, "Running"),
+        (STATE_SUCCEEDED, "Succeeded"),
+        (STATE_FAILED, "Failed"),
+    ]
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    server = models.ForeignKey(
+        Server, related_name="operations", on_delete=models.CASCADE
+    )
+    kind = models.CharField(max_length=64, choices=KIND_CHOICES)
+    state = models.CharField(
+        max_length=16, choices=STATE_CHOICES, default=STATE_QUEUED
+    )
+    payload = models.JSONField(default=dict)
+    result = models.JSONField(default=dict, blank=True)
+    error_code = models.CharField(max_length=100, blank=True)
+    error_message = models.CharField(max_length=500, blank=True)
+    actor = models.CharField(max_length=120)
+    idempotency_key = models.CharField(max_length=120, blank=True)
+    claim_token = models.CharField(max_length=64, blank=True)
+    lease_expires_at = models.DateTimeField(null=True, blank=True)
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["server", "actor", "idempotency_key"],
+                condition=~Q(idempotency_key=""),
+                name="uniq_operation_idempotency",
+            )
+        ]
+        indexes = [models.Index(fields=["server", "state", "created_at"])]
+
+
 class TelegramBotCredential(models.Model):
     name = models.CharField(max_length=120, unique=True, default="primary")
     is_active = models.BooleanField(default=True)
