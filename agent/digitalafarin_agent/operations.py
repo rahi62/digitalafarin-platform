@@ -2,6 +2,7 @@ import re
 import subprocess
 
 from .bootstrap import BootstrapError, bootstrap_server
+from .postgres import DatabaseError, create_database, restore_database
 from .redaction import redact
 from .volumes import VolumeError, create_volume
 
@@ -64,6 +65,16 @@ def _bounded(text: str) -> tuple[str, bool]:
 
 
 def execute_operation(kind: str, payload: dict) -> dict:
+    if kind == "database.create":
+        try:
+            return create_database(payload)
+        except DatabaseError as exc:
+            raise OperationExecutionError("database_create_failed", str(exc)) from exc
+    if kind == "database.restore":
+        try:
+            return restore_database(payload)
+        except DatabaseError as exc:
+            raise OperationExecutionError("database_restore_failed", str(exc)) from exc
     if kind == "server.bootstrap":
         try:
             return bootstrap_server(payload)
@@ -121,7 +132,9 @@ class OperationRunner:
         operation_id = operation["id"]
         await self.client.start_operation(agent_token, operation_id, claim_token)
         try:
-            result = execute_operation(operation["kind"], operation["payload"])
+            result = execute_operation(
+                operation["kind"], operation.get("execution", operation["payload"])
+            )
             completion = {"succeeded": True, "result": result}
         except OperationExecutionError as exc:
             completion = {

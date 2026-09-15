@@ -2,6 +2,7 @@ from django.urls import path
 
 from control import (
     control_views,
+    database_views,
     deployment_views,
     environment_views,
     operation_views,
@@ -26,6 +27,14 @@ urlpatterns = [
     path(
         "projects/<uuid:project_id>/volumes/",
         volume_views.VolumeListCreateView.as_view(),
+    ),
+    path(
+        "projects/<uuid:project_id>/databases/",
+        database_views.DatabaseListCreateView.as_view(),
+    ),
+    path(
+        "databases/<uuid:database_id>/restore/",
+        database_views.DatabaseRestoreView.as_view(),
     ),
     path("operations/", operation_views.OperationListCreateView.as_view()),
     path(

@@ -143,6 +143,8 @@ class Operation(models.Model):
     KIND_SERVICE_LOGS = "service.logs"
     KIND_VOLUME_CREATE = "volume.create"
     KIND_SERVER_BOOTSTRAP = "server.bootstrap"
+    KIND_DATABASE_CREATE = "database.create"
+    KIND_DATABASE_RESTORE = "database.restore"
     KIND_CHOICES = [
         (KIND_SERVICE_START, "Start service"),
         (KIND_SERVICE_STOP, "Stop service"),
@@ -150,6 +152,8 @@ class Operation(models.Model):
         (KIND_SERVICE_LOGS, "Read service logs"),
         (KIND_VOLUME_CREATE, "Create managed volume"),
         (KIND_SERVER_BOOTSTRAP, "Bootstrap server"),
+        (KIND_DATABASE_CREATE, "Create database"),
+        (KIND_DATABASE_RESTORE, "Restore database"),
     ]
 
     STATE_QUEUED = "queued"
@@ -412,6 +416,31 @@ class Volume(models.Model):
         ordering = ["name"]
         constraints = [
             models.UniqueConstraint(fields=["project", "name"], name="uniq_project_volume")
+        ]
+
+
+class DatabaseResource(models.Model):
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    project = models.ForeignKey(Project, related_name="databases", on_delete=models.CASCADE)
+    service = models.ForeignKey(Service, related_name="databases", on_delete=models.PROTECT)
+    server = models.ForeignKey(Server, related_name="databases", on_delete=models.PROTECT)
+    database_name = models.CharField(max_length=63)
+    username = models.CharField(max_length=63)
+    password_ciphertext = models.TextField()
+    status = models.CharField(
+        max_length=16,
+        choices=[("queued", "Queued"), ("ready", "Ready"), ("failed", "Failed")],
+        default="queued",
+    )
+    last_backup_name = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["database_name"]
+        constraints = [
+            models.UniqueConstraint(fields=["server", "database_name"], name="uniq_server_database"),
+            models.UniqueConstraint(fields=["server", "username"], name="uniq_server_database_user"),
         ]
 
 

@@ -10,12 +10,14 @@ from control.agent_serializers import (
     OperationStartedSerializer,
 )
 from control.operation_serializers import serialize_operation
+from control.models import DatabaseResource, Operation
 from control.services.operations import (
     OperationTransitionError,
     claim_next_operation,
     complete_operation,
     start_operation,
 )
+from control.services.secrets import decrypt_secret
 from control.authentication import AgentTokenAuthentication
 from control.services.enrollment import EnrollmentError, enroll_agent
 from control.services.heartbeat import apply_heartbeat
@@ -75,12 +77,28 @@ class OperationClaimView(AgentOperationView):
         claimed = claim_next_operation(server=request.user.server)
         if claimed is None:
             return Response(status=status.HTTP_204_NO_CONTENT)
-        return Response(
-            {
-                "operation": serialize_operation(claimed.operation, include_result=False),
-                "claim_token": claimed.claim_token,
+        operation_data = serialize_operation(claimed.operation, include_result=False)
+        if claimed.operation.kind in {
+            Operation.KIND_DATABASE_CREATE,
+            Operation.KIND_DATABASE_RESTORE,
+        }:
+            database = DatabaseResource.objects.get(
+                public_id=claimed.operation.payload["database_resource_id"],
+                server=request.user.server,
+            )
+            operation_data["execution"] = {
+                "database_name": database.database_name,
+                "username": database.username,
             }
-        )
+            if claimed.operation.kind == Operation.KIND_DATABASE_CREATE:
+                operation_data["execution"]["password"] = decrypt_secret(
+                    database.password_ciphertext
+                )
+            else:
+                operation_data["execution"]["backup_name"] = claimed.operation.payload[
+                    "backup_name"
+                ]
+        return Response({"operation": operation_data, "claim_token": claimed.claim_token})
 
 
 class OperationStartedView(AgentOperationView):
