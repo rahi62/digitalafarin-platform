@@ -1,5 +1,9 @@
 import re
 import subprocess
+import os
+from pathlib import Path
+
+from digitalafarin_agent.redaction import redact
 
 
 SAFE_FILE = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -61,3 +65,28 @@ class SystemdExecutor:
             timeout=30,
             shell=False,
         )
+
+    def run_commands(
+        self,
+        commands: list[list[str]],
+        cwd: Path,
+        environment: dict[str, str],
+        known_secrets: tuple[str, ...],
+    ) -> None:
+        process_environment = {**os.environ, **environment}
+        for command in commands:
+            try:
+                result = subprocess.run(
+                    command,
+                    cwd=cwd,
+                    env=process_environment,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=900,
+                    shell=False,
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise RecipeError(type(exc).__name__) from exc
+            if result.returncode != 0:
+                raise RecipeError(redact(result.stderr or result.stdout, known_secrets)[:500])

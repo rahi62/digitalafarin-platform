@@ -8,6 +8,18 @@ class DeploymentTransitionError(RuntimeError):
     pass
 
 
+class DeploymentAdmissionError(RuntimeError):
+    pass
+
+
+def deployment_admission(server) -> dict[str, bool]:
+    if server.status != "online":
+        raise DeploymentAdmissionError("fresh disk telemetry is required")
+    if server.disk_percent >= 90:
+        raise DeploymentAdmissionError("disk usage blocks deployment")
+    return {"allowed": True, "warning": server.disk_percent >= 80}
+
+
 NEXT_STATES = {
     "queued": {"preparing", "failed"},
     "preparing": {"cloning", "failed"},
