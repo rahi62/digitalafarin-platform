@@ -164,6 +164,9 @@ Install the repository under `/opt/digitalafarin-platform`, create the service a
 ```bash
 cd /opt/digitalafarin-platform/apps/api
 source .venv/bin/activate
+set -a
+source /etc/digitalafarin-platform/api.env
+set +a
 python manage.py migrate
 python manage.py create_enrollment_token --minutes 15 --created-by rahi
 ```

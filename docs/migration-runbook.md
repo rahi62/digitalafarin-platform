@@ -203,6 +203,9 @@ sudo -u deploy -H git -C /opt/digitalafarin-platform pull --ff-only origin main
 
 cd /opt/digitalafarin-platform/apps/api
 .venv/bin/pip install -r requirements.txt
+set -a
+. /etc/digitalafarin-platform/api.env
+set +a
 .venv/bin/python manage.py migrate --noinput
 .venv/bin/python manage.py check
 
