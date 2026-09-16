@@ -124,6 +124,18 @@ class ControlPlaneClient:
     def _server_id(server_id: str | None) -> str:
         return server_id or "default"
 
+    async def _mutation_server_id(self, server_id: str | None) -> str:
+        if server_id:
+            return server_id
+        server = await self.get_server(None)
+        resolved = server.get("id")
+        if not isinstance(resolved, str) or not re.fullmatch(r"[0-9a-fA-F-]{36}", resolved):
+            raise MCPDomainError(
+                "control_plane_unavailable",
+                "Control plane returned an invalid default server identity.",
+            )
+        return resolved
+
     async def list_servers(self) -> dict:
         return await self._get("/api/control/v1/servers/")
 
@@ -185,10 +197,11 @@ class ControlPlaneClient:
         if action not in {"start", "stop", "restart"}:
             raise MCPDomainError("invalid_request", "Unsupported service action.")
         self._validate_service_name(service_name)
+        resolved_server_id = await self._mutation_server_id(server_id)
         return await self._post(
             "/api/control/v1/operations/",
             {
-                "server_id": self._server_id(server_id),
+                "server_id": resolved_server_id,
                 "kind": f"service.{action}",
                 "payload": {"unit_name": service_name},
                 "idempotency_key": idempotency_key,
@@ -206,16 +219,34 @@ class ControlPlaneClient:
         self._validate_service_name(service_name)
         if not 1 <= lines <= 200 or not 60 <= since_seconds <= 86400:
             raise MCPDomainError("invalid_request", "Log bounds are invalid.")
+        resolved_server_id = await self._mutation_server_id(server_id)
         return await self._post(
             "/api/control/v1/operations/",
             {
-                "server_id": self._server_id(server_id),
+                "server_id": resolved_server_id,
                 "kind": "service.logs",
                 "payload": {
                     "unit_name": service_name,
                     "lines": lines,
                     "since_seconds": since_seconds,
                 },
+                "idempotency_key": idempotency_key,
+            },
+        )
+
+
+    async def create_bootstrap_operation(
+        self,
+        server_id: str | None,
+        idempotency_key: str,
+    ) -> dict:
+        resolved_server_id = await self._mutation_server_id(server_id)
+        return await self._post(
+            "/api/control/v1/operations/",
+            {
+                "server_id": resolved_server_id,
+                "kind": "server.bootstrap",
+                "payload": {},
                 "idempotency_key": idempotency_key,
             },
         )
@@ -230,6 +261,13 @@ class ControlPlaneClient:
 
     async def list_projects(self) -> dict:
         return await self._get("/api/control/v1/projects/")
+
+
+    async def create_project(self, name: str, slug: str) -> dict:
+        return await self._post(
+            "/api/control/v1/projects/",
+            {"name": name, "slug": slug},
+        )
 
     async def get_project(self, project_id: str) -> dict:
         return await self._get(f"/api/control/v1/projects/{quote(project_id, safe='')}/")

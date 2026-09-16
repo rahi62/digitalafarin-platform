@@ -45,6 +45,9 @@ class FakeControlPlane:
     async def create_logs_operation(self, server_id, service_name, lines, since_seconds, idempotency_key):
         return {"id": "logs-operation-id", "kind": "service.logs", "state": "queued"}
 
+    async def create_bootstrap_operation(self, server_id, idempotency_key):
+        return {"id": "bootstrap-operation-id", "kind": "server.bootstrap", "state": "queued"}
+
     async def list_operations(self):
         return {"items": []}
 
@@ -53,6 +56,9 @@ class FakeControlPlane:
 
     async def list_projects(self):
         return {"items": [{"id": "project-id", "name": "Oily"}]}
+
+    async def create_project(self, name, slug):
+        return {"id": "project-id", "name": name, "slug": slug}
 
     async def get_project(self, project_id):
         return {"id": project_id, "variables": [{"key": "SECRET", "has_value": True}]}
@@ -90,6 +96,8 @@ async def test_server_discovers_only_inventory_and_typed_operation_tools():
         "vps_get_operation",
         "vps_list_projects",
         "vps_get_project",
+        "vps_create_bootstrap_operation",
+        "vps_create_project",
         "vps_deploy_service",
         "vps_get_deployment",
         "vps_redeploy_deployment",

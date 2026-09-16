@@ -166,6 +166,12 @@ class OperationRunner:
                 "error_code": exc.code,
                 "error_message": redact(str(exc))[:500],
             }
+        except Exception as exc:
+            completion = {
+                "succeeded": False,
+                "error_code": "execution_failed",
+                "error_message": type(exc).__name__,
+            }
         await self.client.complete_operation(
             agent_token, operation_id, claim_token, completion
         )

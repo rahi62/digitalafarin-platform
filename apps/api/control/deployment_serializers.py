@@ -23,6 +23,11 @@ class ProjectSerializer(StrictSerializer):
     name = serializers.CharField(max_length=120)
     slug = serializers.SlugField(max_length=80)
 
+    def validate_slug(self, value):
+        if Project.objects.filter(slug=value).exists():
+            raise serializers.ValidationError("A project with this slug already exists.")
+        return value
+
     def create(self, validated_data):
         return Project.objects.create(**validated_data)
 

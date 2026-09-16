@@ -159,6 +159,8 @@ For the complete migration, restore, deployment, rollback, retention, disk, and 
 
 Install the repository under `/opt/digitalafarin-platform`, create the service accounts used by the committed systemd units, create `/etc/digitalafarin-platform`, and install the API, Agent and MCP dependencies into their local `.venv` directories. Keep real credentials only in root/service-readable environment files, never in Git.
 
+Before starting the Agent, install `infra/tmpfiles.d/digitalafarin-platform.conf` into `/etc/tmpfiles.d/`, run `systemd-tmpfiles --create` for that file, and install the current Agent unit. This pre-creates only `/srv/digitalafarin` as `digitalafarin-agent:digitalafarin-agent` mode `0750`; the Agent remains non-root and its systemd write boundary is limited to that root plus `/var/lib/digitalafarin-agent`.
+
 ### 1. Migrate Django and create the one-time enrollment credential
 
 ```bash

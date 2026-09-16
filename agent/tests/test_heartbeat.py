@@ -83,3 +83,21 @@ def test_enrollment_token_is_exchanged_only_once():
     assert second == first
     assert store.value == first
     assert client.enroll_calls == 1
+
+
+def test_payload_advertises_typed_operation_and_bootstrap_capabilities(monkeypatch):
+    monkeypatch.setattr(
+        "digitalafarin_agent.heartbeat.collect_metrics",
+        lambda: {
+            "cpu_percent": 1.0,
+            "memory_percent": 2.0,
+            "disk_percent": 3.0,
+            "uptime_seconds": 4,
+        },
+    )
+    monkeypatch.setattr("digitalafarin_agent.heartbeat.list_services", lambda: [])
+
+    payload = build_heartbeat_payload("host", "0.2.0")
+
+    assert "typed_operations" in payload["capabilities"]
+    assert "server_bootstrap" in payload["capabilities"]

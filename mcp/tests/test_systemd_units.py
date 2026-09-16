@@ -25,3 +25,23 @@ def test_tunnel_unit_loads_runtime_key_from_protected_service_file():
     assert unit["Service"]["EnvironmentFile"] == (
         "/home/digitalafarin-mcp/.config/tunnel-client/digitalafarin-vps.env"
     )
+
+
+def test_agent_unit_keeps_non_root_identity_and_limits_writes_to_managed_roots():
+    unit = load_unit("digitalafarin-platform-agent.service")
+
+    assert unit["Service"]["User"] == "digitalafarin-agent"
+    assert unit["Service"]["Group"] == "digitalafarin-agent"
+    read_write_paths = unit["Service"]["ReadWritePaths"].split()
+    assert "/var/lib/digitalafarin-agent" in read_write_paths
+    assert "/srv/digitalafarin" in read_write_paths
+    assert "/srv" not in read_write_paths
+
+
+def test_tmpfiles_precreates_only_platform_managed_srv_root():
+    config = (REPO_ROOT / "infra" / "tmpfiles.d" / "digitalafarin-platform.conf").read_text(encoding="utf-8")
+
+    assert "d /srv/digitalafarin 0750 digitalafarin-agent digitalafarin-agent -" in config
+    assert "/srv/digitalafarin/apps" not in config
+    assert "/srv/digitalafarin/volumes" not in config
+    assert "/srv/digitalafarin/backups" not in config

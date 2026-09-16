@@ -24,7 +24,7 @@ ProtectKernelModules=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true
 LockPersonality=true
-ReadWritePaths=/var/lib/digitalafarin-agent
+ReadWritePaths=/var/lib/digitalafarin-agent /srv/digitalafarin
 
 [Install]
 WantedBy=multi-user.target

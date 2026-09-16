@@ -9,6 +9,8 @@ from digitalafarin_agent.systemd import list_services
 
 logger = logging.getLogger(__name__)
 
+CAPABILITIES = ["metrics", "systemd_inventory", "typed_operations", "server_bootstrap"]
+
 _METRIC_KEYS = (
     "cpu_percent",
     "memory_percent",
@@ -26,7 +28,7 @@ def build_heartbeat_payload(
     return {
         "agent_version": agent_version,
         "hostname": hostname or socket.gethostname(),
-        "capabilities": ["metrics", "systemd_inventory"],
+        "capabilities": CAPABILITIES.copy(),
         "metrics": metrics,
         "services": list_services(),
     }
@@ -62,7 +64,7 @@ class HeartbeatRunner:
                 "name": self.agent_name,
                 "hostname": socket.gethostname(),
                 "agent_version": __version__,
-                "capabilities": ["metrics", "systemd_inventory"],
+                "capabilities": CAPABILITIES.copy(),
             },
         )
         self.identity_store.write(result.agent_token)

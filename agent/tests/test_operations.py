@@ -112,3 +112,21 @@ async def test_runner_reports_claim_started_and_complete_in_order(monkeypatch):
     assert client.calls[0:2] == ["claim", "started"]
     assert client.calls[2][0] == "complete"
     assert client.calls[2][1]["succeeded"] is True
+
+
+@pytest.mark.asyncio
+async def test_runner_converts_unexpected_executor_error_to_safe_failed_completion(monkeypatch):
+    def fail(_kind, _payload):
+        raise PermissionError("/srv/digitalafarin/private-secret")
+
+    monkeypatch.setattr("digitalafarin_agent.operations.execute_operation", fail)
+    client = FakeClient()
+
+    worked = await OperationRunner(client).run_once("agent-token")
+
+    assert worked is True
+    completion = client.calls[2][1]
+    assert completion["succeeded"] is False
+    assert completion["error_code"] == "execution_failed"
+    assert completion["error_message"] == "PermissionError"
+    assert "private-secret" not in str(completion)

@@ -1,6 +1,7 @@
 import "server-only";
 import { buildServiceOperation, type ServiceAction } from "./operations";
 import { buildDeployRequest, projectPath } from "./deployments";
+import { buildBootstrapOperation, buildProjectCreate } from "./migration-actions";
 
 export type ServerStatus = "online" | "stale" | "offline" | string;
 
@@ -203,9 +204,28 @@ export function createServiceLogsOperation(
   });
 }
 
+
+export function createBootstrapOperation(
+  serverId: string,
+  idempotencyKey: string,
+): Promise<Operation> {
+  return request("/api/control/v1/operations/", {
+    method: "POST",
+    body: JSON.stringify(buildBootstrapOperation(serverId, idempotencyKey)),
+  });
+}
+
 export async function listProjects(): Promise<Project[]> {
   const result = await request<{ items: Project[] }>("/api/control/v1/projects/");
   return result.items;
+}
+
+
+export function createProject(name: string, slug: string): Promise<Project> {
+  return request("/api/control/v1/projects/", {
+    method: "POST",
+    body: JSON.stringify(buildProjectCreate(name, slug)),
+  });
 }
 
 export function getProject(projectId: string): Promise<Project> {

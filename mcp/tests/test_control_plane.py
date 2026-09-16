@@ -88,3 +88,67 @@ async def test_create_service_operation_rejects_unknown_action_before_http():
 
     assert exc.value.code == "invalid_request"
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_create_service_operation_without_server_id_resolves_default_uuid():
+    seen = []
+    server_id = "11111111-1111-1111-1111-111111111111"
+
+    async def handler(request: httpx.Request):
+        seen.append((request.method, request.url.path, request.read().decode()))
+        if request.method == "GET":
+            return httpx.Response(200, json={"id": server_id})
+        return httpx.Response(201, json={"id": "operation-id", "state": "queued"})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = ControlPlaneClient("http://control", "service-secret", http=http)
+
+    await client.create_service_operation(None, "restart", "oily-api.service", "request-1")
+
+    assert seen[0][1] == "/api/control/v1/servers/default/"
+    assert seen[1][1] == "/api/control/v1/operations/"
+    assert f'"server_id":"{server_id}"' in seen[1][2]
+    await http.aclose()
+
+
+@pytest.mark.asyncio
+async def test_create_bootstrap_operation_posts_empty_typed_payload_with_resolved_server():
+    seen = []
+    server_id = "11111111-1111-1111-1111-111111111111"
+
+    async def handler(request: httpx.Request):
+        seen.append((request.method, request.url.path, request.read().decode()))
+        if request.method == "GET":
+            return httpx.Response(200, json={"id": server_id})
+        return httpx.Response(201, json={"id": "bootstrap-id", "kind": "server.bootstrap", "state": "queued"})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = ControlPlaneClient("http://control", "service-secret", http=http)
+
+    result = await client.create_bootstrap_operation(None, "bootstrap-1")
+
+    assert result["kind"] == "server.bootstrap"
+    assert seen[1][1] == "/api/control/v1/operations/"
+    assert '"kind":"server.bootstrap"' in seen[1][2]
+    assert '"payload":{}' in seen[1][2]
+    assert '"idempotency_key":"bootstrap-1"' in seen[1][2]
+    await http.aclose()
+
+
+@pytest.mark.asyncio
+async def test_create_project_posts_only_name_and_slug():
+    seen = []
+
+    async def handler(request: httpx.Request):
+        seen.append((request.url.path, request.read().decode()))
+        return httpx.Response(201, json={"id": "project-id", "name": "Oily", "slug": "oily"})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = ControlPlaneClient("http://control", "service-secret", http=http)
+
+    result = await client.create_project("Oily", "oily")
+
+    assert result["slug"] == "oily"
+    assert seen == [("/api/control/v1/projects/", '{"name":"Oily","slug":"oily"}')]
+    await http.aclose()

@@ -4,7 +4,7 @@ from rest_framework.views import APIView
 
 from control.authentication import ServicePrincipalAuthentication
 from control.deployment_serializers import ProjectSerializer, ServiceSerializer
-from control.models import Deployment, Operation, Project, Server, Service
+from control.models import AuditEvent, Deployment, Operation, Project, Server, Service
 from control.permissions import require_scope
 from control.services.operations import create_operation
 from control.services.deployments import DeploymentAdmissionError, queue_deployment, queue_rollback
@@ -28,6 +28,13 @@ class ProjectListCreateView(APIView):
         serializer = ProjectSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         project = serializer.save()
+        AuditEvent.objects.create(
+            event_type="project.created",
+            target_type="project",
+            target_id=str(project.public_id),
+            actor=request.user.name,
+            metadata={"slug": project.slug},
+        )
         return Response(ProjectSerializer(project).data, status=status.HTTP_201_CREATED)
 
 
