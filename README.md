@@ -22,7 +22,7 @@ Django Control Plane
    +---- HTTPS outbound heartbeat ---- Host Agent: VPS #3
 ```
 
-The browser and ChatGPT never receive agent credentials. The MCP does not contact host agents or PostgreSQL directly. Each VPS has an independent, revocable agent credential, and the MCP has its own read-only service-principal credential.
+The browser and ChatGPT never receive agent credentials. The MCP does not contact host agents or PostgreSQL directly. Each VPS has an independent, revocable agent credential, and the MCP has its own scoped operator service-principal credential for inventory reads and typed operations.
 
 ## Current capabilities
 
@@ -45,10 +45,10 @@ The browser and ChatGPT never receive agent credentials. The MCP does not contac
 - Typed domain/Nginx/Certbot workflows with validate-before-install behavior
 - Migration readiness UI backed by current operations, deployments, resources, and disk telemetry
 
-The operation foundation supports only audited `service.start`, `service.stop`,
-`service.restart`, and bounded/redacted `service.logs` requests. Agents claim and
-execute these operations outbound; no inbound Agent management port or arbitrary
-command interface exists.
+The operation foundation supports audited, typed requests for bounded service
+control/logs, bootstrap, volumes, database create/restore, exact-commit deploy and
+rollback, and domain/SSL configuration. Agents claim and execute these operations
+outbound; no inbound Agent management port or arbitrary command interface exists.
 
 Operation-capable service principals use independent scopes in addition to the
 four inventory-read scopes:
@@ -269,7 +269,7 @@ sudo chown root:www-data /etc/nginx/.htpasswd-digitalafarin-platform
 
 Install the HTTP vhost, validate Nginx, obtain the certificate with Certbot, and only then enable the HTTPS server block from `infra/nginx/platform.conf.example`. DNS changes and certificate issuance are production publication steps and must not be guessed or performed against an unrelated hostname.
 
-### 5. Start MCP and the already-created Secure MCP Tunnel
+### 5. Start MCP and install the replacement Secure MCP Tunnel unit
 
 Before enabling the tunnel service, verify the actual binary location:
 
@@ -279,7 +279,7 @@ command -v tunnel-client
 
 The committed unit assumes `/usr/local/bin/tunnel-client`. If the command above returns another path, edit only `ExecStart` in `digitalafarin-platform-mcp-tunnel.service` during deployment.
 
-The tunnel unit runs as `digitalafarin-mcp`, so verify the profile is readable by that same service account before enabling it:
+The tunnel unit runs as `digitalafarin-mcp`, so verify the profile is readable by that same service account before its reviewed handoff:
 
 ```bash
 sudo -u digitalafarin-mcp tunnel-client doctor --profile digitalafarin-vps --explain
@@ -287,15 +287,24 @@ sudo -u digitalafarin-mcp tunnel-client doctor --profile digitalafarin-vps --exp
 
 If the profile was initialized under another Unix account, configure the `digitalafarin-vps` profile for `digitalafarin-mcp` rather than copying a private credential into Git or the unit file.
 
-Then install/enable the committed units and start them:
+Install the committed replacement tunnel unit, but start only the application
+units during this step:
 
 ```bash
+sudo install -m 0644 \
+  /opt/digitalafarin-platform/infra/systemd/digitalafarin-platform-mcp-tunnel.service \
+  /etc/systemd/system/digitalafarin-platform-mcp-tunnel.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now digitalafarin-platform-api
 sudo systemctl enable --now digitalafarin-platform-agent
 sudo systemctl enable --now digitalafarin-platform-mcp
-sudo systemctl enable --now digitalafarin-platform-mcp-tunnel
 ```
+
+Do **not** enable or start `digitalafarin-platform-mcp-tunnel.service` while
+`digitalafarin-vps-tunnel.service` owns the `digitalafarin-vps` profile. Perform
+the reviewed handoff in [`docs/migration-runbook.md`](docs/migration-runbook.md):
+stop the legacy unit, prove the replacement uses the same profile and environment,
+then enable the replacement. Never run both tunnel units concurrently.
 
 The tunnel unit uses the existing profile:
 

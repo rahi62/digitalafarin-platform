@@ -134,7 +134,7 @@ metadata or redacted values only.
 
 - Enrollment credential: one-time, expiring, stored by Django as a digest and invalidated after use.
 - Agent credential: unique per VPS, revocable independently, cleartext persisted only on that VPS with file mode `0600`; Django stores only its digest.
-- MCP service credential: independent from every Agent credential and limited to read scopes.
+- MCP service credential: independent from every Agent credential and scoped to inventory reads plus audited typed operation creation and bounded log access.
 - ChatGPT/tool responses: never contain any of these credentials.
 
 A compromised secondary VPS therefore does not receive credentials for the primary VPS or for MCP.
@@ -160,9 +160,9 @@ Server status is derived from `last_seen_at`; it is not stored as a second sourc
 4. Service discovery is prefix allow-listed.
 5. Browser and ChatGPT never receive Agent credentials.
 6. MCP binds to loopback and is reachable from ChatGPT only through the Secure MCP Tunnel.
-7. Privileged actions are not implemented until typed operations, RBAC, audit and approval boundaries exist.
-8. Future Nginx/deploy writes must use validate-before-switch semantics.
-9. Future rollback must be a first-class typed operation, not an ad-hoc script.
+7. Privileged actions use explicit typed operations, scoped service principals, and audit events; no generic command surface exists.
+8. Domain/Nginx and deployment writes validate before switching active configuration or release state.
+9. Rollback is a first-class typed operation that reactivates and verifies an existing immutable release without rebuilding.
 
 ## Migration / deprecation stages
 
