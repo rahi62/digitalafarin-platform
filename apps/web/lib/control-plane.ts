@@ -50,10 +50,10 @@ export type AuditEvent = {
 export type Operation = {
   id: string;
   server_id: string;
-  kind: "service.start" | "service.stop" | "service.restart" | "service.logs";
+  kind: "service.start" | "service.stop" | "service.restart" | "service.logs" | "volume.create" | "server.bootstrap" | "database.create" | "database.restore" | "deployment.deploy" | "deployment.rollback" | "domain.configure" | "domain.ssl";
   state: "queued" | "claimed" | "running" | "succeeded" | "failed";
-  payload: { unit_name: string; lines?: number; since_seconds?: number };
-  result?: { message?: string; logs?: string; truncated?: boolean };
+  payload: { unit_name?: string; lines?: number; since_seconds?: number; [key: string]: unknown };
+  result?: { message?: string; logs?: string; truncated?: boolean; [key: string]: unknown };
   error_code: string;
   error_message: string;
   actor: string;

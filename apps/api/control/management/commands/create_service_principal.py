@@ -4,11 +4,13 @@ from control.models import ServiceCredential, ServicePrincipal
 from control.security import issue_secret
 
 READ_SCOPES = ["servers:read", "metrics:read", "services:read", "audit:read"]
+OPERATOR_SCOPES = READ_SCOPES + ["operations:read", "operations:create", "logs:read"]
 TELEGRAM_ADMIN_SCOPES = ["telegram:admin", "telegram:read", "telegram:publish"]
 TELEGRAM_MCP_SCOPES = ["telegram:read", "telegram:publish"]
 
 PROFILES = {
     "readonly": READ_SCOPES,
+    "operator": OPERATOR_SCOPES,
     "telegram-admin": TELEGRAM_ADMIN_SCOPES,
     "telegram-mcp": TELEGRAM_MCP_SCOPES,
 }

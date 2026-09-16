@@ -1,4 +1,4 @@
-# Architecture decision record — multi-server read-only VPS MCP
+# Architecture decision record — outbound control plane and migration deployment engine
 
 ## Goal
 
@@ -42,16 +42,20 @@ compatibility.
 
 ### DigitalAfarin VPS MCP
 
-Read-only MCP Python SDK v2 service listening on `127.0.0.1:3060/mcp`. It authenticates to Django with a dedicated service principal scoped to:
+MCP Python SDK v2 service listening on `127.0.0.1:3060/mcp`. It authenticates to Django with a dedicated operator principal scoped to inventory reads and typed operations:
 
 ```text
 servers:read
 metrics:read
 services:read
 audit:read
+operations:read
+operations:create
+logs:read
 ```
 
-Its six approved tools are:
+Its approved tools cover inventory, bounded service operations, secret-free
+project/deployment reads, deploy/redeploy, and rollback:
 
 ```text
 vps_list_servers
@@ -60,9 +64,71 @@ vps_get_metrics
 vps_list_services
 vps_get_service
 vps_get_recent_audit_events
+vps_create_service_operation
+vps_create_service_logs_operation
+vps_list_operations
+vps_get_operation
+vps_list_projects
+vps_get_project
+vps_deploy_service
+vps_get_deployment
+vps_redeploy_deployment
+vps_rollback_deployment
 ```
 
-There is no generic shell tool and no write-capable VPS tool in v1.
+There is no generic shell, SQL, systemctl, filesystem, or configuration-text tool.
+
+## Migration deployment extension
+
+The deployment domain remains in Django: `Project` owns services and resources;
+`Deployment` and immutable `DeploymentEvent` rows record intent and state; and
+`Release` records exact Git commits and activation history. MCP and the Admin UI
+use the same scoped Control API. Neither talks directly to PostgreSQL, systemd,
+Nginx, the filesystem, or a host agent.
+
+State-changing work is delivered through the outbound operation claim loop:
+
+```text
+Admin / MCP / GitHub webhook
+  -> scoped Django Control API
+  -> typed queued operation
+  <- outbound Agent claim
+  -> fixed handler / structured result
+  -> redacted operation + deployment events
+```
+
+`SystemdExecutor` is the only active deployment executor. Runtime recipes select
+fixed argument arrays for Node/Next.js or Python/Django; callers cannot provide
+shell, SQL, systemctl arguments, Nginx text, filesystem roots, or package names.
+The Agent prepares a fresh exact-commit checkout before touching `current`, writes
+an execution-only mode-`0600` environment file, attaches platform-derived
+persistent volumes, builds, atomically switches the symlink, restarts, and verifies
+health. A failed post-activation health check restores the previous release and
+verifies it without rebuilding.
+
+Persistent and disposable roots are deliberately separate:
+
+```text
+/srv/digitalafarin/apps/<project>/<service>/releases  disposable immutable releases
+/srv/digitalafarin/apps/<project>/<service>/current   atomic active symlink
+/srv/digitalafarin/apps/<project>/<service>/shared    service-local persistent data
+/srv/digitalafarin/volumes/<project>/<volume>         managed persistent volumes
+/srv/digitalafarin/backups                             managed restore inputs
+```
+
+Five successful inactive releases are retained. Cleanup is restricted to the
+service `releases/` directory, does not follow symlinks, and never touches shared
+data, managed volumes, backups, or PostgreSQL data.
+
+Deployment admission uses fresh heartbeat telemetry. Disk usage below 80% is
+ready, `>=80%` is warning-but-allowed, and `>=90%`, missing, or stale telemetry
+blocks creation before an operation is queued.
+
+Deployment secrets are authenticated-encrypted under the versioned
+`PLATFORM_SECRET_KEYS` key ring. The first key encrypts; all listed keys may
+decrypt during rotation. Plaintext enters only write endpoints and authorized
+execution context. API, UI, MCP, logs, operation results, and audit events expose
+metadata or redacted values only.
 
 ## Identity and credential boundaries
 
@@ -104,13 +170,21 @@ Server status is derived from `last_seen_at`; it is not stored as a second sourc
 
 Additive UUID identity, enrollment/agent credentials, outbound Agent API, scoped Control API and MCP source are implemented while legacy fields/routes stay intact.
 
-### Stage B — pending production acceptance
+### Stage B — migration deployment implementation complete locally
 
-Primary VPS Agent must be deployed and prove sustained authenticated outbound heartbeats with fresh real metrics/services. Local Agent tests alone do not mark this stage complete.
+Bootstrap, encrypted resources, managed volumes and databases, immutable release
+deployment, health verification, rollback, domains, migration UI/MCP, and the
+disposable 18-check acceptance fixture are implemented. Production use remains
+subject to the checks in `docs/migration-runbook.md`.
 
-### Stage C — pending production acceptance
+### Stage C — production acceptance
 
-The MCP must be deployed on loopback, use the production Django API listener at `127.0.0.1:9750`, the existing `digitalafarin-vps` Secure MCP Tunnel must pass `doctor` under the MCP service account, and ChatGPT must return real primary-VPS data through the six read-only tools. Local source tests alone do not mark this stage complete.
+The API, Web, Agent, and MCP must be deployed from the same final `main` commit.
+Listeners remain loopback-only, Nginx and systemd validation must pass, the existing
+`digitalafarin-vps` Secure MCP Tunnel must pass `doctor` under its runtime
+environment, and only non-destructive production acceptance is permitted unless a
+specific mutation has been separately demonstrated safe. Local tests alone do not
+mark this stage complete.
 
 ### Stage D — deferred cleanup
 
@@ -131,6 +205,14 @@ service.start
 service.stop
 service.restart
 service.logs
+volume.create
+server.bootstrap
+database.create
+database.restore
+deployment.deploy
+deployment.rollback
+domain.configure
+domain.ssl
 ```
 
 Claim leases recover operations abandoned before `running`; every accepted

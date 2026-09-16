@@ -1,6 +1,6 @@
 # DigitalAfarin Platform
 
-Internal VPS control plane for DigitalAfarin. The current milestone adds a multi-server, read-only operations path that lets authenticated agents report host state outbound to Django and exposes that state to ChatGPT through a localhost-only MCP server and the OpenAI Secure MCP Tunnel.
+Internal VPS control plane for DigitalAfarin. The platform combines outbound-only host agents, a scoped Django control plane, a localhost-only MCP server, and a migration deployment engine for typed bootstrap, persistent resources, exact-commit releases, health verification, and rollback.
 
 ## Architecture
 
@@ -32,16 +32,26 @@ The browser and ChatGPT never receive agent credentials. The MCP does not contac
 - One-time agent enrollment with per-server credentials
 - Outbound agent heartbeat ingestion
 - Stale/offline detection from heartbeat freshness
-- Scoped read-only Control Plane API
-- Read-only MCP tools for servers, metrics, services and audit events
+- Scoped Control Plane API for inventory reads and typed operations
+- MCP tools for inventory plus narrow service/deployment operations
 - Legacy single-server pull/manual sync kept temporarily for migration compatibility
+- UUID-backed projects, Systemd services, health checks, deployments, and immutable releases
+- Authenticated encryption for deployment secrets with metadata-only API, MCP, and UI responses
+- Typed, idempotent server bootstrap and structured readiness results
+- Persistent managed volumes under `/srv/digitalafarin/volumes`
+- Managed PostgreSQL resources and restore from `/srv/digitalafarin/backups`
+- Exact-commit deployments under `/srv/digitalafarin/apps`, atomic activation, health verification, and rollback without rebuild
+- Five successful inactive releases retained while active/rollback releases and persistent roots remain protected
+- Typed domain/Nginx/Certbot workflows with validate-before-install behavior
+- Migration readiness UI backed by current operations, deployments, resources, and disk telemetry
 
 The operation foundation supports only audited `service.start`, `service.stop`,
 `service.restart`, and bounded/redacted `service.logs` requests. Agents claim and
 execute these operations outbound; no inbound Agent management port or arbitrary
 command interface exists.
 
-Operation-capable service principals use independent scopes:
+Operation-capable service principals use independent scopes in addition to the
+four inventory-read scopes:
 
 ```text
 operations:read
@@ -63,6 +73,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 export DJANGO_SECRET_KEY=dev-secret
 export PLATFORM_API_TOKEN=dev-api-token
+export PLATFORM_SECRET_KEYS="$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
 python manage.py migrate
 python manage.py runserver 127.0.0.1:8000
 ```
@@ -95,12 +106,12 @@ After first enrollment, remove `PLATFORM_ENROLLMENT_TOKEN`; the persistent agent
 
 ### 3. MCP
 
-Create the MCP service principal once in Django:
+Create the MCP operator principal once in Django:
 
 ```bash
 cd apps/api
 source .venv/bin/activate
-python manage.py create_service_principal chatgpt-vps-mcp
+python manage.py create_service_principal chatgpt-vps-mcp --profile operator
 ```
 
 Use the one-time printed value only as the MCP process environment:
@@ -122,12 +133,12 @@ The MCP endpoint is `http://127.0.0.1:3060/mcp`.
 
 ### 4. Next.js admin
 
-The admin UI reads only the UUID-based Control Plane API and keeps its credential on the Next.js server runtime. Create a separate read-only principal for the web app rather than reusing the ChatGPT MCP credential:
+The admin UI uses the UUID-based Control Plane API and keeps its credential on the Next.js server runtime. Create a separate operator principal for the web app rather than reusing the ChatGPT MCP credential:
 
 ```bash
 cd apps/api
 source .venv/bin/activate
-python manage.py create_service_principal platform-web
+python manage.py create_service_principal platform-web --profile operator
 ```
 
 Store the one-time credential outside Git, then run the web app:
@@ -143,6 +154,8 @@ npm run dev
 The browser never receives `PLATFORM_API_TOKEN`; Server Components call `/api/control/v1/*` directly.
 
 ## Production bootstrap: first VPS + MCP
+
+For the complete migration, restore, deployment, rollback, retention, disk, and production-safe acceptance procedure, follow [`docs/migration-runbook.md`](docs/migration-runbook.md). The runbook is authoritative for Stage B and includes encryption-key provisioning without disclosing key material.
 
 Install the repository under `/opt/digitalafarin-platform`, create the service accounts used by the committed systemd units, create `/etc/digitalafarin-platform`, and install the API, Agent and MCP dependencies into their local `.venv` directories. Keep real credentials only in root/service-readable environment files, never in Git.
 
@@ -194,17 +207,17 @@ python manage.py shell -c 'from control.models import Server; s=Server.objects.o
 
 For later servers, select the intended row by `public_id` instead of relying on creation order.
 
-### 3. Create the read-only MCP identity
+### 3. Create the MCP operator identity
 
 ```bash
-python manage.py create_service_principal chatgpt-vps-mcp
+python manage.py create_service_principal chatgpt-vps-mcp --profile operator
 ```
 
 Copy the one-time printed service credential into `/etc/digitalafarin-platform/mcp.env`:
 
 ```dotenv
 CONTROL_PLANE_URL=http://127.0.0.1:9750
-CONTROL_PLANE_TOKEN=<read-only service-principal credential>
+CONTROL_PLANE_TOKEN=<operator service-principal credential>
 MCP_HOST=127.0.0.1
 MCP_PORT=3060
 MCP_PATH=/mcp
@@ -212,14 +225,14 @@ MCP_PATH=/mcp
 
 Do **not** paste enrollment credentials, agent credentials or MCP service credentials into ChatGPT, issue trackers, Git commits, screenshots or logs.
 
-### 4. Configure the read-only admin web identity
+### 4. Configure the admin web operator identity
 
-Create a dedicated read-only identity for the Next.js panel:
+Create a dedicated operator identity for the Next.js panel:
 
 ```bash
 cd /opt/digitalafarin-platform/apps/api
 source .venv/bin/activate
-python manage.py create_service_principal platform-web
+python manage.py create_service_principal platform-web --profile operator
 ```
 
 Write the one-time credential to `/etc/digitalafarin-platform/web.env` without printing it into logs or shell history:
@@ -301,6 +314,7 @@ http://127.0.0.1:3060/mcp
 cd apps/api
 python manage.py test control.tests -v 2
 python manage.py check
+python manage.py makemigrations --check --dry-run
 
 cd ../../agent
 PYTHONPATH=. pytest -q
@@ -308,7 +322,13 @@ PYTHONPATH=. pytest -q
 cd ../mcp
 PYTHONPATH=. pytest -q
 
-cd ..
+cd ../apps/web
+npm test
+npm run lint
+npm run build
+
+cd ../..
+PYTHONPATH=.:agent apps/api/.venv/bin/python apps/api/manage.py test acceptance.test_migration_readiness -v 2
 git diff --check
 grep -R "shell=True\|os.system\|subprocess.*shell" -n apps agent mcp || true
 git grep -nE 'da_(agent|service|enroll)_[A-Za-z0-9]{8,}\.[A-Za-z0-9_-]{40,}' -- ':!*.md' || true
@@ -321,12 +341,14 @@ sudo systemctl is-active \
   digitalafarin-platform-api \
   digitalafarin-platform-web \
   digitalafarin-platform-agent \
-  digitalafarin-platform-mcp \
-  digitalafarin-platform-mcp-tunnel
+  digitalafarin-platform-mcp
+
+sudo systemctl is-active digitalafarin-vps-tunnel || \
+  sudo systemctl is-active digitalafarin-platform-mcp-tunnel
 
 curl -fsS http://127.0.0.1:9750/health/
 ss -ltnp | grep ':3060'
-tunnel-client doctor --profile digitalafarin-vps --explain
+sudo -u digitalafarin-mcp -H sh -c 'set -a; . /home/digitalafarin-mcp/.config/tunnel-client/digitalafarin-vps.env; exec tunnel-client doctor --profile digitalafarin-vps --explain'
 ```
 
 `ss` must show MCP listening on loopback only, never `0.0.0.0:3060` or `[::]:3060`.
@@ -347,7 +369,7 @@ Acceptance requires actual primary-VPS values, a recent snapshot with `stale=fal
 1. No arbitrary shell/command tool exists in the MCP or Agent.
 2. Agent service inventory is prefix allow-listed.
 3. Every VPS receives a different agent credential; Django stores only credential digests.
-4. MCP uses an independent read-only principal with explicit scopes.
+4. MCP uses an independent operator principal with explicit inventory and typed-operation scopes.
 5. MCP listens on `127.0.0.1` and is exposed to ChatGPT only through the Secure MCP Tunnel.
 6. Write operations use typed payloads, scoped identities, full lifecycle audit,
    bounded output, and protected-unit enforcement. There is no arbitrary shell.
@@ -355,12 +377,8 @@ Acceptance requires actual primary-VPS values, a recent snapshot with `stale=fal
 
 ## Next milestones
 
-1. Complete primary VPS production acceptance and ChatGPT read path
-2. Migrate dashboard reads to UUID-based Control API
-3. Typed service operations with approval: start/stop/restart
-4. GitHub webhook + release-based deployment engine
-5. Health checks + atomic activation + rollback
-6. Domains/Nginx + SSL
-7. Environment secret management
-8. PostgreSQL backup/restore
-9. Alerts and scheduled jobs
+1. Complete project-by-project production migration using the runbook
+2. Remove legacy shared-agent and manual-sync compatibility only after production acceptance
+3. Add approval policy and scheduled deployment windows
+4. Add backup automation and restore drills
+5. Add alerts and scheduled jobs

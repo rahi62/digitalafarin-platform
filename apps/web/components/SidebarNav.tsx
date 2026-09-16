@@ -15,6 +15,7 @@ const items: NavItem[] = [
   { label: "سرورها", href: "/servers", icon: "▤" },
   { label: "سرویس‌ها", href: "/services", icon: "◫" },
   { label: "پروژه‌ها", href: "/projects", icon: "▦" },
+  { label: "مهاجرت", href: "/migration", icon: "⇢" },
   { label: "فعالیت‌ها", href: "/activity", icon: "◷" },
   { label: "عملیات", href: "/operations", icon: "▶" },
   { label: "دامنه‌ها", icon: "◎", disabled: true },
