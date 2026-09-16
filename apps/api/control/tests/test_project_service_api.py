@@ -4,6 +4,7 @@ from rest_framework.test import APIClient
 
 from control.models import (
     Deployment,
+    AuditEvent,
     DeploymentEvent,
     HealthCheck,
     Project,
@@ -62,6 +63,25 @@ class ProjectServiceAPITests(TestCase):
         self.assertEqual(service_response.json()["executor"], "systemd")
         self.assertEqual(Service.objects.get().project.slug, "oily")
         self.assertNotIn("credential", str(service_response.json()).lower())
+
+
+    def test_project_creation_validates_unique_slug_and_writes_audit_event(self):
+        first = self.client.post(
+            "/api/control/v1/projects/",
+            {"name": "Oily", "slug": "oily"},
+            format="json",
+        )
+        duplicate = self.client.post(
+            "/api/control/v1/projects/",
+            {"name": "Oily Again", "slug": "oily"},
+            format="json",
+        )
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(duplicate.status_code, 400)
+        event = AuditEvent.objects.get(event_type="project.created")
+        self.assertEqual(event.target_id, first.json()["id"])
+        self.assertEqual(event.metadata, {"slug": "oily"})
 
     def test_service_rejects_unknown_executor_and_shell_configuration(self):
         project = Project.objects.create(name="Oily", slug="oily")

@@ -33,6 +33,23 @@ component-local virtual environments, the committed systemd units, and the
 root/service-readable files under `/etc/digitalafarin-platform`. Do not put
 credentials in unit files.
 
+Before starting the non-root Agent, install the committed tmpfiles rule and create
+only the platform-managed root. The Agent remains `digitalafarin-agent`; it is not
+made root and `/srv` as a whole is not writable:
+
+```bash
+sudo install -D -m 0644 infra/tmpfiles.d/digitalafarin-platform.conf /etc/tmpfiles.d/digitalafarin-platform.conf
+sudo systemd-tmpfiles --create /etc/tmpfiles.d/digitalafarin-platform.conf
+sudo install -m 0644 infra/systemd/digitalafarin-platform-agent.service /etc/systemd/system/digitalafarin-platform-agent.service
+sudo systemctl daemon-reload
+namei -l /srv/digitalafarin
+```
+
+The expected owner is `digitalafarin-agent:digitalafarin-agent` with mode `0750`.
+The unit grants write access only to `/var/lib/digitalafarin-agent` and
+`/srv/digitalafarin`; the typed bootstrap operation creates the three child
+directories below that root.
+
 Enroll the Agent with a one-time token, confirm a fresh outbound heartbeat, remove
 `PLATFORM_ENROLLMENT_TOKEN` from `agent.env`, and restart the Agent. Queue the
 typed `server.bootstrap` operation with an empty payload. It checks the supported

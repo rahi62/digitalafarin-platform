@@ -102,6 +102,44 @@ class OperationAPITests(TestCase):
         self.assertEqual(extra.status_code, 400)
         self.assertEqual(Operation.objects.count(), 0)
 
+
+    def test_bootstrap_operation_accepts_only_empty_typed_payload_and_is_idempotent(self):
+        first = self.control.post(
+            "/api/control/v1/operations/",
+            {
+                "server_id": str(self.server.public_id),
+                "kind": "server.bootstrap",
+                "payload": {},
+                "idempotency_key": "bootstrap-1",
+            },
+            format="json",
+        )
+        second = self.control.post(
+            "/api/control/v1/operations/",
+            {
+                "server_id": str(self.server.public_id),
+                "kind": "server.bootstrap",
+                "payload": {},
+                "idempotency_key": "bootstrap-1",
+            },
+            format="json",
+        )
+        invalid = self.control.post(
+            "/api/control/v1/operations/",
+            {
+                "server_id": str(self.server.public_id),
+                "kind": "server.bootstrap",
+                "payload": {"command": "id"},
+            },
+            format="json",
+        )
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 201)
+        self.assertEqual(first.json()["id"], second.json()["id"])
+        self.assertEqual(invalid.status_code, 400)
+        self.assertEqual(Operation.objects.filter(kind="server.bootstrap").count(), 1)
+
     def test_log_bounds_and_log_scope_are_enforced(self):
         invalid = self.create_operation(
             kind="service.logs",

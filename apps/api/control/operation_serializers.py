@@ -27,6 +27,10 @@ class StrictSerializer(serializers.Serializer):
         return super().to_internal_value(data)
 
 
+class EmptyOperationPayloadSerializer(StrictSerializer):
+    pass
+
+
 class ServiceOperationPayloadSerializer(StrictSerializer):
     unit_name = serializers.RegexField(UNIT_PATTERN.pattern, max_length=255)
 
@@ -38,7 +42,16 @@ class ServiceLogsPayloadSerializer(ServiceOperationPayloadSerializer):
     )
 
 
+SERVICE_OPERATION_KINDS = {
+    Operation.KIND_SERVICE_START,
+    Operation.KIND_SERVICE_STOP,
+    Operation.KIND_SERVICE_RESTART,
+    Operation.KIND_SERVICE_LOGS,
+}
+
+
 PAYLOAD_SERIALIZERS = {
+    Operation.KIND_SERVER_BOOTSTRAP: EmptyOperationPayloadSerializer,
     Operation.KIND_SERVICE_START: ServiceOperationPayloadSerializer,
     Operation.KIND_SERVICE_STOP: ServiceOperationPayloadSerializer,
     Operation.KIND_SERVICE_RESTART: ServiceOperationPayloadSerializer,
@@ -62,11 +75,12 @@ class OperationCreateSerializer(StrictSerializer):
         payload_serializer = PAYLOAD_SERIALIZERS[attrs["kind"]](data=attrs["payload"])
         payload_serializer.is_valid(raise_exception=True)
         payload = payload_serializer.validated_data
-        unit_name = payload["unit_name"]
-        if is_protected_unit(unit_name):
-            raise serializers.ValidationError({"payload": "Service unit is protected."})
-        if not server.services.filter(unit_name=unit_name).exists():
-            raise serializers.ValidationError({"payload": "Service unit is not managed."})
+        if attrs["kind"] in SERVICE_OPERATION_KINDS:
+            unit_name = payload["unit_name"]
+            if is_protected_unit(unit_name):
+                raise serializers.ValidationError({"payload": "Service unit is protected."})
+            if not server.services.filter(unit_name=unit_name).exists():
+                raise serializers.ValidationError({"payload": "Service unit is not managed."})
         attrs["server"] = server
         attrs["payload"] = payload
         return attrs

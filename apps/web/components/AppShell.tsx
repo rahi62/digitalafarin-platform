@@ -16,7 +16,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <span className="readOnlyDot" />
           <div>
             <strong>Control Plane</strong>
-            <small>Read-only · Phase 1</small>
+            <small>Typed Operations · Phase 2</small>
           </div>
         </div>
       </aside>

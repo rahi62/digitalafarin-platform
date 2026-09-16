@@ -97,6 +97,15 @@ def create_mcp(control_plane: ControlPlaneClient | Any | None = None) -> MCPServ
             )
         )
 
+
+    @mcp.tool()
+    async def vps_create_bootstrap_operation(
+        server_id: str | None = None,
+        idempotency_key: str = "",
+    ) -> dict[str, Any]:
+        """Queue the fixed typed server bootstrap operation; no caller commands or paths."""
+        return await _safe(client.create_bootstrap_operation(server_id, idempotency_key))
+
     @mcp.tool()
     async def vps_list_operations() -> dict[str, Any]:
         """List recent typed VPS operations visible to this identity."""
@@ -111,6 +120,12 @@ def create_mcp(control_plane: ControlPlaneClient | Any | None = None) -> MCPServ
     async def vps_list_projects() -> dict[str, Any]:
         """List migration projects without secret values."""
         return await _safe(client.list_projects())
+
+
+    @mcp.tool()
+    async def vps_create_project(name: str, slug: str) -> dict[str, Any]:
+        """Create one migration project using only validated name and slug metadata."""
+        return await _safe(client.create_project(name, slug))
 
     @mcp.tool()
     async def vps_get_project(project_id: str) -> dict[str, Any]:

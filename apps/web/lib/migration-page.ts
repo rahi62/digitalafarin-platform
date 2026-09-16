@@ -15,13 +15,21 @@ type MigrationPageDependencies = {
   listDeployments: (serviceId: string) => Promise<NonNullable<MigrationReadinessContext["deployments"]>>;
 };
 
-export async function loadMigrationReadiness(dependencies: MigrationPageDependencies): Promise<ReadinessStep[]> {
+export async function loadMigrationReadiness(dependencies: MigrationPageDependencies, selectedProjectId?: string): Promise<ReadinessStep[]> {
   const [servers, projectSummaries, operations] = await Promise.all([
     dependencies.listServers(),
     dependencies.listProjects(),
     dependencies.listOperations(),
   ]);
-  const projects = await Promise.all(projectSummaries.map((project) => dependencies.getProject(project.id)));
+  const validSelectedProjectId = selectedProjectId && projectSummaries.some((project) => project.id === selectedProjectId)
+    ? selectedProjectId
+    : projectSummaries.length === 1
+      ? projectSummaries[0].id
+      : undefined;
+  const selectedSummaries = validSelectedProjectId
+    ? projectSummaries.filter((project) => project.id === validSelectedProjectId)
+    : [];
+  const projects = await Promise.all(selectedSummaries.map((project) => dependencies.getProject(project.id)));
   const services = projects.flatMap((project) => project.services ?? []);
   const [metrics, deploymentGroups] = await Promise.all([
     Promise.all(servers.map(async (server) => {
@@ -38,5 +46,7 @@ export async function loadMigrationReadiness(dependencies: MigrationPageDependen
     operations,
     deployments: deploymentGroups.flat(),
     metrics,
+    selectedProjectId: validSelectedProjectId,
+    projectCount: projectSummaries.length,
   });
 }

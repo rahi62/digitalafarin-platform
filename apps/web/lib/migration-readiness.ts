@@ -13,6 +13,8 @@ export type MigrationReadinessContext = {
   operations?: Array<{ server_id: string; kind: string; state: string; created_at?: string }>;
   deployments?: Array<{ service_id: string; state: string; queued_at?: string }>;
   metrics?: Array<{ id: string; disk_percent: number; stale: boolean }>;
+  selectedProjectId?: string;
+  projectCount?: number;
 };
 
 function diskReadiness(metrics: NonNullable<MigrationReadinessContext["metrics"]>): Pick<ReadinessStep, "state" | "detail"> {
@@ -95,11 +97,16 @@ export function deriveMigrationReadiness(
     : targetServers.length > 0
       ? { state: "blocked", detail: "A target agent heartbeat is stale or offline" }
       : { state: "pending", detail: "Awaiting fresh outbound heartbeat" };
+  const projectCount = context.projectCount ?? projects.length;
+  const projectSelected = Boolean(context.selectedProjectId) || (context.projectCount === undefined && projects.length > 0);
+  const projectState: Pick<ReadinessStep, "state" | "detail"> = projectSelected
+    ? { state: "ready", detail: `${projectCount} project(s); target selected` }
+    : { state: "pending", detail: projectCount > 0 ? `${projectCount} project(s) available; select one` : "0 project(s)" };
   return [
     { label: "Enroll new VPS", ...ready(servers.length > 0, `${servers.length} server(s) enrolled`) },
     { label: "Heartbeat", ...heartbeatState },
     { label: "Bootstrap", ...bootstrapState },
-    { label: "Select project", ...ready(projects.length > 0, `${projects.length} project(s)`) },
+    { label: "Select project", ...projectState },
     { label: "Create variables", ...ready(variables.length > 0 && variables.every((item) => item.value_type !== "secret" || item.has_value), `${variables.length} secret-safe variable metadata record(s)`) },
     { label: "Create volumes", ...ready(volumes.length > 0, `${volumes.length} volume(s)`) },
     { label: "Restore volume data", state: "pending", detail: "Operator verification required" },
