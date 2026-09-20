@@ -4,7 +4,6 @@ import pwd
 import re
 import shutil
 import stat
-import subprocess
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -21,11 +20,11 @@ from .takeover_systemd import (
     restart_takeover_unit,
     write_managed_dropin,
 )
+from .takeover_worker import TakeoverWorkerError, run_takeover_worker
 
 
 APPS_ROOT = Path("/srv/digitalafarin/apps")
 SYSTEMD_ROOT = Path("/etc/systemd/system")
-SETPRIV = "/usr/bin/setpriv"
 SAFE_ROOT = re.compile(r"^(?:\.|[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)$")
 
 
@@ -225,70 +224,13 @@ def _release_path(service_root: Path, release_name: str) -> Path:
     return release
 
 
-def _setpriv_command(user: str, argv: list[str], *, npm_cache: bool) -> list[str]:
-    account = _account(user)
-    environment = [
-        "env",
-        "-i",
-        "HOME=/tmp",
-        f"USER={user}",
-        f"LOGNAME={user}",
-        "PATH=/usr/local/bin:/usr/bin:/bin",
-        "GIT_TERMINAL_PROMPT=0",
-    ]
-    if npm_cache:
-        environment.insert(3, "NPM_CONFIG_CACHE=/tmp/.npm-digitalafarin-takeover")
-    return [
-        SETPRIV,
-        f"--reuid={account.pw_uid}",
-        f"--regid={account.pw_gid}",
-        "--clear-groups",
-        "--inh-caps=-all",
-        "--no-new-privs",
-        "--",
-        *environment,
-        *argv,
-    ]
-
-
-def _run_as_user_capture(
-    user: str,
-    argv: list[str],
-    *,
-    cwd: Path | None = None,
-    timeout: int = 60,
-) -> str:
-    if not argv or not all(isinstance(item, str) and item for item in argv):
-        raise TakeoverHelperDomainError(
-            "release_prepare_failed", "Invalid takeover source command."
-        )
-    try:
-        result = subprocess.run(
-            _setpriv_command(user, argv, npm_cache=False),
-            cwd=cwd,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            shell=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise TakeoverHelperDomainError(
-            "release_prepare_failed", type(exc).__name__
-        ) from exc
-    if result.returncode != 0:
-        raise TakeoverHelperDomainError(
-            "release_prepare_failed", "Unable to verify trusted takeover source."
-        )
-    return result.stdout.strip()
-
-
 def _trusted_local_source_repository(
     project_slug: str,
     service_name: str,
     unit_name: str,
     exact_commit: str,
     user: str,
+    group: str,
     source_repositories: dict[tuple[str, str, str], Path],
 ) -> Path:
     configured = source_repositories.get((project_slug, service_name, unit_name))
@@ -314,9 +256,18 @@ def _trusted_local_source_repository(
             "helper_configuration_error",
             "Trusted local source repository is not a directory.",
         )
-    head = _run_as_user_capture(
-        user, ["git", "-C", str(source), "rev-parse", "HEAD"], timeout=30
-    )
+    try:
+        head = run_takeover_worker(
+            phase="source_verify",
+            user=user,
+            group=group,
+            argv=["git", "-C", str(source), "rev-parse", "HEAD"],
+            timeout=30,
+        )
+    except TakeoverWorkerError as exc:
+        raise TakeoverHelperDomainError(
+            "release_prepare_failed", "Unable to verify trusted takeover source."
+        ) from exc
     if not COMMIT.fullmatch(head) or head != exact_commit:
         raise TakeoverHelperDomainError(
             "service_configuration_changed",
@@ -325,35 +276,32 @@ def _trusted_local_source_repository(
     return source
 
 
-def _run_as_user(
+def _run_as_worker(
     user: str,
+    group: str,
     argv: list[str],
     *,
     cwd: Path | None = None,
+    writable_path: Path | None = None,
+    phase: str,
+    npm_cache: bool = False,
     timeout: int = 900,
 ) -> None:
-    if not argv or not all(isinstance(item, str) and item for item in argv):
-        raise TakeoverHelperDomainError(
-            "release_prepare_failed", "Invalid takeover build command."
-        )
     try:
-        result = subprocess.run(
-            _setpriv_command(user, argv, npm_cache=True),
+        run_takeover_worker(
+            phase=phase,
+            user=user,
+            group=group,
+            argv=argv,
             cwd=cwd,
-            check=False,
-            capture_output=True,
-            text=True,
+            writable_path=writable_path,
+            npm_cache=npm_cache,
             timeout=timeout,
-            shell=False,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise TakeoverHelperDomainError(
-            "release_prepare_failed", type(exc).__name__
-        ) from exc
-    if result.returncode != 0:
+    except TakeoverWorkerError as exc:
         raise TakeoverHelperDomainError(
             "release_prepare_failed", "Takeover build command failed."
-        )
+        ) from exc
 
 
 def _ensure_release_directories(
@@ -554,6 +502,7 @@ def prepare_node_nextjs_release(
         unit_name,
         exact_commit,
         user,
+        group,
         sources,
     )
     service_root = _ensure_release_directories(
@@ -577,8 +526,13 @@ def prepare_node_nextjs_release(
                 str(trusted_source),
                 exact_commit,
                 apps_root=apps_root,
-                run_command=lambda argv, timeout=300: _run_as_user(
-                    user, argv, timeout=timeout
+                run_command=lambda argv, timeout=300: _run_as_worker(
+                    user,
+                    group,
+                    argv,
+                    writable_path=allocated[-1],
+                    phase="release_git",
+                    timeout=timeout,
                 ),
                 prepare_destination=allocate,
             )
@@ -603,7 +557,17 @@ def prepare_node_nextjs_release(
         except RecipeError as exc:
             raise TakeoverHelperDomainError("release_validation_failed", str(exc)) from exc
         for command in commands:
-            _run_as_user(user, command, cwd=cwd, timeout=900)
+            phase = "npm_ci" if command == ["npm", "ci"] else "next_build"
+            _run_as_worker(
+                user,
+                group,
+                command,
+                cwd=cwd,
+                writable_path=release,
+                phase=phase,
+                npm_cache=True,
+                timeout=900,
+            )
         _validate_node_artifacts(cwd, install_configuration)
         runtime_cache = _prepare_next_runtime_cache(cwd, user=user, group=group)
         _seal_release(release, service_root, writable_paths=(runtime_cache,))

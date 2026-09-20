@@ -11,10 +11,10 @@ from digitalafarin_agent.takeover_helper import (
     prepare_node_nextjs_release,
     rollback_activation,
     trusted_source_repositories_from_env,
-    _run_as_user,
-    _run_as_user_capture,
+    _run_as_worker,
     _trusted_local_source_repository,
 )
+from digitalafarin_agent.takeover_worker import TakeoverWorkerError
 
 
 
@@ -80,6 +80,14 @@ def test_prepare_helper_derives_release_and_runs_build_as_service_user(tmp_path,
     def fake_prepare(*args, **kwargs):
         assert args[2] == str(trusted_source)
         kwargs["prepare_destination"](release)
+        kwargs["run_command"](
+            ["git", "clone", "--no-checkout", "--", str(trusted_source), str(release)],
+            timeout=300,
+        )
+        kwargs["run_command"](
+            ["git", "-C", str(release), "checkout", "--detach", "a" * 40],
+            timeout=300,
+        )
         cwd = release / "apps" / "web"
         (cwd / ".next").mkdir(parents=True)
         (cwd / "package.json").write_text("{}", encoding="utf-8")
@@ -92,8 +100,10 @@ def test_prepare_helper_derives_release_and_runs_build_as_service_user(tmp_path,
         lambda *_a, **_k: [["npm", "ci"], ["npm", "run", "build"]],
     )
     monkeypatch.setattr(
-        "digitalafarin_agent.takeover_helper._run_as_user",
-        lambda user, argv, **kwargs: calls.append((user, argv, kwargs.get("cwd"))),
+        "digitalafarin_agent.takeover_helper._run_as_worker",
+        lambda user, group, argv, **kwargs: calls.append(
+            (user, group, argv, kwargs)
+        ),
     )
     sealed = []
     monkeypatch.setattr(
@@ -107,8 +117,50 @@ def test_prepare_helper_derives_release_and_runs_build_as_service_user(tmp_path,
 
     assert result == {"release_name": release.name, "release_path": str(release)}
     assert calls == [
-        ("deploy", ["npm", "ci"], release / "apps" / "web"),
-        ("deploy", ["npm", "run", "build"], release / "apps" / "web"),
+        (
+            "deploy",
+            "www-data",
+            ["git", "clone", "--no-checkout", "--", str(trusted_source), str(release)],
+            {
+                "writable_path": release,
+                "phase": "release_git",
+                "timeout": 300,
+            },
+        ),
+        (
+            "deploy",
+            "www-data",
+            ["git", "-C", str(release), "checkout", "--detach", "a" * 40],
+            {
+                "writable_path": release,
+                "phase": "release_git",
+                "timeout": 300,
+            },
+        ),
+        (
+            "deploy",
+            "www-data",
+            ["npm", "ci"],
+            {
+                "cwd": release / "apps" / "web",
+                "writable_path": release,
+                "phase": "npm_ci",
+                "npm_cache": True,
+                "timeout": 900,
+            },
+        ),
+        (
+            "deploy",
+            "www-data",
+            ["npm", "run", "build"],
+            {
+                "cwd": release / "apps" / "web",
+                "writable_path": release,
+                "phase": "next_build",
+                "npm_cache": True,
+                "timeout": 900,
+            },
+        ),
     ]
     assert sealed[0][0] == release
     assert sealed[0][1] == service_root
@@ -146,7 +198,7 @@ def test_prepare_helper_cleans_partial_release_when_build_fails(tmp_path, monkey
         lambda *_a, **_k: [["npm", "ci"]],
     )
     monkeypatch.setattr(
-        "digitalafarin_agent.takeover_helper._run_as_user",
+        "digitalafarin_agent.takeover_helper._run_as_worker",
         lambda *_a, **_k: (_ for _ in ()).throw(
             TakeoverHelperDomainError("release_prepare_failed", "build failed")
         ),
@@ -198,54 +250,63 @@ def test_prepare_helper_rejects_parent_path_root_directory_before_mutation(tmp_p
     assert not (tmp_path / "apps").exists()
 
 
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("worker_unit_name", "evil.service"),
+        ("command", "id"),
+        ("argv", ["id"]),
+        ("path", "/tmp/evil"),
+        ("systemd_property", "ProtectSystem=false"),
+    ],
+)
+def test_prepare_protocol_rejects_worker_control_fields_before_mutation(
+    field, value, tmp_path
+):
+    params = _prepare_params()
+    params[field] = value
 
-def test_privilege_drop_uses_setpriv_without_pam(monkeypatch):
+    with pytest.raises(TakeoverHelperDomainError) as exc:
+        prepare_node_nextjs_release(
+            params,
+            allowed_bindings=ALLOWED_BINDINGS,
+            apps_root=tmp_path / "apps",
+        )
+
+    assert exc.value.code == "helper_invalid_request"
+    assert not (tmp_path / "apps").exists()
+
+
+
+def test_source_verification_uses_systemd_worker_with_service_identity(tmp_path, monkeypatch):
     calls = []
-    monkeypatch.setattr("digitalafarin_agent.takeover_helper._account", _account)
-
-    def fake_run(argv, **kwargs):
-        calls.append((argv, kwargs))
-        return SimpleNamespace(returncode=0, stdout="a" * 40 + "\n", stderr="")
-
-    monkeypatch.setattr("digitalafarin_agent.takeover_helper.subprocess.run", fake_run)
-
-    output = _run_as_user_capture(
-        "deploy", ["git", "-C", "/opt/digitalafarin-platform", "rev-parse", "HEAD"]
+    monkeypatch.setattr(
+        "digitalafarin_agent.takeover_helper.run_takeover_worker",
+        lambda **kwargs: calls.append(kwargs) or "a" * 40,
     )
-    _run_as_user("deploy", ["npm", "ci"], cwd=Path("/srv/release/apps/web"))
+    source = tmp_path / "trusted-source"
+    source.mkdir()
 
-    assert output == "a" * 40
-    assert len(calls) == 2
+    output = _trusted_local_source_repository(
+        "digitalafarin-platform",
+        "platform-web",
+        "digitalafarin-platform-web.service",
+        "a" * 40,
+        "deploy",
+        "www-data",
+        {ALLOWED_BINDINGS.copy().pop(): source},
+    )
 
-    source_argv = calls[0][0]
-    build_argv = calls[1][0]
-    expected_prefix = [
-        "/usr/bin/setpriv",
-        "--reuid=1000",
-        "--regid=1000",
-        "--clear-groups",
-        "--inh-caps=-all",
-        "--no-new-privs",
-        "--",
-        "env",
-        "-i",
-        "HOME=/tmp",
+    assert output == source
+    assert calls == [
+        {
+            "phase": "source_verify",
+            "user": "deploy",
+            "group": "www-data",
+            "argv": ["git", "-C", str(source), "rev-parse", "HEAD"],
+            "timeout": 30,
+        }
     ]
-    assert source_argv[: len(expected_prefix)] == expected_prefix
-    assert build_argv[: len(expected_prefix)] == expected_prefix
-    assert "runuser" not in source_argv
-    assert "runuser" not in build_argv
-    assert "NPM_CONFIG_CACHE=/tmp/.npm-digitalafarin-takeover" not in source_argv
-    assert "NPM_CONFIG_CACHE=/tmp/.npm-digitalafarin-takeover" in build_argv
-    assert source_argv[-5:] == [
-        "git",
-        "-C",
-        "/opt/digitalafarin-platform",
-        "rev-parse",
-        "HEAD",
-    ]
-    assert build_argv[-2:] == ["npm", "ci"]
-    assert calls[1][1]["cwd"] == Path("/srv/release/apps/web")
 
 
 def test_trusted_source_repository_configuration_parses_exact_binding(monkeypatch):
@@ -266,8 +327,8 @@ def test_trusted_source_repository_requires_exact_production_head(tmp_path, monk
     source = tmp_path / "source"
     source.mkdir()
     monkeypatch.setattr(
-        "digitalafarin_agent.takeover_helper._run_as_user_capture",
-        lambda *_a, **_k: "b" * 40,
+        "digitalafarin_agent.takeover_helper.run_takeover_worker",
+        lambda **_kwargs: "b" * 40,
     )
     with pytest.raises(TakeoverHelperDomainError) as exc:
         _trusted_local_source_repository(
@@ -276,6 +337,7 @@ def test_trusted_source_repository_requires_exact_production_head(tmp_path, monk
             "digitalafarin-platform-web.service",
             "a" * 40,
             "deploy",
+            "www-data",
             {
                 (
                     "digitalafarin-platform",
@@ -287,6 +349,27 @@ def test_trusted_source_repository_requires_exact_production_head(tmp_path, monk
     assert exc.value.code == "service_configuration_changed"
 
 
+def test_worker_command_failure_maps_to_stable_helper_error(monkeypatch):
+    monkeypatch.setattr(
+        "digitalafarin_agent.takeover_helper.run_takeover_worker",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            TakeoverWorkerError("internal diagnostic")
+        ),
+    )
+
+    with pytest.raises(TakeoverHelperDomainError) as exc:
+        _run_as_worker(
+            "deploy",
+            "www-data",
+            ["npm", "ci"],
+            phase="npm_ci",
+        )
+
+    assert exc.value.code == "release_prepare_failed"
+    assert str(exc.value) == "Takeover build command failed."
+    assert "internal diagnostic" not in str(exc.value)
+
+
 def test_trusted_source_repository_rejects_missing_binding():
     with pytest.raises(TakeoverHelperDomainError) as exc:
         _trusted_local_source_repository(
@@ -295,6 +378,7 @@ def test_trusted_source_repository_rejects_missing_binding():
             "digitalafarin-platform-web.service",
             "a" * 40,
             "deploy",
+            "www-data",
             {},
         )
     assert exc.value.code == "helper_configuration_error"

@@ -371,7 +371,13 @@ Control Plane and does not expose deploy-user SSH material to build scripts. Eac
 takeover binding must map to a root-configured trusted local source repository through
 `DIGITALAFARIN_TAKEOVER_SOURCE_REPOSITORIES`. The first production mapping is:
 
-The helper drops privileges with `/usr/bin/setpriv` rather than `runuser`; this avoids PAM session setup inside the hardened helper sandbox while keeping source verification, Git clone, and Node build commands non-root.
+The helper does not drop privileges in-process. It asks systemd PID 1 to create a
+collected, hardened transient one-shot worker as the validated service `User` and
+`Group`. `PrivateUsers=yes` prevents deploy's host `sudo` and `users` supplementary
+groups from being mapped into the worker. Trusted-source Git verification has no writable path. Git release preparation,
+`npm ci`, and `npm run build` receive only the exact allocated release directory through
+`ReadWritePaths`. Worker unit names and commands are generated only by trusted helper
+code; they are not protocol fields.
 
 
 ```text
@@ -494,6 +500,104 @@ requests the fixed rollback operation and verifies health again.
 
 The failed pre-B3.1 takeover record should remain in the audit history. Do not reuse or
 edit that row; create a new takeover after the helper is deployed and verified.
+
+### H. Stage B3.4 systemd-worker rollout and PREPARE gate
+
+Set `MERGED_SHA` to the reviewed 40-character merge commit on `main`. This rollout
+restarts only the takeover Helper and Agent before PREPARE. It does not restart Web,
+change Web's working directory, create `current`, install the managed drop-in, or
+activate the takeover.
+
+```bash
+set -eu
+cd /opt/digitalafarin-platform
+MERGED_SHA='<MERGED_MAIN_SHA>'
+test "${#MERGED_SHA}" -eq 40
+
+test "$(systemctl is-active digitalafarin-platform-web.service)" = active
+test "$(systemctl show digitalafarin-platform-web.service -p User --value)" = deploy
+test "$(systemctl show digitalafarin-platform-web.service -p Group --value)" = www-data
+test "$(systemctl show digitalafarin-platform-web.service -p WorkingDirectory --value)" = /opt/digitalafarin-platform/apps/web
+test ! -e /srv/digitalafarin/apps/digitalafarin-platform/platform-web/current
+test ! -L /srv/digitalafarin/apps/digitalafarin-platform/platform-web/current
+test ! -e /etc/systemd/system/digitalafarin-platform-web.service.d/90-digitalafarin-managed.conf
+
+set -a
+. /etc/digitalafarin-platform/api.env
+set +a
+API_PY=/opt/digitalafarin-platform/apps/api/.venv/bin/python
+API_DIR=/opt/digitalafarin-platform/apps/api
+test "$($API_PY "$API_DIR/manage.py" shell -c \
+  "from control.models import Service; s=Service.objects.get(project__slug='digitalafarin-platform', name='platform-web', unit_name='digitalafarin-platform-web.service'); print(f'{s.lifecycle_state}|{s.target_server.status}')")" = 'configured|online'
+
+WEB_PID_BEFORE=$(systemctl show digitalafarin-platform-web.service -p MainPID --value)
+WEB_STARTED_BEFORE=$(systemctl show digitalafarin-platform-web.service -p ActiveEnterTimestampMonotonic --value)
+
+git fetch --prune origin main
+test "$(git branch --show-current)" = main
+test "$(git rev-parse origin/main)" = "$MERGED_SHA"
+git merge --ff-only "$MERGED_SHA"
+test "$(git rev-parse HEAD)" = "$MERGED_SHA"
+
+agent/.venv/bin/pip install ./agent
+test "$(agent/.venv/bin/python -c 'import digitalafarin_agent; print(digitalafarin_agent.__version__)')" = 0.2.4
+install -o root -g root -m 0644 \
+  infra/systemd/digitalafarin-platform-takeover-helper.service \
+  /etc/systemd/system/digitalafarin-platform-takeover-helper.service
+systemctl daemon-reload
+systemctl restart digitalafarin-platform-takeover-helper.service
+systemctl restart digitalafarin-platform-agent.service
+systemctl is-active --quiet digitalafarin-platform-takeover-helper.service
+systemctl is-active --quiet digitalafarin-platform-agent.service
+
+agent/tests/integration/run_systemd_worker_integration.sh \
+  /opt/digitalafarin-platform deploy www-data
+
+cd "$API_DIR"
+
+for attempt in $(seq 1 24); do
+  HEARTBEAT=$($API_PY manage.py shell -c \
+    "from control.models import Server; s=Server.objects.get(name='DigitalAfarin-Primary'); print(s.agent_version+'|'+s.status+'|'+str('takeover_helper_v1' in s.capabilities))")
+  test "$HEARTBEAT" = '0.2.4|online|True' && break
+  test "$attempt" -lt 24
+  sleep 5
+done
+
+test "$(systemctl show digitalafarin-platform-web.service -p MainPID --value)" = "$WEB_PID_BEFORE"
+test "$(systemctl show digitalafarin-platform-web.service -p ActiveEnterTimestampMonotonic --value)" = "$WEB_STARTED_BEFORE"
+test "$(systemctl show digitalafarin-platform-web.service -p WorkingDirectory --value)" = /opt/digitalafarin-platform/apps/web
+
+TAKEOVER_ID=$($API_PY manage.py shell -c \
+  "from control.models import Service; from control.services.takeovers import queue_takeover_prepare; s=Service.objects.get(project__slug='digitalafarin-platform', name='platform-web', unit_name='digitalafarin-platform-web.service'); t,_=queue_takeover_prepare(service=s, exact_commit='$MERGED_SHA', requested_by='stage-b3.4-rollout'); print(t.public_id)")
+test -n "$TAKEOVER_ID"
+
+for attempt in $(seq 1 180); do
+  TAKEOVER_STATE=$($API_PY manage.py shell -c \
+    "from control.models import ServiceTakeover; print(ServiceTakeover.objects.get(public_id='$TAKEOVER_ID').state)")
+  case "$TAKEOVER_STATE" in
+    prepared) break ;;
+    failed|rolled_back|rollback_failed|canceled) exit 1 ;;
+  esac
+  test "$attempt" -lt 180
+  sleep 5
+done
+
+RELEASE_PATH=$($API_PY manage.py shell -c \
+  "import re; from pathlib import Path; from control.models import ServiceTakeover; t=ServiceTakeover.objects.select_related('service').get(public_id='$TAKEOVER_ID'); assert t.state == 'prepared'; assert t.service.lifecycle_state == 'configured'; assert t.requested_commit == '$MERGED_SHA'; assert t.resolved_commit == '$MERGED_SHA'; assert isinstance(t.source_snapshot, dict) and t.source_snapshot; assert re.fullmatch(r'[0-9a-f]{64}', t.source_fingerprint); p=Path(t.release_path); expected=Path('/srv/digitalafarin/apps/digitalafarin-platform/platform-web/releases') / t.release_name; assert p == expected; print(p)")
+
+test -f "$RELEASE_PATH/apps/web/package.json"
+test -f "$RELEASE_PATH/apps/web/package-lock.json"
+test -d "$RELEASE_PATH/apps/web/.next"
+test ! -e /srv/digitalafarin/apps/digitalafarin-platform/platform-web/current
+test ! -L /srv/digitalafarin/apps/digitalafarin-platform/platform-web/current
+test ! -e /etc/systemd/system/digitalafarin-platform-web.service.d/90-digitalafarin-managed.conf
+test "$(systemctl show digitalafarin-platform-web.service -p MainPID --value)" = "$WEB_PID_BEFORE"
+test "$(systemctl show digitalafarin-platform-web.service -p ActiveEnterTimestampMonotonic --value)" = "$WEB_STARTED_BEFORE"
+test "$(systemctl show digitalafarin-platform-web.service -p WorkingDirectory --value)" = /opt/digitalafarin-platform/apps/web
+```
+
+Stop here. Preserve all earlier failed takeover rows for audit. ACTIVATE remains a
+separate explicit production gate and must not be queued as part of this rollout.
 
 ## 11. The 18 readiness checks
 
