@@ -41,7 +41,7 @@ def test_agent_unit_keeps_non_root_identity_and_limits_writes_to_managed_roots()
 def test_tmpfiles_precreates_only_platform_managed_srv_root():
     config = (REPO_ROOT / "infra" / "tmpfiles.d" / "digitalafarin-platform.conf").read_text(encoding="utf-8")
 
-    assert "d /srv/digitalafarin 0750 digitalafarin-agent digitalafarin-agent -" in config
+    assert "d /srv/digitalafarin 0751 digitalafarin-agent digitalafarin-agent -" in config
     assert "/srv/digitalafarin/apps" not in config
     assert "/srv/digitalafarin/volumes" not in config
     assert "/srv/digitalafarin/backups" not in config

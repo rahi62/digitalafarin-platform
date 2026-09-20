@@ -501,7 +501,7 @@ requests the fixed rollback operation and verifies health again.
 The failed pre-B3.1 takeover record should remain in the audit history. Do not reuse or
 edit that row; create a new takeover after the helper is deployed and verified.
 
-### H. Stage B3.4 systemd-worker rollout and PREPARE gate
+### H. Stage B3.5 preallocated-release rollout and PREPARE gate
 
 Set `MERGED_SHA` to the reviewed 40-character merge commit on `main`. This rollout
 restarts only the takeover Helper and Agent before PREPARE. It does not restart Web,
@@ -539,8 +539,17 @@ test "$(git rev-parse origin/main)" = "$MERGED_SHA"
 git merge --ff-only "$MERGED_SHA"
 test "$(git rev-parse HEAD)" = "$MERGED_SHA"
 
+install -o root -g root -m 0644 \
+  infra/tmpfiles.d/digitalafarin-platform.conf \
+  /etc/tmpfiles.d/digitalafarin-platform.conf
+systemd-tmpfiles --create /etc/tmpfiles.d/digitalafarin-platform.conf
+chmod 0751 /srv/digitalafarin /srv/digitalafarin/apps
+test "$(stat -c %a /srv/digitalafarin)" = 751
+test "$(stat -c %a /srv/digitalafarin/apps)" = 751
+test "$(stat -c %a /srv/digitalafarin/apps/digitalafarin-platform/platform-web/releases)" = 755
+
 agent/.venv/bin/pip install ./agent
-test "$(agent/.venv/bin/python -c 'import digitalafarin_agent; print(digitalafarin_agent.__version__)')" = 0.2.4
+test "$(agent/.venv/bin/python -c 'import digitalafarin_agent; print(digitalafarin_agent.__version__)')" = 0.2.5
 install -o root -g root -m 0644 \
   infra/systemd/digitalafarin-platform-takeover-helper.service \
   /etc/systemd/system/digitalafarin-platform-takeover-helper.service
@@ -558,7 +567,7 @@ cd "$API_DIR"
 for attempt in $(seq 1 24); do
   HEARTBEAT=$($API_PY manage.py shell -c \
     "from control.models import Server; s=Server.objects.get(name='DigitalAfarin-Primary'); print(s.agent_version+'|'+s.status+'|'+str('takeover_helper_v1' in s.capabilities))")
-  test "$HEARTBEAT" = '0.2.4|online|True' && break
+  test "$HEARTBEAT" = '0.2.5|online|True' && break
   test "$attempt" -lt 24
   sleep 5
 done
@@ -568,7 +577,7 @@ test "$(systemctl show digitalafarin-platform-web.service -p ActiveEnterTimestam
 test "$(systemctl show digitalafarin-platform-web.service -p WorkingDirectory --value)" = /opt/digitalafarin-platform/apps/web
 
 TAKEOVER_ID=$($API_PY manage.py shell -c \
-  "from control.models import Service; from control.services.takeovers import queue_takeover_prepare; s=Service.objects.get(project__slug='digitalafarin-platform', name='platform-web', unit_name='digitalafarin-platform-web.service'); t,_=queue_takeover_prepare(service=s, exact_commit='$MERGED_SHA', requested_by='stage-b3.4-rollout'); print(t.public_id)")
+  "from control.models import Service; from control.services.takeovers import queue_takeover_prepare; s=Service.objects.get(project__slug='digitalafarin-platform', name='platform-web', unit_name='digitalafarin-platform-web.service'); t,_=queue_takeover_prepare(service=s, exact_commit='$MERGED_SHA', requested_by='stage-b3.5-rollout'); print(t.public_id)")
 test -n "$TAKEOVER_ID"
 
 for attempt in $(seq 1 180); do
