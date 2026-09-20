@@ -12,6 +12,7 @@ from .takeover_helper import (
     TakeoverHelperDomainError,
     allowed_bindings_from_env,
     dispatch_helper_operation,
+    trusted_source_repositories_from_env,
 )
 
 
@@ -34,10 +35,12 @@ class _HelperServer(socketserver.UnixStreamServer):
         allowed_peer_user: str,
         socket_group: str,
         allowed_bindings: set[tuple[str, str, str]],
+        source_repositories: dict[tuple[str, str, str], Path],
     ) -> None:
         self.allowed_peer_uid = pwd.getpwnam(allowed_peer_user).pw_uid
         self.socket_gid = grp.getgrnam(socket_group).gr_gid
         self.allowed_bindings = allowed_bindings
+        self.source_repositories = source_repositories
         super().__init__(str(socket_path), _HelperHandler)
         os.chown(socket_path, 0, self.socket_gid)
         os.chmod(socket_path, 0o660)
@@ -131,6 +134,7 @@ class _HelperHandler(socketserver.StreamRequestHandler):
                 request["operation"],
                 request["params"],
                 allowed_bindings=self.server.allowed_bindings,
+                source_repositories=self.server.source_repositories,
             )
         except TakeoverHelperDomainError as exc:
             self._write(
@@ -177,6 +181,10 @@ def main() -> None:
     allowed_bindings = allowed_bindings_from_env()
     if not allowed_bindings:
         raise SystemExit("No takeover project/service/unit bindings are allowlisted.")
+    source_repositories = trusted_source_repositories_from_env()
+    missing_sources = allowed_bindings.difference(source_repositories)
+    if missing_sources:
+        raise SystemExit("No trusted local source repository is configured for an allowlisted binding.")
 
     old_umask = os.umask(0o077)
     try:
@@ -185,6 +193,7 @@ def main() -> None:
             allowed_peer_user=allowed_peer_user,
             socket_group=socket_group,
             allowed_bindings=allowed_bindings,
+            source_repositories=source_repositories,
         ) as server:
             server.serve_forever(poll_interval=0.5)
     finally:
