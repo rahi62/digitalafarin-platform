@@ -1,8 +1,8 @@
 # Stage B3 — Controlled Takeover Design
 
-**Project:** DigitalAfarin Platform  
-**Status:** Design approved in conversation; written-spec review pending  
-**Date:** 2026-09-20  
+**Project:** DigitalAfarin Platform
+**Status:** Design approved in conversation; written-spec review pending
+**Date:** 2026-09-20
 **Scope:** Safe transition of an adopted/configured existing systemd service into DigitalAfarin-managed immutable releases, beginning with `node-nextjs + systemd` and `digitalafarin-platform-web.service`.
 
 ## 1. Intent
