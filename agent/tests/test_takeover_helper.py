@@ -11,6 +11,8 @@ from digitalafarin_agent.takeover_helper import (
     prepare_node_nextjs_release,
     rollback_activation,
     trusted_source_repositories_from_env,
+    _run_as_user,
+    _run_as_user_capture,
     _trusted_local_source_repository,
 )
 
@@ -194,6 +196,56 @@ def test_prepare_helper_rejects_parent_path_root_directory_before_mutation(tmp_p
         prepare_node_nextjs_release(params, allowed_bindings=ALLOWED_BINDINGS, apps_root=tmp_path / "apps")
     assert exc.value.code == "release_validation_failed"
     assert not (tmp_path / "apps").exists()
+
+
+
+def test_privilege_drop_uses_setpriv_without_pam(monkeypatch):
+    calls = []
+    monkeypatch.setattr("digitalafarin_agent.takeover_helper._account", _account)
+
+    def fake_run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return SimpleNamespace(returncode=0, stdout="a" * 40 + "\n", stderr="")
+
+    monkeypatch.setattr("digitalafarin_agent.takeover_helper.subprocess.run", fake_run)
+
+    output = _run_as_user_capture(
+        "deploy", ["git", "-C", "/opt/digitalafarin-platform", "rev-parse", "HEAD"]
+    )
+    _run_as_user("deploy", ["npm", "ci"], cwd=Path("/srv/release/apps/web"))
+
+    assert output == "a" * 40
+    assert len(calls) == 2
+
+    source_argv = calls[0][0]
+    build_argv = calls[1][0]
+    expected_prefix = [
+        "/usr/bin/setpriv",
+        "--reuid=1000",
+        "--regid=1000",
+        "--clear-groups",
+        "--inh-caps=-all",
+        "--no-new-privs",
+        "--",
+        "env",
+        "-i",
+        "HOME=/tmp",
+    ]
+    assert source_argv[: len(expected_prefix)] == expected_prefix
+    assert build_argv[: len(expected_prefix)] == expected_prefix
+    assert "runuser" not in source_argv
+    assert "runuser" not in build_argv
+    assert "NPM_CONFIG_CACHE=/tmp/.npm-digitalafarin-takeover" not in source_argv
+    assert "NPM_CONFIG_CACHE=/tmp/.npm-digitalafarin-takeover" in build_argv
+    assert source_argv[-5:] == [
+        "git",
+        "-C",
+        "/opt/digitalafarin-platform",
+        "rev-parse",
+        "HEAD",
+    ]
+    assert build_argv[-2:] == ["npm", "ci"]
+    assert calls[1][1]["cwd"] == Path("/srv/release/apps/web")
 
 
 def test_trusted_source_repository_configuration_parses_exact_binding(monkeypatch):

@@ -11,6 +11,7 @@ WorkingDirectory=/opt/digitalafarin-platform/agent
 Environment="DIGITALAFARIN_TAKEOVER_HELPER_SOCKET=/run/digitalafarin-takeover/helper.sock" "DIGITALAFARIN_TAKEOVER_HELPER_PEER_USER=digitalafarin-agent" "DIGITALAFARIN_TAKEOVER_HELPER_SOCKET_GROUP=digitalafarin-agent" "DIGITALAFARIN_TAKEOVER_ALLOWED_BINDINGS=digitalafarin-platform|platform-web|digitalafarin-platform-web.service" "DIGITALAFARIN_TAKEOVER_SOURCE_REPOSITORIES=digitalafarin-platform|platform-web|digitalafarin-platform-web.service|/opt/digitalafarin-platform"
 RuntimeDirectory=digitalafarin-takeover
 RuntimeDirectoryMode=0750
+ExecStartPre=/usr/bin/test -x /usr/bin/setpriv
 ExecStart=/opt/digitalafarin-platform/agent/.venv/bin/python -m digitalafarin_agent.takeover_helper_server
 Restart=on-failure
 RestartSec=3
