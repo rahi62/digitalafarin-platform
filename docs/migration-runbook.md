@@ -371,6 +371,9 @@ Control Plane and does not expose deploy-user SSH material to build scripts. Eac
 takeover binding must map to a root-configured trusted local source repository through
 `DIGITALAFARIN_TAKEOVER_SOURCE_REPOSITORIES`. The first production mapping is:
 
+The helper drops privileges with `/usr/bin/setpriv` rather than `runuser`; this avoids PAM session setup inside the hardened helper sandbox while keeping source verification, Git clone, and Node build commands non-root.
+
+
 ```text
 digitalafarin-platform|platform-web|digitalafarin-platform-web.service|/opt/digitalafarin-platform
 ```

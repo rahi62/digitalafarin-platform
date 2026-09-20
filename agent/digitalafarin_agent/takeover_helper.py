@@ -25,6 +25,7 @@ from .takeover_systemd import (
 
 APPS_ROOT = Path("/srv/digitalafarin/apps")
 SYSTEMD_ROOT = Path("/etc/systemd/system")
+SETPRIV = "/usr/bin/setpriv"
 SAFE_ROOT = re.compile(r"^(?:\.|[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)$")
 
 
@@ -224,6 +225,32 @@ def _release_path(service_root: Path, release_name: str) -> Path:
     return release
 
 
+def _setpriv_command(user: str, argv: list[str], *, npm_cache: bool) -> list[str]:
+    account = _account(user)
+    environment = [
+        "env",
+        "-i",
+        "HOME=/tmp",
+        f"USER={user}",
+        f"LOGNAME={user}",
+        "PATH=/usr/local/bin:/usr/bin:/bin",
+        "GIT_TERMINAL_PROMPT=0",
+    ]
+    if npm_cache:
+        environment.insert(3, "NPM_CONFIG_CACHE=/tmp/.npm-digitalafarin-takeover")
+    return [
+        SETPRIV,
+        f"--reuid={account.pw_uid}",
+        f"--regid={account.pw_gid}",
+        "--clear-groups",
+        "--inh-caps=-all",
+        "--no-new-privs",
+        "--",
+        *environment,
+        *argv,
+    ]
+
+
 def _run_as_user_capture(
     user: str,
     argv: list[str],
@@ -231,27 +258,13 @@ def _run_as_user_capture(
     cwd: Path | None = None,
     timeout: int = 60,
 ) -> str:
-    _account(user)
     if not argv or not all(isinstance(item, str) and item for item in argv):
         raise TakeoverHelperDomainError(
             "release_prepare_failed", "Invalid takeover source command."
         )
     try:
         result = subprocess.run(
-            [
-                "runuser",
-                "-u",
-                user,
-                "--",
-                "env",
-                "-i",
-                "HOME=/tmp",
-                f"USER={user}",
-                f"LOGNAME={user}",
-                "PATH=/usr/local/bin:/usr/bin:/bin",
-                "GIT_TERMINAL_PROMPT=0",
-                *argv,
-            ],
+            _setpriv_command(user, argv, npm_cache=False),
             cwd=cwd,
             check=False,
             capture_output=True,
@@ -319,28 +332,13 @@ def _run_as_user(
     cwd: Path | None = None,
     timeout: int = 900,
 ) -> None:
-    _account(user)
     if not argv or not all(isinstance(item, str) and item for item in argv):
         raise TakeoverHelperDomainError(
             "release_prepare_failed", "Invalid takeover build command."
         )
     try:
         result = subprocess.run(
-            [
-                "runuser",
-                "-u",
-                user,
-                "--",
-                "env",
-                "-i",
-                "HOME=/tmp",
-                "NPM_CONFIG_CACHE=/tmp/.npm-digitalafarin-takeover",
-                f"USER={user}",
-                f"LOGNAME={user}",
-                "PATH=/usr/local/bin:/usr/bin:/bin",
-                "GIT_TERMINAL_PROMPT=0",
-                *argv,
-            ],
+            _setpriv_command(user, argv, npm_cache=True),
             cwd=cwd,
             check=False,
             capture_output=True,
