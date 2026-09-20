@@ -52,8 +52,14 @@ def test_takeover_helper_is_root_only_but_socket_scoped_and_unit_allowlisted():
 
     assert unit["Service"]["User"] == "root"
     assert unit["Service"]["Group"] == "digitalafarin-agent"
-    assert unit["Service"]["NoNewPrivileges"] == "true"
+    assert unit["Service"]["NoNewPrivileges"] == "yes"
     assert unit["Service"]["ProtectSystem"] == "strict"
+    assert unit["Service"]["ProtectHome"] == "yes"
+    assert unit["Service"]["PrivateTmp"] == "yes"
+    assert unit["Service"]["ProtectKernelTunables"] == "yes"
+    assert unit["Service"]["ProtectKernelModules"] == "yes"
+    assert unit["Service"]["ProtectControlGroups"] == "yes"
+    assert unit["Service"]["LockPersonality"] == "yes"
     assert unit["Service"]["RuntimeDirectory"] == "digitalafarin-takeover"
     environment = unit["Service"]["Environment"]
     assert "DIGITALAFARIN_TAKEOVER_HELPER_SOCKET=/run/digitalafarin-takeover/helper.sock" in environment
@@ -62,3 +68,5 @@ def test_takeover_helper_is_root_only_but_socket_scoped_and_unit_allowlisted():
     read_write_paths = unit["Service"]["ReadWritePaths"].split()
     assert "/srv/digitalafarin/apps" in read_write_paths
     assert "/etc/systemd/system" in read_write_paths
+    assert unit["Service"]["ExecStartPre"] == "/usr/bin/test -x /usr/bin/systemd-run"
+    assert "setpriv" not in unit["Service"]["ExecStartPre"]
