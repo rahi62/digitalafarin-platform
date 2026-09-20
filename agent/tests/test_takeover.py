@@ -5,8 +5,10 @@ import pytest
 
 from digitalafarin_agent.takeover import (
     TakeoverExecutionError,
+    activate_service_takeover,
     prepare_service_takeover,
 )
+from digitalafarin_agent.takeover_helper_client import TakeoverHelperError
 
 
 def prepare_payload():
@@ -46,13 +48,7 @@ def snapshot(user="deploy"):
         "working_directory": "/opt/digitalafarin-platform/apps/web",
         "exec_start_path": "/usr/bin/npm",
         "exec_start_argv": [
-            "/usr/bin/npm",
-            "start",
-            "--",
-            "--hostname",
-            "127.0.0.1",
-            "--port",
-            "9751",
+            "/usr/bin/npm", "start", "--", "--hostname", "127.0.0.1", "--port", "9751"
         ],
         "environment_file_paths": ["/etc/digitalafarin-platform/web.env"],
         "restart_policy": "on-failure",
@@ -66,8 +62,38 @@ def snapshot(user="deploy"):
     }
 
 
-def test_prepare_builds_release_as_source_user_without_activation(tmp_path, monkeypatch):
-    calls = []
+class FakeHelper:
+    def __init__(self, *, release: Path | None = None):
+        self.release = release
+        self.calls = []
+        self.activation = {
+            "previous_release_name": None,
+            "previous_current_path": None,
+            "managed_dropin_path": "/etc/systemd/system/digitalafarin-platform-web.service.d/90-digitalafarin-managed.conf",
+        }
+        self.rollback_error = None
+
+    def prepare_node_nextjs_release(self, params):
+        self.calls.append(("prepare", params))
+        assert self.release is not None
+        return {"release_name": self.release.name, "release_path": str(self.release)}
+
+    def activate_release(self, params):
+        self.calls.append(("activate", params))
+        return dict(self.activation)
+
+    def rollback_activation(self, params):
+        self.calls.append(("rollback", params))
+        if self.rollback_error:
+            raise self.rollback_error
+        return {"previous_release_name": params["previous_release_name"]}
+
+    def cleanup_release(self, params):
+        self.calls.append(("cleanup", params))
+        return {"removed": True}
+
+
+def _make_prepared_release(tmp_path):
     release = (
         tmp_path
         / "apps"
@@ -79,7 +105,12 @@ def test_prepare_builds_release_as_source_user_without_activation(tmp_path, monk
     (release / "apps" / "web" / ".next").mkdir(parents=True)
     (release / "apps" / "web" / "package.json").write_text("{}", encoding="utf-8")
     (release / "apps" / "web" / "package-lock.json").write_text("{}", encoding="utf-8")
+    return release
 
+
+def test_prepare_delegates_privileged_release_work_without_activation(tmp_path, monkeypatch):
+    release = _make_prepared_release(tmp_path)
+    helper = FakeHelper(release=release)
     monkeypatch.setattr("digitalafarin_agent.takeover.inspect_service", lambda _unit: snapshot())
     monkeypatch.setattr(
         "digitalafarin_agent.takeover.fingerprint_snapshot", lambda _snapshot: "2" * 64
@@ -89,80 +120,45 @@ def test_prepare_builds_release_as_source_user_without_activation(tmp_path, monk
         lambda user: SimpleNamespace(pw_uid=1000, pw_gid=1000, pw_dir="/home/deploy"),
     )
     monkeypatch.setattr(
-        "digitalafarin_agent.takeover._ensure_release_directories",
-        lambda *args, **kwargs: (
-            tmp_path / "apps" / "digitalafarin-platform" / "platform-web"
-        ),
-    )
-
-    def fake_prepare(*_args, **kwargs):
-        calls.append(("git_runner", kwargs["run_command"]))
-        return release
-
-    monkeypatch.setattr("digitalafarin_agent.takeover.prepare_release", fake_prepare)
-    monkeypatch.setattr(
-        "digitalafarin_agent.takeover.run_recipe_as_user",
-        lambda user, commands, cwd: calls.append(("build", user, commands, cwd)),
-    )
-    monkeypatch.setattr(
         "digitalafarin_agent.takeover.managed_dropin_path",
         lambda _unit: tmp_path / "not-present.conf",
     )
-    runtime_cache = release / "apps" / "web" / ".next" / "cache"
-    runtime_cache.mkdir(parents=True)
-    monkeypatch.setattr(
-        "digitalafarin_agent.takeover._prepare_next_runtime_cache",
-        lambda cwd, user, group: runtime_cache,
-    )
-    sealed = []
-    monkeypatch.setattr(
-        "digitalafarin_agent.takeover._seal_release",
-        lambda release_path, service_root, *, writable_paths=(): sealed.append(
-            (release_path, service_root, writable_paths)
-        ),
-    )
 
-    result = prepare_service_takeover(prepare_payload(), apps_root=tmp_path / "apps")
+    result = prepare_service_takeover(
+        prepare_payload(), apps_root=tmp_path / "apps", helper_client=helper
+    )
 
     assert result["final_state"] == "prepared"
     assert result["source_fingerprint"] == "2" * 64
     assert result["release_name"] == release.name
-    assert calls[1][1] == "deploy"
-    assert calls[1][3] == release / "apps" / "web"
-    assert sealed == [
-        (
-            release,
-            tmp_path / "apps" / "digitalafarin-platform" / "platform-web",
-            (runtime_cache,),
-        )
-    ]
+    assert [name for name, _params in helper.calls] == ["prepare"]
+    params = helper.calls[0][1]
+    assert params["user"] == "deploy"
+    assert params["group"] == "www-data"
+    assert params["unit_name"] == "digitalafarin-platform-web.service"
     assert not (tmp_path / "apps" / "digitalafarin-platform" / "platform-web" / "current").exists()
 
 
 @pytest.mark.parametrize("user", ["", "root"])
-def test_prepare_rejects_unsafe_source_user_before_build(tmp_path, monkeypatch, user):
+def test_prepare_rejects_unsafe_source_user_before_helper(tmp_path, monkeypatch, user):
+    helper = FakeHelper()
     monkeypatch.setattr(
         "digitalafarin_agent.takeover.inspect_service", lambda _unit: snapshot(user=user)
     )
-    called = False
-
-    def fail_if_called(*_args, **_kwargs):
-        nonlocal called
-        called = True
-        raise AssertionError("build path must not run")
-
-    monkeypatch.setattr("digitalafarin_agent.takeover.prepare_release", fail_if_called)
 
     with pytest.raises(TakeoverExecutionError) as exc:
-        prepare_service_takeover(prepare_payload(), apps_root=tmp_path / "apps")
+        prepare_service_takeover(
+            prepare_payload(), apps_root=tmp_path / "apps", helper_client=helper
+        )
 
     assert exc.value.code == "source_user_unsafe"
-    assert called is False
+    assert helper.calls == []
 
 
-def test_prepare_rejects_existing_reserved_dropin_before_build(tmp_path, monkeypatch):
+def test_prepare_rejects_existing_reserved_dropin_before_helper(tmp_path, monkeypatch):
     dropin = tmp_path / "90-digitalafarin-managed.conf"
-    dropin.write_text("owned-by-someone-else", encoding="utf-8")
+    dropin.write_text("foreign", encoding="utf-8")
+    helper = FakeHelper()
     monkeypatch.setattr("digitalafarin_agent.takeover.inspect_service", lambda _unit: snapshot())
     monkeypatch.setattr(
         "digitalafarin_agent.takeover._account",
@@ -171,36 +167,41 @@ def test_prepare_rejects_existing_reserved_dropin_before_build(tmp_path, monkeyp
     monkeypatch.setattr("digitalafarin_agent.takeover.managed_dropin_path", lambda _unit: dropin)
 
     with pytest.raises(TakeoverExecutionError) as exc:
-        prepare_service_takeover(prepare_payload(), apps_root=tmp_path / "apps")
+        prepare_service_takeover(
+            prepare_payload(), apps_root=tmp_path / "apps", helper_client=helper
+        )
 
     assert exc.value.code == "managed_dropin_conflict"
+    assert helper.calls == []
 
 
-def test_prepare_rejects_root_directory_escape(tmp_path, monkeypatch):
-    payload = prepare_payload()
-    payload["root_directory"] = "../outside"
+def test_prepare_propagates_stable_helper_error(tmp_path, monkeypatch):
+    class FailingHelper(FakeHelper):
+        def prepare_node_nextjs_release(self, params):
+            raise TakeoverHelperError("release_prepare_failed", "helper failed")
+
     monkeypatch.setattr("digitalafarin_agent.takeover.inspect_service", lambda _unit: snapshot())
     monkeypatch.setattr(
         "digitalafarin_agent.takeover._account",
         lambda user: SimpleNamespace(pw_uid=1000, pw_gid=1000, pw_dir="/home/deploy"),
     )
     monkeypatch.setattr(
-        "digitalafarin_agent.takeover._ensure_release_directories",
-        lambda *args, **kwargs: None,
-    )
-    monkeypatch.setattr(
         "digitalafarin_agent.takeover.managed_dropin_path",
         lambda _unit: tmp_path / "not-present.conf",
     )
-    release = (
-        tmp_path / "apps" / "digitalafarin-platform" / "platform-web" / "releases" / "20260920-120000-aaaaaaa"
-    )
-    release.mkdir(parents=True)
-    monkeypatch.setattr("digitalafarin_agent.takeover.prepare_release", lambda *args, **kwargs: release)
 
     with pytest.raises(TakeoverExecutionError) as exc:
-        prepare_service_takeover(payload, apps_root=tmp_path / "apps")
+        prepare_service_takeover(
+            prepare_payload(), apps_root=tmp_path / "apps", helper_client=FailingHelper()
+        )
+    assert exc.value.code == "release_prepare_failed"
 
+
+def test_prepare_rejects_root_directory_escape_before_helper(tmp_path):
+    payload = prepare_payload()
+    payload["root_directory"] = "../outside"
+    with pytest.raises(TakeoverExecutionError) as exc:
+        prepare_service_takeover(payload, apps_root=tmp_path / "apps", helper_client=FakeHelper())
     assert exc.value.code == "release_validation_failed"
 
 
@@ -215,10 +216,7 @@ def activate_payload():
         "root_directory": "apps/web",
         "source_fingerprint": "a" * 64,
         "release_name": "20260920-120000-aaaaaaa",
-        "release_path": (
-            "/srv/digitalafarin/apps/digitalafarin-platform/"
-            "platform-web/releases/20260920-120000-aaaaaaa"
-        ),
+        "release_path": "/srv/digitalafarin/apps/digitalafarin-platform/platform-web/releases/20260920-120000-aaaaaaa",
         "health_check": prepare_payload()["health_check"],
     }
 
@@ -237,85 +235,54 @@ def activate_payload_for(tmp_path):
     return payload
 
 
-def test_activate_blocks_fingerprint_drift_before_mutation(tmp_path, monkeypatch):
-    from digitalafarin_agent.takeover import activate_service_takeover
-
-    payload = activate_payload_for(tmp_path)
-    root = tmp_path / "apps" / "digitalafarin-platform" / "platform-web"
-    monkeypatch.setattr("digitalafarin_agent.takeover.inspect_service", lambda _unit: snapshot())
-    monkeypatch.setattr(
-        "digitalafarin_agent.takeover.fingerprint_snapshot", lambda _snapshot: "b" * 64
-    )
-    mutated = []
-    monkeypatch.setattr(
-        "digitalafarin_agent.takeover.atomic_activate",
-        lambda *_args, **_kwargs: mutated.append("current"),
-    )
-
-    with pytest.raises(TakeoverExecutionError) as exc:
-        activate_service_takeover(payload, apps_root=tmp_path / "apps")
-
-    assert exc.value.code == "service_configuration_changed"
-    assert mutated == []
-    assert not (root / "current").exists()
-
-
-def test_activate_rejects_current_symlink_outside_managed_releases(tmp_path, monkeypatch):
-    from digitalafarin_agent.takeover import activate_service_takeover
-
-    payload = activate_payload_for(tmp_path)
-    root = tmp_path / "apps" / "digitalafarin-platform" / "platform-web"
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    (root / "current").symlink_to(outside)
-    monkeypatch.setattr("digitalafarin_agent.takeover.inspect_service", lambda _unit: snapshot())
-    monkeypatch.setattr(
-        "digitalafarin_agent.takeover.fingerprint_snapshot", lambda _snapshot: "a" * 64
-    )
-
-    with pytest.raises(TakeoverExecutionError) as exc:
-        activate_service_takeover(payload, apps_root=tmp_path / "apps")
-
-    assert exc.value.code == "takeover_activation_failed"
-    assert (root / "current").resolve() == outside.resolve()
-
-
-def test_first_takeover_health_failure_rolls_back_dropin_and_current(tmp_path, monkeypatch):
-    from digitalafarin_agent.health import HealthCheckError
-    from digitalafarin_agent.takeover import activate_service_takeover
-
-    payload = activate_payload_for(tmp_path)
-    root = tmp_path / "apps" / "digitalafarin-platform" / "platform-web"
-    release = Path(payload["release_path"])
-    systemd_root = tmp_path / "systemd"
-    calls = []
+def _activation_common(tmp_path, monkeypatch):
     monkeypatch.setattr("digitalafarin_agent.takeover.inspect_service", lambda _unit: snapshot())
     monkeypatch.setattr(
         "digitalafarin_agent.takeover.fingerprint_snapshot", lambda _snapshot: "a" * 64
     )
     monkeypatch.setattr(
         "digitalafarin_agent.takeover._managed_dropin_path",
-        lambda unit: systemd_root / f"{unit}.d" / "90-digitalafarin-managed.conf",
+        lambda _unit: tmp_path / "systemd" / "90-digitalafarin-managed.conf",
     )
+
+
+def test_activate_blocks_fingerprint_drift_before_helper(tmp_path, monkeypatch):
+    payload = activate_payload_for(tmp_path)
+    helper = FakeHelper()
+    monkeypatch.setattr("digitalafarin_agent.takeover.inspect_service", lambda _unit: snapshot())
     monkeypatch.setattr(
-        "digitalafarin_agent.takeover._write_managed_dropin",
-        lambda unit, working_directory: (
-            (systemd_root / f"{unit}.d").mkdir(parents=True, exist_ok=True),
-            (systemd_root / f"{unit}.d" / "90-digitalafarin-managed.conf").write_text(
-                f"[Service]\nWorkingDirectory={working_directory}\n", encoding="utf-8"
-            ),
-            systemd_root / f"{unit}.d" / "90-digitalafarin-managed.conf",
-        )[-1],
+        "digitalafarin_agent.takeover.fingerprint_snapshot", lambda _snapshot: "b" * 64
     )
-    monkeypatch.setattr(
-        "digitalafarin_agent.takeover._remove_managed_dropin",
-        lambda unit: (systemd_root / f"{unit}.d" / "90-digitalafarin-managed.conf").unlink(missing_ok=True),
-    )
-    monkeypatch.setattr("digitalafarin_agent.takeover.daemon_reload", lambda: calls.append("reload"))
-    monkeypatch.setattr(
-        "digitalafarin_agent.takeover.restart_takeover_unit",
-        lambda unit: calls.append(("restart", unit)),
-    )
+
+    with pytest.raises(TakeoverExecutionError) as exc:
+        activate_service_takeover(payload, apps_root=tmp_path / "apps", helper_client=helper)
+
+    assert exc.value.code == "service_configuration_changed"
+    assert helper.calls == []
+
+
+def test_activate_rejects_current_symlink_outside_managed_releases_before_helper(tmp_path, monkeypatch):
+    payload = activate_payload_for(tmp_path)
+    root = tmp_path / "apps" / "digitalafarin-platform" / "platform-web"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (root / "current").symlink_to(outside)
+    helper = FakeHelper()
+    _activation_common(tmp_path, monkeypatch)
+
+    with pytest.raises(TakeoverExecutionError) as exc:
+        activate_service_takeover(payload, apps_root=tmp_path / "apps", helper_client=helper)
+
+    assert exc.value.code == "takeover_activation_failed"
+    assert helper.calls == []
+
+
+def test_first_takeover_health_failure_delegates_rollback_and_cleanup(tmp_path, monkeypatch):
+    from digitalafarin_agent.health import HealthCheckError
+
+    payload = activate_payload_for(tmp_path)
+    helper = FakeHelper()
+    _activation_common(tmp_path, monkeypatch)
     health_calls = 0
 
     def health(_spec):
@@ -326,154 +293,54 @@ def test_first_takeover_health_failure_rolls_back_dropin_and_current(tmp_path, m
         return {"attempts": 2, "status": 200, "consecutive_successes": 2}
 
     monkeypatch.setattr("digitalafarin_agent.takeover.check_http_health_stable", health)
-
-    result = activate_service_takeover(payload, apps_root=tmp_path / "apps")
+    result = activate_service_takeover(
+        payload, apps_root=tmp_path / "apps", helper_client=helper
+    )
 
     assert result["final_state"] == "rolled_back"
-    assert not (root / "current").exists()
-    assert not (systemd_root / "digitalafarin-platform-web.service.d" / "90-digitalafarin-managed.conf").exists()
-    assert calls.count(("restart", "digitalafarin-platform-web.service")) == 2
-    assert not release.exists()
+    assert [name for name, _params in helper.calls] == ["activate", "rollback", "cleanup"]
+    assert helper.calls[1][1]["previous_release_name"] is None
 
 
 def test_rollback_failure_never_reports_success(tmp_path, monkeypatch):
     from digitalafarin_agent.health import HealthCheckError
-    from digitalafarin_agent.takeover import activate_service_takeover
 
     payload = activate_payload_for(tmp_path)
-    monkeypatch.setattr("digitalafarin_agent.takeover.inspect_service", lambda _unit: snapshot())
-    monkeypatch.setattr(
-        "digitalafarin_agent.takeover.fingerprint_snapshot", lambda _snapshot: "a" * 64
-    )
-    monkeypatch.setattr("digitalafarin_agent.takeover._managed_dropin_path", lambda _u: tmp_path / "dropin")
-    monkeypatch.setattr("digitalafarin_agent.takeover._write_managed_dropin", lambda *_a, **_k: tmp_path / "dropin")
-    monkeypatch.setattr("digitalafarin_agent.takeover._remove_managed_dropin", lambda *_a, **_k: None)
-    monkeypatch.setattr("digitalafarin_agent.takeover.daemon_reload", lambda: None)
-    monkeypatch.setattr("digitalafarin_agent.takeover.restart_takeover_unit", lambda _u: None)
+    helper = FakeHelper()
+    helper.rollback_error = TakeoverHelperError("takeover_rollback_failed", "failed")
+    _activation_common(tmp_path, monkeypatch)
     monkeypatch.setattr(
         "digitalafarin_agent.takeover.check_http_health_stable",
         lambda _spec: (_ for _ in ()).throw(HealthCheckError("unhealthy")),
     )
 
     with pytest.raises(TakeoverExecutionError) as exc:
-        activate_service_takeover(payload, apps_root=tmp_path / "apps")
-
+        activate_service_takeover(payload, apps_root=tmp_path / "apps", helper_client=helper)
     assert exc.value.code == "takeover_rollback_failed"
 
 
-def test_activate_installs_dropin_against_current_not_exact_release(tmp_path, monkeypatch):
-    from digitalafarin_agent.takeover import activate_service_takeover
-
+def test_activate_sends_derived_identity_not_arbitrary_working_directory(tmp_path, monkeypatch):
     payload = activate_payload_for(tmp_path)
-    root = tmp_path / "apps" / "digitalafarin-platform" / "platform-web"
-    captured = []
-    monkeypatch.setattr("digitalafarin_agent.takeover.inspect_service", lambda _unit: snapshot())
-    monkeypatch.setattr(
-        "digitalafarin_agent.takeover.fingerprint_snapshot", lambda _snapshot: "a" * 64
-    )
-    monkeypatch.setattr(
-        "digitalafarin_agent.takeover._managed_dropin_path",
-        lambda _unit: tmp_path / "systemd" / "90-digitalafarin-managed.conf",
-    )
-    monkeypatch.setattr(
-        "digitalafarin_agent.takeover._write_managed_dropin",
-        lambda _unit, working_directory: (
-            captured.append(working_directory),
-            tmp_path / "systemd" / "90-digitalafarin-managed.conf",
-        )[-1],
-    )
-    monkeypatch.setattr("digitalafarin_agent.takeover.daemon_reload", lambda: None)
-    monkeypatch.setattr("digitalafarin_agent.takeover.restart_takeover_unit", lambda _unit: None)
+    helper = FakeHelper()
+    _activation_common(tmp_path, monkeypatch)
     monkeypatch.setattr(
         "digitalafarin_agent.takeover.check_http_health_stable",
         lambda _spec: {"attempts": 2, "status": 200, "consecutive_successes": 2},
     )
 
-    result = activate_service_takeover(payload, apps_root=tmp_path / "apps")
+    result = activate_service_takeover(
+        payload, apps_root=tmp_path / "apps", helper_client=helper
+    )
 
     assert result["final_state"] == "succeeded"
-    assert captured == [root / "current" / "apps" / "web"]
-
-
-def test_seal_release_removes_write_bits_and_root_owns_tree(tmp_path, monkeypatch):
-    from digitalafarin_agent.takeover import _seal_release
-
-    service_root = tmp_path / "apps" / "platform" / "web"
-    release = service_root / "releases" / "release-a"
-    executable = release / "node_modules" / ".bin" / "next"
-    normal = release / "apps" / "web" / "package.json"
-    executable.parent.mkdir(parents=True)
-    normal.parent.mkdir(parents=True)
-    executable.write_text("#!/bin/sh\n", encoding="utf-8")
-    normal.write_text("{}", encoding="utf-8")
-    executable.chmod(0o755)
-    normal.chmod(0o644)
-    chowns = []
-    monkeypatch.setattr(
-        "digitalafarin_agent.takeover.os.chown",
-        lambda path, uid, gid, **_kwargs: chowns.append((Path(path), uid, gid)),
-    )
-
-    _seal_release(release, service_root)
-
-    assert executable.stat().st_mode & 0o222 == 0
-    assert executable.stat().st_mode & 0o111 != 0
-    assert normal.stat().st_mode & 0o222 == 0
-    assert any(path == release and uid == 0 and gid == 0 for path, uid, gid in chowns)
-
-
-def test_seal_release_preserves_declared_next_runtime_cache_write_permissions(tmp_path, monkeypatch):
-    from digitalafarin_agent.takeover import _seal_release
-
-    service_root = tmp_path / "apps" / "platform" / "web"
-    release = service_root / "releases" / "release-a"
-    normal = release / "apps" / "web" / "package.json"
-    cache = release / "apps" / "web" / ".next" / "cache"
-    cache_file = cache / "fetch-cache" / "entry"
-    normal.parent.mkdir(parents=True)
-    cache_file.parent.mkdir(parents=True)
-    normal.write_text("{}", encoding="utf-8")
-    cache_file.write_text("cache", encoding="utf-8")
-    normal.chmod(0o644)
-    cache.chmod(0o750)
-    cache_file.chmod(0o640)
-    chowns = []
-    monkeypatch.setattr(
-        "digitalafarin_agent.takeover.os.chown",
-        lambda path, uid, gid, **_kwargs: chowns.append((Path(path), uid, gid)),
-    )
-
-    _seal_release(release, service_root, writable_paths=(cache,))
-
-    assert normal.stat().st_mode & 0o222 == 0
-    assert cache.stat().st_mode & 0o200 != 0
-    assert cache_file.stat().st_mode & 0o200 != 0
-    assert not any(path == cache and uid == 0 for path, uid, _gid in chowns)
-    assert not any(path == cache_file and uid == 0 for path, uid, _gid in chowns)
-
-
-def test_prepare_next_runtime_cache_creates_writable_service_owned_directory(tmp_path, monkeypatch):
-    from digitalafarin_agent.takeover import _prepare_next_runtime_cache
-
-    cwd = tmp_path / "release" / "apps" / "web"
-    (cwd / ".next").mkdir(parents=True)
-    chowns = []
-    monkeypatch.setattr(
-        "digitalafarin_agent.takeover._account",
-        lambda user: SimpleNamespace(pw_uid=1000, pw_gid=1000, pw_dir="/home/deploy"),
-    )
-    monkeypatch.setattr(
-        "digitalafarin_agent.takeover._group_id",
-        lambda group, fallback_gid: 33,
-    )
-    monkeypatch.setattr(
-        "digitalafarin_agent.takeover.os.chown",
-        lambda path, uid, gid, **_kwargs: chowns.append((Path(path), uid, gid)),
-    )
-
-    cache = _prepare_next_runtime_cache(cwd, user="deploy", group="www-data")
-
-    assert cache == cwd / ".next" / "cache"
-    assert cache.is_dir()
-    assert cache.stat().st_mode & 0o700 == 0o700
-    assert chowns == [(cache, 1000, 33)]
+    params = helper.calls[0][1]
+    assert set(params) == {
+        "project_slug",
+        "service_name",
+        "unit_name",
+        "release_name",
+        "root_directory",
+        "source_fingerprint",
+    }
+    assert "working_directory" not in params
+    assert "release_path" not in params
