@@ -133,6 +133,43 @@ def create_mcp(control_plane: ControlPlaneClient | Any | None = None) -> MCPServ
         return await _safe(client.get_project(project_id))
 
     @mcp.tool()
+    async def vps_adopt_service(
+        project_id: str,
+        server_id: str,
+        unit_name: str,
+        name: str,
+    ) -> dict[str, Any]:
+        """Adopt one existing inventory systemd unit as metadata only; no workload operation is queued."""
+        return await _safe(
+            client.adopt_service(project_id, server_id, unit_name, name)
+        )
+
+    @mcp.tool()
+    async def vps_configure_service_deployment(
+        service_id: str,
+        repository: str,
+        branch: str,
+        root_directory: str,
+        runtime: Literal["node-nextjs", "python-django"],
+        service_port: int,
+        install_configuration: dict[str, Any],
+        build_configuration: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Store validated deployment metadata for an adopted service without enabling management."""
+        return await _safe(
+            client.configure_service_deployment(
+                service_id,
+                repository,
+                branch,
+                root_directory,
+                runtime,
+                service_port,
+                install_configuration,
+                build_configuration,
+            )
+        )
+
+    @mcp.tool()
     async def vps_deploy_service(
         service_id: str, commit: str | None = None
     ) -> dict[str, Any]:

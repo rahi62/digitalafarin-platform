@@ -11,6 +11,8 @@ class DeploymentStateTests(TestCase):
         service = Service.objects.create(
             project=project,
             name="web",
+            unit_name="oily-web.service",
+            lifecycle_state=Service.LIFECYCLE_MANAGED,
             repository="https://github.com/example/oily.git",
             branch="main",
             runtime="node-nextjs",

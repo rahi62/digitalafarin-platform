@@ -10,7 +10,17 @@ class DeploymentTransitionError(RuntimeError):
 
 
 class DeploymentAdmissionError(RuntimeError):
-    pass
+    def __init__(self, message: str, code: str = "deployment_blocked"):
+        super().__init__(message)
+        self.code = code
+
+
+def require_managed_service(service):
+    if service.lifecycle_state != service.LIFECYCLE_MANAGED:
+        raise DeploymentAdmissionError(
+            "Service has not completed controlled takeover.",
+            code="service_not_managed",
+        )
 
 
 def deployment_admission(server) -> dict[str, bool]:
@@ -40,6 +50,7 @@ NEXT_STATES = {
 def queue_deployment(
     *, service, requested_ref: str, requested_by: str, resolved_commit: str = "", source=None
 ):
+    require_managed_service(service)
     admission = deployment_admission(service.target_server)
     deployment = Deployment.objects.create(
         service=service,
@@ -72,6 +83,7 @@ def queue_deployment(
 
 @transaction.atomic
 def queue_rollback(*, source: Deployment, release, requested_by: str):
+    require_managed_service(source.service)
     deployment = Deployment.objects.create(
         service=source.service,
         requested_ref=release.exact_commit,

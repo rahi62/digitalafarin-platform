@@ -3,7 +3,7 @@ export type ReadinessStep = { label: string; state: ReadinessState; detail: stri
 
 export type MigrationServerInput = { id?: string; status: string };
 export type MigrationProjectInput = {
-  services?: Array<{ id: string; runtime?: string; target_server_id?: string }>;
+  services?: Array<{ id: string; runtime?: string | null; target_server_id?: string }>;
   variables?: Array<{ id: string; value_type: string; has_value: boolean }>;
   volumes?: Array<{ id: string }>;
   databases?: Array<{ id: string; status: string }>;

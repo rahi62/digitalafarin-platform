@@ -16,7 +16,8 @@ class DeploymentActionTests(TestCase):
         self.server = Server.objects.create(name="Target", last_seen_at=timezone.now(), disk_percent=25)
         self.project = Project.objects.create(name="Oily", slug="oily")
         self.service = Service.objects.create(
-            project=self.project, name="web", repository="https://github.com/example/oily.git",
+            project=self.project, name="web", unit_name="oily-web.service", repository="https://github.com/example/oily.git",
+            lifecycle_state=Service.LIFECYCLE_MANAGED,
             branch="main", runtime="node-nextjs", service_port=3000, target_server=self.server,
         )
         principal = ServicePrincipal.objects.create(name="web", scopes=["operations:create", "operations:read"])
@@ -30,6 +31,58 @@ class DeploymentActionTests(TestCase):
             os.environ.pop("PLATFORM_SECRET_KEYS", None)
         else:
             os.environ["PLATFORM_SECRET_KEYS"] = self.old_keys
+
+    def test_adopted_and_configured_services_cannot_deploy(self):
+        for state in [Service.LIFECYCLE_ADOPTED, Service.LIFECYCLE_CONFIGURED]:
+            self.service.lifecycle_state = state
+            self.service.save(update_fields=["lifecycle_state"])
+            response = self.client.post(
+                f"/api/control/v1/services/{self.service.public_id}/deployments/",
+                {},
+                format="json",
+            )
+            self.assertEqual(response.status_code, 409)
+            self.assertEqual(response.json()["error"], "service_not_managed")
+            self.assertEqual(Operation.objects.count(), 0)
+            self.assertEqual(Deployment.objects.count(), 0)
+
+    def test_redeploy_and_rollback_are_blocked_when_source_service_is_not_managed(self):
+        source = Deployment.objects.create(
+            service=self.service,
+            requested_ref="main",
+            resolved_commit="b" * 40,
+            requested_by="operator",
+            state="succeeded",
+        )
+        release = Release.objects.create(
+            service=self.service,
+            deployment=source,
+            name="release-one",
+            exact_commit="b" * 40,
+            path="/srv/digitalafarin/apps/oily/web/releases/release-one",
+        )
+        source.active_release = release
+        source.save(update_fields=["active_release"])
+        self.service.lifecycle_state = Service.LIFECYCLE_CONFIGURED
+        self.service.save(update_fields=["lifecycle_state"])
+
+        redeploy = self.client.post(
+            f"/api/control/v1/deployments/{source.public_id}/redeploy/",
+            {},
+            format="json",
+        )
+        rollback = self.client.post(
+            f"/api/control/v1/deployments/{source.public_id}/rollback/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(redeploy.status_code, 409)
+        self.assertEqual(redeploy.json()["error"], "service_not_managed")
+        self.assertEqual(rollback.status_code, 409)
+        self.assertEqual(rollback.json()["error"], "service_not_managed")
+        self.assertEqual(Operation.objects.count(), 0)
+        self.assertEqual(Deployment.objects.count(), 1)
 
     def test_exact_commit_deploy_creates_deployment_event_and_typed_operation(self):
         commit = "a" * 40
@@ -93,6 +146,8 @@ class DeploymentActionTests(TestCase):
     def test_agent_claim_receives_execution_context_without_persisting_secret(self):
         from control.services.secrets import encrypt_secret
 
+        self.service.unit_name = "custom-existing-oily.service"
+        self.service.save(update_fields=["unit_name"])
         EnvironmentVariable.objects.create(
             project=self.project,
             service=self.service,
@@ -116,6 +171,7 @@ class DeploymentActionTests(TestCase):
 
         execution = claim.json()["operation"]["execution"]
         self.assertEqual(execution["environment"]["APP_SECRET"], "deployment-sentinel")
+        self.assertEqual(execution["unit_name"], "custom-existing-oily.service")
         operation = Operation.objects.get(public_id=created.json()["operation_id"])
         self.assertNotIn("deployment-sentinel", str(operation.payload))
 

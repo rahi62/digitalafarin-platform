@@ -11,7 +11,8 @@ class DomainAPITests(TestCase):
         server = Server.objects.create(name="Target", last_seen_at=timezone.now())
         self.project = Project.objects.create(name="Oily", slug="oily")
         self.service = Service.objects.create(
-            project=self.project, name="web", repository="https://github.com/example/oily.git",
+            project=self.project, name="web", unit_name="oily-web.service", repository="https://github.com/example/oily.git",
+            lifecycle_state=Service.LIFECYCLE_MANAGED,
             branch="main", runtime="node-nextjs", service_port=3000, target_server=server,
         )
         principal = ServicePrincipal.objects.create(name="web", scopes=["operations:create", "operations:read"])

@@ -227,6 +227,15 @@ class Service(models.Model):
     RUNTIME_NODE = "node-nextjs"
     RUNTIME_DJANGO = "python-django"
 
+    LIFECYCLE_ADOPTED = "adopted"
+    LIFECYCLE_CONFIGURED = "configured"
+    LIFECYCLE_MANAGED = "managed"
+    LIFECYCLE_CHOICES = [
+        (LIFECYCLE_ADOPTED, "Adopted"),
+        (LIFECYCLE_CONFIGURED, "Configured"),
+        (LIFECYCLE_MANAGED, "Managed"),
+    ]
+
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     project = models.ForeignKey(Project, related_name="services", on_delete=models.CASCADE)
     name = models.SlugField(max_length=80)
@@ -235,16 +244,24 @@ class Service(models.Model):
         choices=[(EXECUTOR_SYSTEMD, "Systemd")],
         default=EXECUTOR_SYSTEMD,
     )
-    repository = models.URLField(max_length=500)
-    branch = models.CharField(max_length=255, default="main")
-    root_directory = models.CharField(max_length=255, default=".")
+    unit_name = models.CharField(max_length=255)
+    lifecycle_state = models.CharField(
+        max_length=16,
+        choices=LIFECYCLE_CHOICES,
+        default=LIFECYCLE_MANAGED,
+    )
+    repository = models.URLField(max_length=500, null=True, blank=True)
+    branch = models.CharField(max_length=255, null=True, blank=True)
+    root_directory = models.CharField(max_length=255, null=True, blank=True)
     runtime = models.CharField(
         max_length=32,
         choices=[(RUNTIME_NODE, "Node/Next.js"), (RUNTIME_DJANGO, "Python/Django")],
+        null=True,
+        blank=True,
     )
     install_configuration = models.JSONField(default=dict, blank=True)
     build_configuration = models.JSONField(default=dict, blank=True)
-    service_port = models.PositiveIntegerField()
+    service_port = models.PositiveIntegerField(null=True, blank=True)
     target_server = models.ForeignKey(
         Server, related_name="managed_services", on_delete=models.PROTECT
     )
@@ -256,7 +273,10 @@ class Service(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["project", "name"], name="uniq_project_service"
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["target_server", "unit_name"], name="uniq_server_service_unit"
+            ),
         ]
 
 

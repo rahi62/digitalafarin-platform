@@ -170,6 +170,7 @@ CI/deployment:
 ```bash
 cd apps/api
 .venv/bin/python manage.py test control.tests -v 2
+.venv/bin/python manage.py test control.tests.test_service_adoption_migration -v 2
 .venv/bin/python manage.py check
 .venv/bin/python manage.py makemigrations --check --dry-run
 
@@ -207,18 +208,50 @@ Production may still use the legacy `digitalafarin-vps-tunnel.service`; do not
 enable `digitalafarin-platform-mcp-tunnel.service` until a reviewed handoff stops
 the legacy unit and proves the new unit uses the same profile and environment.
 
-## 8. Deploy final `main`
+## 8. Deploy final `main` — Stage B2 order
 
-After the feature branch and its merge with latest `origin/main` pass the complete
-matrix, push the feature branch, integrate it into `main`, push `main`, and deploy
-that exact final commit:
+Stage B2 is metadata-only adoption. It must not restart an adopted workload,
+rewrite a unit, or enable deployment management. Use this order exactly:
+
+1. Confirm production repo is clean and record current SHA.
+2. Take/verify the normal database backup/rollback readiness.
+3. Pull the reviewed `main` commit.
+4. Install API dependencies and run `manage.py migrate --noinput`.
+5. Run `manage.py check`.
+6. Install the MCP package update.
+7. Build the Web app.
+8. Restart only `digitalafarin-platform-api`, `digitalafarin-platform-web`, and
+   `digitalafarin-platform-mcp` as needed to load Stage B2 code.
+9. Do not restart adopted workload units and do not restart the Agent solely for
+   Stage B2.
+10. Verify existing managed Services remain `managed` with their backfilled unit names.
+11. Adopt one protected `digitalafarin-platform-*.service` into the
+    `DigitalAfarin Platform` Project.
+12. Compare Operation count before/after adoption and require no increase caused by adoption.
+13. Verify the Project/Service UI shows lifecycle, protected state, and live inventory state.
+14. Verify deploy on the adopted service returns `service_not_managed` and creates
+    no Deployment/Operation.
+15. Optionally configure deployment metadata; verify state becomes `configured`
+    and deploy remains blocked.
+16. Only after acceptance, adopt Oily services one at a time; do not perform
+    takeover in Stage B2.
+
+Reference rollout commands:
 
 ```bash
-sudo -u deploy -H git -C /opt/digitalafarin-platform fetch --prune origin
-sudo -u deploy -H git -C /opt/digitalafarin-platform switch main
-sudo -u deploy -H git -C /opt/digitalafarin-platform pull --ff-only origin main
+REPO=/opt/digitalafarin-platform
+OLD_SHA="$(sudo -u deploy -H git -C "$REPO" rev-parse HEAD)"
+sudo -u deploy -H git -C "$REPO" status --short --branch
+test -z "$(sudo -u deploy -H git -C "$REPO" status --porcelain)"
 
-cd /opt/digitalafarin-platform/apps/api
+# Verify the normal database backup/rollback readiness here before pulling.
+
+sudo -u deploy -H git -C "$REPO" fetch --prune origin
+sudo -u deploy -H git -C "$REPO" switch main
+sudo -u deploy -H git -C "$REPO" pull --ff-only origin main
+NEW_SHA="$(sudo -u deploy -H git -C "$REPO" rev-parse HEAD)"
+
+cd "$REPO/apps/api"
 .venv/bin/pip install -r requirements.txt
 set -a
 . /etc/digitalafarin-platform/api.env
@@ -226,29 +259,24 @@ set +a
 .venv/bin/python manage.py migrate --noinput
 .venv/bin/python manage.py check
 
-# Existing credentials keep their values; update only the two intended principals.
-.venv/bin/python manage.py shell -c 'from control.models import ServicePrincipal; scopes=["servers:read","metrics:read","services:read","audit:read","operations:read","operations:create","logs:read"]; names=["chatgpt-vps-mcp","platform-web"]; found=set(ServicePrincipal.objects.filter(name__in=names).values_list("name", flat=True)); assert found == set(names), found; ServicePrincipal.objects.filter(name__in=names).update(scopes=scopes)'
-
-cd /opt/digitalafarin-platform/agent
+cd "$REPO/mcp"
 .venv/bin/pip install -e .
 
-cd /opt/digitalafarin-platform/mcp
-.venv/bin/pip install -e .
-
-cd /opt/digitalafarin-platform/apps/web
+cd "$REPO/apps/web"
 npm ci
 npm run build
 
-sudo install -m 0644 /opt/digitalafarin-platform/infra/systemd/digitalafarin-platform-api.service /etc/systemd/system/
-sudo install -m 0644 /opt/digitalafarin-platform/infra/systemd/digitalafarin-platform-web.service /etc/systemd/system/
-sudo install -m 0644 /opt/digitalafarin-platform/infra/systemd/digitalafarin-platform-agent.service /etc/systemd/system/
-sudo install -m 0644 /opt/digitalafarin-platform/infra/systemd/digitalafarin-platform-mcp.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl restart digitalafarin-platform-api digitalafarin-platform-web digitalafarin-platform-agent digitalafarin-platform-mcp
+sudo systemctl restart \
+  digitalafarin-platform-api \
+  digitalafarin-platform-web \
+  digitalafarin-platform-mcp
+
+printf 'OLD_SHA=%s\nNEW_SHA=%s\n' "$OLD_SHA" "$NEW_SHA"
 ```
 
-Install but do not enable the committed tunnel unit while the legacy tunnel unit
-owns the same profile. That handoff is a separate availability-sensitive change.
+The Agent package and `digitalafarin-platform-agent.service` are unchanged by
+Stage B2. Do not restart them merely for this release. The tunnel handoff remains
+a separate availability-sensitive change.
 
 ## 9. Non-destructive production acceptance
 
@@ -260,7 +288,17 @@ sudo -u deploy -H git -C /opt/digitalafarin-platform status --short --branch
 sudo -u deploy -H git -C /opt/digitalafarin-platform rev-parse HEAD
 systemctl is-active digitalafarin-platform-api digitalafarin-platform-web digitalafarin-platform-agent digitalafarin-platform-mcp
 curl -fsS http://127.0.0.1:9750/health/
-curl -fsSI http://127.0.0.1:9751/
+for attempt in $(seq 1 30); do
+  if curl -fsSI http://127.0.0.1:9751/ >/dev/null; then
+    echo "Web ready"
+    break
+  fi
+  if [ "$attempt" -eq 30 ]; then
+    echo "Web failed readiness window" >&2
+    exit 1
+  fi
+  sleep 1
+done
 sudo nginx -t
 ss -ltnp | grep -E ':(9743|9750|9751|3060)[[:space:]]'
 df -P / /opt /srv
@@ -269,6 +307,14 @@ df -P / /opt /srv
 Confirm the API reports a fresh, non-stale server snapshot; MCP is reachable at
 `http://127.0.0.1:3060/mcp`; the running tunnel process owns the expected profile;
 and API/MCP/Admin resource reads contain no credential or secret value.
+
+For the first Stage B2 acceptance, use a protected Platform unit so the binding can
+be observed without opening mutation authority. Record Operation count, adopt the
+unit as metadata only, then require the count to remain unchanged. Confirm the
+Service shows `adopted`, `protected=true`, and current inventory state. A deploy
+request must return `409 service_not_managed` before any Deployment or Operation
+is created. If deployment metadata is configured, the state becomes `configured`
+and deploy remains blocked. There is no `configured -> managed` action in Stage B2.
 
 ## 10. The 18 readiness checks
 

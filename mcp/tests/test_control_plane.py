@@ -152,3 +152,55 @@ async def test_create_project_posts_only_name_and_slug():
     assert result["slug"] == "oily"
     assert seen == [("/api/control/v1/projects/", '{"name":"Oily","slug":"oily"}')]
     await http.aclose()
+
+
+@pytest.mark.asyncio
+async def test_adopt_service_posts_only_narrow_metadata_payload():
+    seen = []
+
+    async def handler(request: httpx.Request):
+        seen.append((request.url.path, request.read().decode()))
+        return httpx.Response(201, json={"id": "service-id", "lifecycle_state": "adopted"})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = ControlPlaneClient("http://control", "service-secret", http=http)
+    result = await client.adopt_service(
+        "11111111-1111-1111-1111-111111111111",
+        "22222222-2222-2222-2222-222222222222",
+        "oily-backend.service",
+        "backend",
+    )
+    assert result["lifecycle_state"] == "adopted"
+    assert seen == [(
+        "/api/control/v1/projects/11111111-1111-1111-1111-111111111111/services/adopt/",
+        '{"server_id":"22222222-2222-2222-2222-222222222222","unit_name":"oily-backend.service","name":"backend"}',
+    )]
+    await http.aclose()
+
+
+@pytest.mark.asyncio
+async def test_configure_service_deployment_puts_complete_structured_configuration():
+    seen = []
+
+    async def handler(request: httpx.Request):
+        seen.append((request.method, request.url.path, request.read().decode()))
+        return httpx.Response(200, json={"id": "service-id", "lifecycle_state": "configured"})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = ControlPlaneClient("http://control", "service-secret", http=http)
+    result = await client.configure_service_deployment(
+        "33333333-3333-3333-3333-333333333333",
+        "https://github.com/example/oily.git",
+        "main",
+        "backend",
+        "python-django",
+        8000,
+        {"requirements_file": "requirements.txt"},
+        {"migrate": True, "collectstatic": True, "gunicorn_module": "config.wsgi:application"},
+    )
+    assert result["lifecycle_state"] == "configured"
+    assert seen[0][0] == "PUT"
+    assert seen[0][1] == "/api/control/v1/services/33333333-3333-3333-3333-333333333333/deployment-configuration/"
+    assert "command" not in seen[0][2]
+    assert "unit_file" not in seen[0][2]
+    await http.aclose()

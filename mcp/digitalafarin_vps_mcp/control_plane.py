@@ -6,6 +6,13 @@ import httpx
 from digitalafarin_vps_mcp.errors import MCPDomainError
 
 _SERVICE_RE = re.compile(r"^[A-Za-z0-9_.@:-]+\.service$")
+UUID_RE = re.compile(r"^[0-9a-fA-F-]{36}$")
+SLUG_RE = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
+
+
+def _validate_uuid(value: str, field: str) -> None:
+    if not UUID_RE.fullmatch(value):
+        raise MCPDomainError("invalid_request", f"{field} must be a UUID.")
 
 
 class ControlPlaneClient:
@@ -119,6 +126,35 @@ class ControlPlaneClient:
         if response.status_code in {400, 404, 409}:
             raise MCPDomainError("invalid_request", "The operation was rejected.")
         raise MCPDomainError("control_plane_unavailable", "Control plane request failed.")
+
+    async def _put(self, path: str, payload: dict) -> dict:
+        try:
+            response = await self.http.put(
+                f"{self.base_url}{path}",
+                json=payload,
+                headers={"Authorization": f"Bearer {self.token}"},
+            )
+        except httpx.HTTPError as exc:
+            raise MCPDomainError(
+                "control_plane_unavailable", "Control plane is unavailable."
+            ) from exc
+        if response.status_code < 400:
+            try:
+                return response.json()
+            except ValueError as exc:
+                raise MCPDomainError(
+                    "control_plane_unavailable",
+                    "Control plane returned an invalid response.",
+                ) from exc
+        if response.status_code in {401, 403}:
+            raise MCPDomainError(
+                "forbidden", "This MCP identity cannot perform this operation."
+            )
+        if response.status_code in {400, 404, 409}:
+            raise MCPDomainError("invalid_request", "The operation was rejected.")
+        raise MCPDomainError(
+            "control_plane_unavailable", "Control plane request failed."
+        )
 
     @staticmethod
     def _server_id(server_id: str | None) -> str:
@@ -271,6 +307,50 @@ class ControlPlaneClient:
 
     async def get_project(self, project_id: str) -> dict:
         return await self._get(f"/api/control/v1/projects/{quote(project_id, safe='')}/")
+
+    async def adopt_service(
+        self, project_id: str, server_id: str, unit_name: str, name: str
+    ) -> dict:
+        _validate_uuid(project_id, "project_id")
+        _validate_uuid(server_id, "server_id")
+        self._validate_service_name(unit_name)
+        if not SLUG_RE.fullmatch(name):
+            raise MCPDomainError(
+                "invalid_request", "name must be a safe service slug."
+            )
+        return await self._post(
+            f"/api/control/v1/projects/{quote(project_id, safe='')}/services/adopt/",
+            {"server_id": server_id, "unit_name": unit_name, "name": name},
+        )
+
+    async def configure_service_deployment(
+        self,
+        service_id: str,
+        repository: str,
+        branch: str,
+        root_directory: str,
+        runtime: str,
+        service_port: int,
+        install_configuration: dict,
+        build_configuration: dict,
+    ) -> dict:
+        _validate_uuid(service_id, "service_id")
+        if runtime not in {"node-nextjs", "python-django"}:
+            raise MCPDomainError("invalid_request", "runtime is unsupported.")
+        if not 1 <= service_port <= 65535:
+            raise MCPDomainError("invalid_request", "service_port is invalid.")
+        return await self._put(
+            f"/api/control/v1/services/{quote(service_id, safe='')}/deployment-configuration/",
+            {
+                "repository": repository,
+                "branch": branch,
+                "root_directory": root_directory,
+                "runtime": runtime,
+                "service_port": service_port,
+                "install_configuration": install_configuration,
+                "build_configuration": build_configuration,
+            },
+        )
 
     async def deploy_service(self, service_id: str, commit: str | None) -> dict:
         if commit and not re.fullmatch(r"[0-9a-f]{40}", commit):

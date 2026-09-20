@@ -8,7 +8,15 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from control.models import EnvironmentVariable, GitHubDelivery, Project, Server, Service
+from control.models import (
+    Deployment,
+    EnvironmentVariable,
+    GitHubDelivery,
+    Operation,
+    Project,
+    Server,
+    Service,
+)
 from control.services.secrets import encrypt_secret
 
 
@@ -19,7 +27,8 @@ class GitHubWebhookTests(TestCase):
         server = Server.objects.create(name="Target", last_seen_at=timezone.now(), disk_percent=20)
         project = Project.objects.create(name="Oily", slug="oily")
         self.service = Service.objects.create(
-            project=project, name="web", repository="https://github.com/example/oily.git",
+            project=project, name="web", unit_name="oily-web.service", repository="https://github.com/example/oily.git",
+            lifecycle_state=Service.LIFECYCLE_MANAGED,
             branch="main", runtime="node-nextjs", service_port=3000, target_server=server,
         )
         EnvironmentVariable.objects.create(
@@ -53,6 +62,16 @@ class GitHubWebhookTests(TestCase):
         self.assertEqual(first.status_code, 202)
         self.assertEqual(duplicate.status_code, 200)
         self.assertEqual(GitHubDelivery.objects.count(), 1)
+
+    def test_configured_service_cannot_deploy_from_github_webhook(self):
+        self.service.lifecycle_state = Service.LIFECYCLE_CONFIGURED
+        self.service.save(update_fields=["lifecycle_state"])
+
+        response = self.send(delivery="configured-service")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(Deployment.objects.count(), 0)
+        self.assertEqual(Operation.objects.count(), 0)
 
     def test_invalid_signature_creates_nothing(self):
         response = self.send(valid=False)

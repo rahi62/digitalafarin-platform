@@ -58,6 +58,14 @@ class ControlAPITests(TestCase):
             "digitalafarin-platform-api.service",
         )
 
+    def test_inventory_service_exposes_centralized_protected_policy(self):
+        response = self.client.get("/api/control/v1/servers/default/services/")
+
+        self.assertEqual(response.status_code, 200)
+        item = response.json()["items"][0]
+        self.assertEqual(item["unit_name"], "digitalafarin-platform-api.service")
+        self.assertTrue(item["protected"])
+
     def test_metrics_unavailable_before_first_heartbeat(self):
         response = self.client.get("/api/control/v1/servers/default/metrics/")
 
