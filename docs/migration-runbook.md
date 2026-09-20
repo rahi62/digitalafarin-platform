@@ -316,7 +316,126 @@ request must return `409 service_not_managed` before any Deployment or Operation
 is created. If deployment metadata is configured, the state becomes `configured`
 and deploy remains blocked. There is no `configured -> managed` action in Stage B2.
 
-## 10. The 18 readiness checks
+## 10. Stage B3 — Controlled Takeover
+
+Stage B3 turns one already `configured · unmanaged` service into a health-verified
+managed immutable release. The first candidate is **DigitalAfarin Platform Web**
+only. Oily is explicitly excluded from the first Stage B3 takeover.
+
+Production reference paths and listeners:
+
+```text
+Repo:    /opt/digitalafarin-platform
+API:     127.0.0.1:9750
+Web:     127.0.0.1:9751
+MCP:     127.0.0.1:3060
+Web env: /etc/digitalafarin-platform/web.env
+```
+
+### A. Deploy Stage B3 code before any takeover
+
+1. Confirm the production repo is clean and record the old SHA.
+2. Fetch and fast-forward only to the reviewed Stage B3 `main` SHA.
+3. Build Web as `deploy`; do not leave root-owned `.next`/`node_modules` artifacts.
+4. Apply the Stage B3 migration and run `manage.py check`.
+5. Install updated MCP and Agent packages.
+6. Restart only Platform API/MCP/Web/Agent units whose code/package changed.
+7. Verify API, Web, MCP, Agent, Nginx, loopback listeners, fresh heartbeat, and disk guardrails.
+8. Verify takeover API/MCP discovery before creating a takeover.
+9. Do **not** reuse the old Stage B2 SHA `6b4c43f...` as the takeover target. Use the exact
+   Stage B3 commit already running in production.
+
+### B. PREPARE `platform-web` without mutation
+
+Queue PREPARE using the exact Stage B3 production commit. Require all of the following
+before offering ACTIVATE:
+
+```text
+takeover.state == prepared
+service.lifecycle_state == configured
+source snapshot persisted
+source fingerprint persisted
+release exists under /srv/digitalafarin/apps/.../releases/<name>
+WorkingDirectory still /opt/digitalafarin-platform/apps/web
+90-digitalafarin-managed.conf does not exist
+platform-web MainPID/start time did not change because of PREPARE
+```
+
+PREPARE is a hard non-mutation boundary: no `current` activation, no managed drop-in,
+no `daemon-reload`, and no workload restart.
+
+### C. ACTIVATE `platform-web`
+
+Before activation, the Agent re-inspects the effective systemd source and must reject
+`service_configuration_changed` if the prepared fingerprint no longer matches.
+ACTIVATE then switches `current`, installs the single managed drop-in, reloads systemd,
+restarts the exact configured unit, and requires two consecutive successful loopback
+health responses.
+
+After success verify:
+
+```bash
+systemctl show digitalafarin-platform-web.service \
+  -p User \
+  -p Group \
+  -p WorkingDirectory \
+  -p ExecStart \
+  -p EnvironmentFiles
+
+curl -fsSI http://127.0.0.1:9751/
+```
+
+Expected invariants:
+
+```text
+lifecycle_state == managed
+WorkingDirectory=/srv/digitalafarin/apps/digitalafarin-platform/platform-web/current/apps/web
+User=deploy
+Group=www-data
+EnvironmentFile=/etc/digitalafarin-platform/web.env
+ExecStart=/usr/bin/npm start -- --hostname 127.0.0.1 --port 9751
+```
+
+Also verify one successful takeover Release exists, takeover audit events are present,
+and generic start/stop/restart remains blocked for the protected
+`digitalafarin-platform-web.service`.
+
+### D. Failure acceptance and automatic rollback
+
+If the new release fails health verification and rollback succeeds, require:
+
+```text
+Service remains configured
+Takeover is rolled_back
+managed drop-in is absent
+first-takeover current link is restored to its previous state (normally absent)
+base unit again supplies /opt/digitalafarin-platform/apps/web
+original loopback Web health passes
+no takeover Release is marked active
+```
+
+Do not convert the Service to `managed` after any failed/rolled-back activation.
+
+### E. `rollback_failed`
+
+If automatic rollback cannot restore healthy service:
+
+1. Service remains `configured`.
+2. Stop automated deploy/takeover actions for that Service.
+3. Preserve the prepared release and takeover metadata for forensics.
+4. Inspect takeover, Operation, audit events, base/drop-in state, `current`, and the
+   systemd journal manually.
+5. Do not retry takeover until the source service is healthy and the inconsistency has
+   been understood.
+
+### F. First-candidate isolation
+
+The first Stage B3 production acceptance mutates only
+`digitalafarin-platform-web.service`. Before and after ACTIVATE, record states for Oily
+and KhoshVisa units and require no restart/start-time change caused by takeover. Oily
+is not a Stage B3 first-candidate even if it is already visible in inventory.
+
+## 11. The 18 readiness checks
 
 The disposable acceptance fixture proves, in order: (1) enrollment, (2) fresh
 heartbeat plus idempotent bootstrap, (3) project creation, (4) service creation,

@@ -6,6 +6,7 @@ from .postgres import DatabaseError, create_database, restore_database
 from .deployment import DeploymentFailure, deploy_release, rollback_release
 from .domains import DomainError, configure_domain, enable_ssl
 from .redaction import redact
+from .takeover import TakeoverExecutionError, activate_service_takeover, prepare_service_takeover
 from .volumes import VolumeError, create_volume
 
 
@@ -67,6 +68,16 @@ def _bounded(text: str) -> tuple[str, bool]:
 
 
 def execute_operation(kind: str, payload: dict) -> dict:
+    if kind == "service.takeover.prepare":
+        try:
+            return prepare_service_takeover(payload)
+        except TakeoverExecutionError as exc:
+            raise OperationExecutionError(exc.code, str(exc)) from exc
+    if kind == "service.takeover.activate":
+        try:
+            return activate_service_takeover(payload)
+        except TakeoverExecutionError as exc:
+            raise OperationExecutionError(exc.code, str(exc)) from exc
     if kind == "domain.configure":
         try:
             return configure_domain(payload)

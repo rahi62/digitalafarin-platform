@@ -66,6 +66,18 @@ class SystemdExecutor:
             shell=False,
         )
 
+    def restart_managed(self, unit_name: str) -> None:
+        if not SAFE_UNIT.fullmatch(unit_name):
+            raise RecipeError("invalid managed unit")
+        subprocess.run(
+            ["systemctl", "restart", unit_name],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            shell=False,
+        )
+
     def run_commands(
         self,
         commands: list[list[str]],

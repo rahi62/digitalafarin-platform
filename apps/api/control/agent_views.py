@@ -1,3 +1,5 @@
+from django.db import transaction
+
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -19,6 +21,11 @@ from control.services.operations import (
 from control.services.execution import build_execution_context
 from control.models import Operation
 from control.services.deployments import apply_deployment_result
+from control.services.takeovers import (
+    TakeoverError,
+    apply_takeover_result,
+    mark_takeover_operation_started,
+)
 from control.authentication import AgentTokenAuthentication
 from control.services.enrollment import EnrollmentError, enroll_agent
 from control.services.heartbeat import apply_heartbeat
@@ -90,12 +97,14 @@ class OperationStartedView(AgentOperationView):
         serializer = OperationStartedSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            operation = start_operation(
-                operation_id=operation_id,
-                server=request.user.server,
-                **serializer.validated_data,
-            )
-        except OperationTransitionError as exc:
+            with transaction.atomic():
+                operation = start_operation(
+                    operation_id=operation_id,
+                    server=request.user.server,
+                    **serializer.validated_data,
+                )
+                mark_takeover_operation_started(operation)
+        except (OperationTransitionError, TakeoverError) as exc:
             return Response(
                 {"error": "operation_transition_rejected", "message": str(exc)},
                 status=status.HTTP_409_CONFLICT,
@@ -112,21 +121,42 @@ class OperationCompleteView(AgentOperationView):
                 public_id=operation_id, server=request.user.server
             )
             if operation_record.kind in {
-                Operation.KIND_DEPLOYMENT_DEPLOY,
-                Operation.KIND_DEPLOYMENT_ROLLBACK,
+                Operation.KIND_TAKEOVER_PREPARE,
+                Operation.KIND_TAKEOVER_ACTIVATE,
             }:
-                apply_deployment_result(
-                    operation_record,
-                    succeeded=serializer.validated_data["succeeded"],
-                    result=serializer.validated_data.get("result", {}),
-                    error_code=serializer.validated_data.get("error_code", ""),
+                # Validate the claim and operation state before trusting any takeover result.
+                # The outer transaction rolls the Operation completion back if takeover
+                # result validation/finalization rejects the Agent response.
+                with transaction.atomic():
+                    operation = complete_operation(
+                        operation_id=operation_id,
+                        server=request.user.server,
+                        **serializer.validated_data,
+                    )
+                    apply_takeover_result(
+                        operation,
+                        succeeded=serializer.validated_data["succeeded"],
+                        result=serializer.validated_data.get("result", {}),
+                        error_code=serializer.validated_data.get("error_code", ""),
+                        error_message=serializer.validated_data.get("error_message", ""),
+                    )
+            else:
+                if operation_record.kind in {
+                    Operation.KIND_DEPLOYMENT_DEPLOY,
+                    Operation.KIND_DEPLOYMENT_ROLLBACK,
+                }:
+                    apply_deployment_result(
+                        operation_record,
+                        succeeded=serializer.validated_data["succeeded"],
+                        result=serializer.validated_data.get("result", {}),
+                        error_code=serializer.validated_data.get("error_code", ""),
+                    )
+                operation = complete_operation(
+                    operation_id=operation_id,
+                    server=request.user.server,
+                    **serializer.validated_data,
                 )
-            operation = complete_operation(
-                operation_id=operation_id,
-                server=request.user.server,
-                **serializer.validated_data,
-            )
-        except OperationTransitionError as exc:
+        except (OperationTransitionError, TakeoverError) as exc:
             return Response(
                 {"error": "operation_transition_rejected", "message": str(exc)},
                 status=status.HTTP_409_CONFLICT,

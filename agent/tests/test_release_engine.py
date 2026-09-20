@@ -85,3 +85,59 @@ def test_cleanup_retains_five_and_never_follows_symlinks(tmp_path):
 
     assert len(list(releases.iterdir())) == 5
     assert (volume / "sentinel").read_text(encoding="utf-8") == "keep"
+
+
+def test_prepare_release_uses_injected_runner_for_git_commands(tmp_path):
+    repo = tmp_path / "source"
+    repo.mkdir()
+    apps = tmp_path / "apps"
+    commit = "a" * 40
+    calls = []
+
+    def runner(argv, timeout=300):
+        calls.append((argv, timeout))
+        if argv[:2] == ["git", "clone"]:
+            Path(argv[-1]).mkdir(parents=True)
+
+    release = prepare_release(
+        "platform",
+        "web",
+        str(repo),
+        commit,
+        apps_root=apps,
+        timestamp="20260920-120000",
+        run_command=runner,
+    )
+
+    assert release.name == "20260920-120000-aaaaaaa"
+    assert calls[0][0][:3] == ["git", "clone", "--no-checkout"]
+    assert calls[1][0][0:3] == ["git", "-C", str(release)]
+
+
+def test_prepare_release_prepares_destination_before_non_root_runner(tmp_path):
+    repo = tmp_path / "source"
+    repo.mkdir()
+    apps = tmp_path / "apps"
+    commit = "a" * 40
+    order = []
+
+    def prepare_destination(path: Path):
+        order.append(("prepare", path))
+        path.mkdir(parents=True)
+
+    def runner(argv, timeout=300):
+        order.append(("run", argv))
+
+    release = prepare_release(
+        "platform",
+        "web",
+        str(repo),
+        commit,
+        apps_root=apps,
+        timestamp="20260920-120000",
+        run_command=runner,
+        prepare_destination=prepare_destination,
+    )
+
+    assert order[0] == ("prepare", release)
+    assert order[1][0] == "run"

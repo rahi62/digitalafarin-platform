@@ -56,6 +56,8 @@ def prepare_release(
     *,
     apps_root: Path = Path("/srv/digitalafarin/apps"),
     timestamp: str | None = None,
+    run_command=_run,
+    prepare_destination=None,
 ) -> Path:
     if not SLUG.fullmatch(project_slug) or not SLUG.fullmatch(service_name):
         raise ReleaseError("invalid release identity")
@@ -75,8 +77,10 @@ def prepare_release(
     while release.exists():
         release = releases / f"{base_name}-{sequence}"
         sequence += 1
-    _run(["git", "clone", "--no-checkout", "--", repository, str(release)])
-    _run(["git", "-C", str(release), "checkout", "--detach", exact_commit])
+    if prepare_destination is not None:
+        prepare_destination(release)
+    run_command(["git", "clone", "--no-checkout", "--", repository, str(release)], timeout=300)
+    run_command(["git", "-C", str(release), "checkout", "--detach", exact_commit], timeout=300)
     return release
 
 

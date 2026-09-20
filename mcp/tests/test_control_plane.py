@@ -204,3 +204,88 @@ async def test_configure_service_deployment_puts_complete_structured_configurati
     assert "command" not in seen[0][2]
     assert "unit_file" not in seen[0][2]
     await http.aclose()
+
+@pytest.mark.asyncio
+async def test_prepare_takeover_posts_only_service_and_exact_commit():
+    seen = []
+
+    async def handler(request: httpx.Request):
+        seen.append((request.method, request.url.path, request.read().decode()))
+        return httpx.Response(
+            201,
+            json={"id": "22222222-2222-2222-2222-222222222222", "state": "queued"},
+        )
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = ControlPlaneClient("http://control", "service-secret", http=http)
+    result = await client.prepare_service_takeover(
+        "11111111-1111-1111-1111-111111111111",
+        "a" * 40,
+    )
+
+    assert result["state"] == "queued"
+    assert seen == [(
+        "POST",
+        "/api/control/v1/services/11111111-1111-1111-1111-111111111111/takeovers/",
+        '{"commit":"' + ("a" * 40) + '"}',
+    )]
+    await http.aclose()
+
+
+@pytest.mark.asyncio
+async def test_prepare_takeover_rejects_non_exact_commit_locally():
+    client = ControlPlaneClient("http://control", "service-secret")
+    with pytest.raises(MCPDomainError) as exc:
+        await client.prepare_service_takeover(
+            "11111111-1111-1111-1111-111111111111",
+            "main",
+        )
+    assert exc.value.code == "invalid_request"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_takeover_read_activate_and_cancel_use_typed_routes_only():
+    seen = []
+    takeover_id = "22222222-2222-2222-2222-222222222222"
+
+    async def handler(request: httpx.Request):
+        body = request.read().decode() if request.method == "POST" else ""
+        seen.append((request.method, request.url.path, body))
+        return httpx.Response(200, json={"id": takeover_id, "state": "prepared"})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = ControlPlaneClient("http://control", "service-secret", http=http)
+
+    await client.get_service_takeover(takeover_id)
+    await client.activate_service_takeover(takeover_id)
+    await client.cancel_service_takeover(takeover_id)
+
+    assert seen == [
+        ("GET", f"/api/control/v1/takeovers/{takeover_id}/", ""),
+        ("POST", f"/api/control/v1/takeovers/{takeover_id}/activate/", "{}"),
+        ("POST", f"/api/control/v1/takeovers/{takeover_id}/cancel/", "{}"),
+    ]
+    await http.aclose()
+
+
+@pytest.mark.asyncio
+async def test_takeover_conflict_preserves_stable_domain_error_code():
+    async def handler(_request: httpx.Request):
+        return httpx.Response(
+            409,
+            json={
+                "error": "takeover_not_prepared",
+                "message": "Takeover must be prepared before activation.",
+            },
+        )
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = ControlPlaneClient("http://control", "service-secret", http=http)
+    with pytest.raises(MCPDomainError) as exc:
+        await client.activate_service_takeover(
+            "22222222-2222-2222-2222-222222222222"
+        )
+    assert exc.value.code == "takeover_not_prepared"
+    assert "prepared" in str(exc.value).lower()
+    await http.aclose()

@@ -130,3 +130,26 @@ async def test_runner_converts_unexpected_executor_error_to_safe_failed_completi
     assert completion["error_code"] == "execution_failed"
     assert completion["error_message"] == "PermissionError"
     assert "private-secret" not in str(completion)
+
+
+def test_takeover_prepare_uses_dedicated_executor_and_generic_protection_remains(monkeypatch):
+    monkeypatch.setattr(
+        "digitalafarin_agent.operations.prepare_service_takeover",
+        lambda payload: {
+            "takeover_id": payload["takeover_id"],
+            "final_state": "prepared",
+        },
+    )
+
+    result = execute_operation(
+        "service.takeover.prepare",
+        {"takeover_id": "11111111-1111-1111-1111-111111111111"},
+    )
+    assert result["final_state"] == "prepared"
+
+    with pytest.raises(OperationExecutionError) as exc:
+        execute_operation(
+            "service.restart",
+            {"unit_name": "digitalafarin-platform-web.service"},
+        )
+    assert exc.value.code == "protected_unit"
