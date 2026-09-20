@@ -101,3 +101,4 @@ def test_payload_advertises_typed_operation_and_bootstrap_capabilities(monkeypat
 
     assert "typed_operations" in payload["capabilities"]
     assert "server_bootstrap" in payload["capabilities"]
+    assert "takeover_helper_v1" in payload["capabilities"]

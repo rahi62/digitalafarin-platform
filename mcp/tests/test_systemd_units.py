@@ -45,3 +45,20 @@ def test_tmpfiles_precreates_only_platform_managed_srv_root():
     assert "/srv/digitalafarin/apps" not in config
     assert "/srv/digitalafarin/volumes" not in config
     assert "/srv/digitalafarin/backups" not in config
+
+
+def test_takeover_helper_is_root_only_but_socket_scoped_and_unit_allowlisted():
+    unit = load_unit("digitalafarin-platform-takeover-helper.service")
+
+    assert unit["Service"]["User"] == "root"
+    assert unit["Service"]["Group"] == "digitalafarin-agent"
+    assert unit["Service"]["NoNewPrivileges"] == "true"
+    assert unit["Service"]["ProtectSystem"] == "strict"
+    assert unit["Service"]["RuntimeDirectory"] == "digitalafarin-takeover"
+    environment = unit["Service"]["Environment"]
+    assert "DIGITALAFARIN_TAKEOVER_HELPER_SOCKET=/run/digitalafarin-takeover/helper.sock" in environment
+    assert "DIGITALAFARIN_TAKEOVER_HELPER_PEER_USER=digitalafarin-agent" in environment
+    assert "DIGITALAFARIN_TAKEOVER_ALLOWED_BINDINGS=digitalafarin-platform|platform-web|digitalafarin-platform-web.service" in environment
+    read_write_paths = unit["Service"]["ReadWritePaths"].split()
+    assert "/srv/digitalafarin/apps" in read_write_paths
+    assert "/etc/systemd/system" in read_write_paths

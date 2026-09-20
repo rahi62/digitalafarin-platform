@@ -1,0 +1,28 @@
+[Unit]
+Description=DigitalAfarin Privileged Takeover Helper
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=digitalafarin-agent
+WorkingDirectory=/opt/digitalafarin-platform/agent
+Environment="DIGITALAFARIN_TAKEOVER_HELPER_SOCKET=/run/digitalafarin-takeover/helper.sock" "DIGITALAFARIN_TAKEOVER_HELPER_PEER_USER=digitalafarin-agent" "DIGITALAFARIN_TAKEOVER_HELPER_SOCKET_GROUP=digitalafarin-agent" "DIGITALAFARIN_TAKEOVER_ALLOWED_BINDINGS=digitalafarin-platform|platform-web|digitalafarin-platform-web.service"
+RuntimeDirectory=digitalafarin-takeover
+RuntimeDirectoryMode=0750
+ExecStart=/opt/digitalafarin-platform/agent/.venv/bin/python -m digitalafarin_agent.takeover_helper_server
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+ReadWritePaths=/srv/digitalafarin/apps /etc/systemd/system /run/digitalafarin-takeover
+
+[Install]
+WantedBy=multi-user.target

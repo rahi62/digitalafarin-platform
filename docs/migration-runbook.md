@@ -339,10 +339,12 @@ Web env: /etc/digitalafarin-platform/web.env
 3. Build Web as `deploy`; do not leave root-owned `.next`/`node_modules` artifacts.
 4. Apply the Stage B3 migration and run `manage.py check`.
 5. Install updated MCP and Agent packages.
-6. Restart only Platform API/MCP/Web/Agent units whose code/package changed.
-7. Verify API, Web, MCP, Agent, Nginx, loopback listeners, fresh heartbeat, and disk guardrails.
-8. Verify takeover API/MCP discovery before creating a takeover.
-9. Do **not** reuse the old Stage B2 SHA `6b4c43f...` as the takeover target. Use the exact
+6. Install and enable `digitalafarin-platform-takeover-helper.service`. The helper runs as root, has no network listener, accepts only a local Unix-socket peer authenticated as `digitalafarin-agent`, and allowlists only the exact first-candidate systemd unit.
+7. Restart only Platform API/MCP/Web/Agent units whose code/package changed.
+8. Verify API, Web, MCP, Agent, takeover helper, Nginx, loopback listeners, fresh heartbeat, and disk guardrails.
+9. Verify the Agent advertises `takeover_helper_v1` before creating a takeover.
+10. Verify takeover API/MCP discovery before creating a takeover.
+11. Do **not** reuse the old Stage B2 SHA `6b4c43f...` as the takeover target. Use the exact
    Stage B3 commit already running in production.
 
 ### B. PREPARE `platform-web` without mutation
@@ -434,6 +436,48 @@ The first Stage B3 production acceptance mutates only
 `digitalafarin-platform-web.service`. Before and after ACTIVATE, record states for Oily
 and KhoshVisa units and require no restart/start-time change caused by takeover. Oily
 is not a Stage B3 first-candidate even if it is already visible in inventory.
+
+
+### G. Stage B3.1 privileged helper boundary
+
+The host Agent remains `User=digitalafarin-agent` with `NoNewPrivileges=yes`. It must
+not receive sudo rights and must not be changed to root. Operations requiring root
+ownership, `runuser`, writes below `/etc/systemd/system`, `daemon-reload`, or restart
+of the dedicated takeover unit are delegated to:
+
+```text
+digitalafarin-platform-takeover-helper.service
+/run/digitalafarin-takeover/helper.sock
+```
+
+The helper is intentionally local-only. It has no TCP listener and accepts a small
+versioned JSON protocol over the Unix socket. The server authenticates the peer UID
+and the socket is mode `0660`, owned by `root:digitalafarin-agent`. The helper exposes
+only these fixed operations:
+
+```text
+prepare_node_nextjs_release
+activate_release
+rollback_activation
+cleanup_release
+```
+
+It does not expose arbitrary shell execution, arbitrary filesystem paths, or arbitrary
+systemd unit names. The production systemd unit sets:
+
+```text
+DIGITALAFARIN_TAKEOVER_ALLOWED_UNITS=digitalafarin-platform-web.service
+```
+
+PREPARE delegates release allocation, exact-commit Git checkout, the derived Next.js
+build recipe, ownership, sealing, and writable `.next/cache` setup to the helper.
+ACTIVATE rechecks the source fingerprint inside the privileged helper immediately
+before mutation, then changes only the derived `current` symlink and reserved managed
+drop-in. Health verification remains in the non-root Agent. If health fails, the Agent
+requests the fixed rollback operation and verifies health again.
+
+The failed pre-B3.1 takeover record should remain in the audit history. Do not reuse or
+edit that row; create a new takeover after the helper is deployed and verified.
 
 ## 11. The 18 readiness checks
 
