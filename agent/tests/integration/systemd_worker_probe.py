@@ -4,6 +4,7 @@ import grp
 import json
 import os
 import pwd
+import stat
 import sys
 from pathlib import Path
 
@@ -22,6 +23,7 @@ def main() -> int:
     parser.add_argument("--repo", required=True, type=Path)
     parser.add_argument("--user", default="deploy")
     parser.add_argument("--group", default="www-data")
+    parser.add_argument("--allocation-root", required=True, type=Path)
     args = parser.parse_args()
 
     if _status_value("NoNewPrivs") != "1":
@@ -61,6 +63,48 @@ def main() -> int:
     assert set(identity["groups"]).issubset({expected_group.gr_gid, 65534})
     assert identity["no_new_privs"] == "1"
     assert int(identity["cap_eff"], 16) == 0
+
+    releases = args.allocation_root.resolve(strict=True) / "releases"
+    releases.mkdir(mode=0o755)
+    release = releases / "preallocated-release"
+    release.mkdir(mode=0o750)
+    os.chown(release, expected_user.pw_uid, expected_group.gr_gid)
+    release.chmod(0o750)
+    assert list(release.iterdir()) == []
+    assert stat.S_IMODE(releases.stat().st_mode) == 0o755
+    assert stat.S_IMODE(releases.stat().st_mode) & 0o022 == 0
+
+    run_takeover_worker(
+        phase="integration_release_git",
+        user=args.user,
+        group=args.group,
+        argv=[
+            "git",
+            "clone",
+            "--no-checkout",
+            "--",
+            str(args.repo.resolve(strict=True)),
+            str(release),
+        ],
+        writable_path=release,
+        timeout=60,
+    )
+    assert (release / ".git").is_dir()
+    assert stat.S_IMODE(releases.stat().st_mode) == 0o755
+    print(
+        json.dumps(
+            {
+                "preallocated_release": str(release),
+                "release_owner": release.stat().st_uid,
+                "release_group": release.stat().st_gid,
+                "release_mode": oct(stat.S_IMODE(release.stat().st_mode)),
+                "parent_mode": oct(stat.S_IMODE(releases.stat().st_mode)),
+                "clone_succeeded": True,
+            },
+            sort_keys=True,
+        ),
+        flush=True,
+    )
     return 0
 
 

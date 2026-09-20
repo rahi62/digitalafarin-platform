@@ -1,4 +1,5 @@
 from pathlib import Path
+import stat
 from types import SimpleNamespace
 
 import pytest
@@ -11,6 +12,9 @@ from digitalafarin_agent.takeover_helper import (
     prepare_node_nextjs_release,
     rollback_activation,
     trusted_source_repositories_from_env,
+    _allocate_takeover_release,
+    _ensure_release_directories,
+    _prepare_release_destination,
     _run_as_worker,
     _trusted_local_source_repository,
 )
@@ -58,6 +62,115 @@ def _release_tree(tmp_path):
     return service_root, release, cwd
 
 
+def test_helper_derives_and_preallocates_empty_restrictive_release(tmp_path, monkeypatch):
+    service_root = tmp_path / "apps" / "digitalafarin-platform" / "platform-web"
+    releases = service_root / "releases"
+    releases.mkdir(parents=True)
+    releases.chmod(0o755)
+    chowns = []
+    monkeypatch.setattr("digitalafarin_agent.takeover_helper._account", _account)
+    monkeypatch.setattr(
+        "digitalafarin_agent.takeover_helper._group_id", lambda _group, _fallback: 33
+    )
+    monkeypatch.setattr(
+        "digitalafarin_agent.takeover_helper.os.chown",
+        lambda path, uid, gid, **_kwargs: chowns.append((Path(path), uid, gid)),
+    )
+
+    release = _allocate_takeover_release(
+        service_root,
+        "a" * 40,
+        user="deploy",
+        group="www-data",
+        timestamp="20260920-120000",
+    )
+
+    assert release == releases / "20260920-120000-aaaaaaa"
+    assert release.is_dir()
+    assert list(release.iterdir()) == []
+    assert stat.S_IMODE(release.stat().st_mode) == 0o750
+    assert stat.S_IMODE(releases.stat().st_mode) & 0o022 == 0
+    assert chowns == [(release, 1000, 33)]
+
+
+def test_release_roots_allow_traversal_without_parent_write_access(tmp_path, monkeypatch):
+    apps_root = tmp_path / "apps"
+    apps_root.mkdir(mode=0o750)
+    monkeypatch.setattr("digitalafarin_agent.takeover_helper._account", _account)
+    monkeypatch.setattr(
+        "digitalafarin_agent.takeover_helper._group_id", lambda _group, _fallback: 33
+    )
+    monkeypatch.setattr("digitalafarin_agent.takeover_helper.os.chown", lambda *_a: None)
+
+    service_root = _ensure_release_directories(
+        apps_root,
+        "digitalafarin-platform",
+        "platform-web",
+        user="deploy",
+        group="www-data",
+    )
+
+    releases = service_root / "releases"
+    assert stat.S_IMODE(apps_root.stat().st_mode) == 0o751
+    assert stat.S_IMODE(releases.stat().st_mode) == 0o755
+    assert stat.S_IMODE(releases.stat().st_mode) & 0o022 == 0
+
+
+def test_helper_allocates_unique_release_without_widening_parent(tmp_path, monkeypatch):
+    service_root = tmp_path / "apps" / "digitalafarin-platform" / "platform-web"
+    releases = service_root / "releases"
+    existing = releases / "20260920-120000-aaaaaaa"
+    existing.mkdir(parents=True)
+    releases.chmod(0o755)
+    monkeypatch.setattr("digitalafarin_agent.takeover_helper._account", _account)
+    monkeypatch.setattr(
+        "digitalafarin_agent.takeover_helper._group_id", lambda _group, _fallback: 33
+    )
+    monkeypatch.setattr("digitalafarin_agent.takeover_helper.os.chown", lambda *_a: None)
+
+    release = _allocate_takeover_release(
+        service_root,
+        "a" * 40,
+        user="deploy",
+        group="www-data",
+        timestamp="20260920-120000",
+    )
+
+    assert release.name == "20260920-120000-aaaaaaa-2"
+    assert stat.S_IMODE(releases.stat().st_mode) == 0o755
+
+
+@pytest.mark.parametrize("kind", ["outside", "symlink", "nonempty"])
+def test_release_destination_rejects_escape_symlink_or_nonempty(kind, tmp_path, monkeypatch):
+    service_root = tmp_path / "apps" / "digitalafarin-platform" / "platform-web"
+    releases = service_root / "releases"
+    releases.mkdir(parents=True)
+    monkeypatch.setattr("digitalafarin_agent.takeover_helper._account", _account)
+    monkeypatch.setattr(
+        "digitalafarin_agent.takeover_helper._group_id", lambda _group, _fallback: 33
+    )
+    monkeypatch.setattr("digitalafarin_agent.takeover_helper.os.chown", lambda *_a: None)
+    destination = releases / "20260920-120000-aaaaaaa"
+    if kind == "outside":
+        destination = tmp_path / "outside" / "20260920-120000-aaaaaaa"
+        destination.parent.mkdir()
+    elif kind == "symlink":
+        target = tmp_path / "target"
+        target.mkdir()
+        destination.symlink_to(target, target_is_directory=True)
+    else:
+        destination.mkdir()
+        (destination / "unexpected").write_text("data", encoding="utf-8")
+
+    with pytest.raises(TakeoverHelperDomainError):
+        _prepare_release_destination(
+            destination,
+            service_root=service_root,
+            user="deploy",
+            group="www-data",
+        )
+
+
 def test_prepare_helper_derives_release_and_runs_build_as_service_user(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr("digitalafarin_agent.takeover_helper._account", _account)
@@ -69,7 +182,7 @@ def test_prepare_helper_derives_release_and_runs_build_as_service_user(tmp_path,
     )
 
     service_root = tmp_path / "apps" / "digitalafarin-platform" / "platform-web"
-    release = service_root / "releases" / "20260920-120000-aaaaaaa"
+    prepared = []
     trusted_source = tmp_path / "trusted-source"
     trusted_source.mkdir()
     monkeypatch.setattr(
@@ -79,7 +192,10 @@ def test_prepare_helper_derives_release_and_runs_build_as_service_user(tmp_path,
 
     def fake_prepare(*args, **kwargs):
         assert args[2] == str(trusted_source)
-        kwargs["prepare_destination"](release)
+        release = kwargs["destination"]
+        prepared.append(release)
+        assert release.is_dir()
+        assert list(release.iterdir()) == []
         kwargs["run_command"](
             ["git", "clone", "--no-checkout", "--", str(trusted_source), str(release)],
             timeout=300,
@@ -114,6 +230,7 @@ def test_prepare_helper_derives_release_and_runs_build_as_service_user(tmp_path,
     )
 
     result = prepare_node_nextjs_release(_prepare_params(), allowed_bindings=ALLOWED_BINDINGS, apps_root=tmp_path / "apps")
+    release = prepared[0]
 
     assert result == {"release_name": release.name, "release_path": str(release)}
     assert calls == [
@@ -182,10 +299,13 @@ def test_prepare_helper_cleans_partial_release_when_build_fails(tmp_path, monkey
         lambda *_a, **_k: trusted_source,
     )
     service_root = tmp_path / "apps" / "digitalafarin-platform" / "platform-web"
-    release = service_root / "releases" / "20260920-120000-aaaaaaa"
+    prepared = []
 
     def fake_prepare(*_args, **kwargs):
-        kwargs["prepare_destination"](release)
+        release = kwargs["destination"]
+        prepared.append(release)
+        assert release.is_dir()
+        assert list(release.iterdir()) == []
         cwd = release / "apps" / "web"
         cwd.mkdir(parents=True)
         (cwd / "package.json").write_text("{}", encoding="utf-8")
@@ -211,6 +331,7 @@ def test_prepare_helper_cleans_partial_release_when_build_fails(tmp_path, monkey
             apps_root=tmp_path / "apps",
         )
     assert exc.value.code == "release_prepare_failed"
+    release = prepared[0]
     assert not release.exists()
 
 

@@ -4,6 +4,7 @@ import pwd
 import re
 import shutil
 import stat
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -320,6 +321,8 @@ def _ensure_release_directories(
     for path in (service_root, releases, shared):
         path.mkdir(parents=True, exist_ok=True)
     try:
+        # Workers need traversal, but never list or write access, through apps/.
+        os.chmod(apps_root, 0o751)
         for path in (service_root, releases):
             os.chown(path, 0, 0)
             os.chmod(path, 0o755)
@@ -332,17 +335,83 @@ def _ensure_release_directories(
     return service_root
 
 
-def _prepare_release_destination(release: Path, *, user: str, group: str) -> None:
+def _prepare_release_destination(
+    release: Path,
+    *,
+    service_root: Path,
+    user: str,
+    group: str,
+) -> None:
     account = _account(user)
     gid = _group_id(group, account.pw_gid)
+    releases_root = (service_root / "releases").resolve(strict=True)
+    if (
+        release.is_symlink()
+        or release.parent.resolve(strict=True) != releases_root
+        or not RELEASE_NAME.fullmatch(release.name)
+        or release.exists()
+    ):
+        raise TakeoverHelperDomainError(
+            "release_validation_failed", "Invalid takeover release destination."
+        )
+    created = False
     try:
         release.mkdir(mode=0o750, parents=False, exist_ok=False)
+        created = True
+        if release.is_symlink() or release.resolve(strict=True).parent != releases_root:
+            raise OSError("release destination changed during allocation")
+        if any(release.iterdir()):
+            raise OSError("release destination is not empty")
         os.chown(release, account.pw_uid, gid)
         os.chmod(release, 0o750)
     except OSError as exc:
+        if created:
+            try:
+                release.rmdir()
+            except OSError:
+                pass
         raise TakeoverHelperDomainError(
             "release_prepare_failed", "Unable to allocate takeover release directory."
         ) from exc
+
+
+def _allocate_takeover_release(
+    service_root: Path,
+    exact_commit: str,
+    *,
+    user: str,
+    group: str,
+    timestamp: str | None = None,
+) -> Path:
+    if not COMMIT.fullmatch(exact_commit):
+        raise TakeoverHelperDomainError(
+            "invalid_exact_commit", "Takeover requires an exact lowercase commit."
+        )
+    releases_path = service_root / "releases"
+    if releases_path.is_symlink():
+        raise TakeoverHelperDomainError(
+            "release_validation_failed", "Invalid managed releases root."
+        )
+    releases_root = releases_path.resolve(strict=True)
+    if not releases_root.is_dir():
+        raise TakeoverHelperDomainError(
+            "release_validation_failed", "Invalid managed releases root."
+        )
+    stamp = timestamp or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    base_name = f"{stamp}-{exact_commit[:7]}"
+    sequence = 1
+    while True:
+        name = base_name if sequence == 1 else f"{base_name}-{sequence}"
+        release = releases_root / name
+        if not release.exists() and not release.is_symlink():
+            _prepare_release_destination(
+                release,
+                service_root=service_root,
+                user=user,
+                group=group,
+            )
+            return release
+        sequence += 1
 
 
 def _validate_node_artifacts(cwd: Path, install_configuration: dict[str, Any]) -> None:
@@ -514,11 +583,14 @@ def prepare_node_nextjs_release(
     )
     allocated: list[Path] = []
 
-    def allocate(path: Path) -> None:
-        _prepare_release_destination(path, user=user, group=group)
-        allocated.append(path)
-
     try:
+        release = _allocate_takeover_release(
+            service_root,
+            exact_commit,
+            user=user,
+            group=group,
+        )
+        allocated.append(release)
         try:
             release = prepare_release(
                 project_slug,
@@ -530,11 +602,11 @@ def prepare_node_nextjs_release(
                     user,
                     group,
                     argv,
-                    writable_path=allocated[-1],
+                    writable_path=release,
                     phase="release_git",
                     timeout=timeout,
                 ),
-                prepare_destination=allocate,
+                destination=release,
             )
         except TakeoverHelperDomainError:
             raise

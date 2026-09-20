@@ -58,6 +58,7 @@ def prepare_release(
     timestamp: str | None = None,
     run_command=_run,
     prepare_destination=None,
+    destination: Path | None = None,
 ) -> Path:
     if not SLUG.fullmatch(project_slug) or not SLUG.fullmatch(service_name):
         raise ReleaseError("invalid release identity")
@@ -70,15 +71,27 @@ def prepare_release(
     releases = service_root / "releases"
     (service_root / "shared").mkdir(parents=True, exist_ok=True)
     releases.mkdir(parents=True, exist_ok=True)
-    stamp = timestamp or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    base_name = f"{stamp}-{exact_commit[:7]}"
-    release = releases / base_name
-    sequence = 2
-    while release.exists():
-        release = releases / f"{base_name}-{sequence}"
-        sequence += 1
-    if prepare_destination is not None:
-        prepare_destination(release)
+    if destination is None:
+        stamp = timestamp or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        base_name = f"{stamp}-{exact_commit[:7]}"
+        release = releases / base_name
+        sequence = 2
+        while release.exists():
+            release = releases / f"{base_name}-{sequence}"
+            sequence += 1
+        if prepare_destination is not None:
+            prepare_destination(release)
+    else:
+        if prepare_destination is not None:
+            raise ReleaseError("destination allocation is ambiguous")
+        if destination.is_symlink() or not destination.is_dir():
+            raise ReleaseError("preallocated release destination is invalid")
+        release = destination.resolve(strict=True)
+        releases_root = releases.resolve(strict=True)
+        if release.parent != releases_root or release == releases_root:
+            raise ReleaseError("preallocated release destination escapes releases root")
+        if any(release.iterdir()):
+            raise ReleaseError("preallocated release destination is not empty")
     run_command(["git", "clone", "--no-checkout", "--", repository, str(release)], timeout=300)
     run_command(["git", "-C", str(release), "checkout", "--detach", exact_commit], timeout=300)
     return release
