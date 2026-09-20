@@ -10,6 +10,8 @@ from digitalafarin_agent.takeover_helper import (
     dispatch_helper_operation,
     prepare_node_nextjs_release,
     rollback_activation,
+    trusted_source_repositories_from_env,
+    _trusted_local_source_repository,
 )
 
 
@@ -66,8 +68,15 @@ def test_prepare_helper_derives_release_and_runs_build_as_service_user(tmp_path,
 
     service_root = tmp_path / "apps" / "digitalafarin-platform" / "platform-web"
     release = service_root / "releases" / "20260920-120000-aaaaaaa"
+    trusted_source = tmp_path / "trusted-source"
+    trusted_source.mkdir()
+    monkeypatch.setattr(
+        "digitalafarin_agent.takeover_helper._trusted_local_source_repository",
+        lambda *_a, **_k: trusted_source,
+    )
 
-    def fake_prepare(*_args, **kwargs):
+    def fake_prepare(*args, **kwargs):
+        assert args[2] == str(trusted_source)
         kwargs["prepare_destination"](release)
         cwd = release / "apps" / "web"
         (cwd / ".next").mkdir(parents=True)
@@ -111,6 +120,12 @@ def test_prepare_helper_cleans_partial_release_when_build_fails(tmp_path, monkey
     monkeypatch.setattr(
         "digitalafarin_agent.takeover_helper.inspect_service",
         lambda _unit: {"user": "deploy", "group": "www-data"},
+    )
+    trusted_source = tmp_path / "trusted-source-fail"
+    trusted_source.mkdir()
+    monkeypatch.setattr(
+        "digitalafarin_agent.takeover_helper._trusted_local_source_repository",
+        lambda *_a, **_k: trusted_source,
     )
     service_root = tmp_path / "apps" / "digitalafarin-platform" / "platform-web"
     release = service_root / "releases" / "20260920-120000-aaaaaaa"
@@ -179,6 +194,58 @@ def test_prepare_helper_rejects_parent_path_root_directory_before_mutation(tmp_p
         prepare_node_nextjs_release(params, allowed_bindings=ALLOWED_BINDINGS, apps_root=tmp_path / "apps")
     assert exc.value.code == "release_validation_failed"
     assert not (tmp_path / "apps").exists()
+
+
+def test_trusted_source_repository_configuration_parses_exact_binding(monkeypatch):
+    monkeypatch.setenv(
+        "DIGITALAFARIN_TAKEOVER_SOURCE_REPOSITORIES",
+        "digitalafarin-platform|platform-web|digitalafarin-platform-web.service|/opt/digitalafarin-platform",
+    )
+    assert trusted_source_repositories_from_env() == {
+        (
+            "digitalafarin-platform",
+            "platform-web",
+            "digitalafarin-platform-web.service",
+        ): Path("/opt/digitalafarin-platform")
+    }
+
+
+def test_trusted_source_repository_requires_exact_production_head(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    source.mkdir()
+    monkeypatch.setattr(
+        "digitalafarin_agent.takeover_helper._run_as_user_capture",
+        lambda *_a, **_k: "b" * 40,
+    )
+    with pytest.raises(TakeoverHelperDomainError) as exc:
+        _trusted_local_source_repository(
+            "digitalafarin-platform",
+            "platform-web",
+            "digitalafarin-platform-web.service",
+            "a" * 40,
+            "deploy",
+            {
+                (
+                    "digitalafarin-platform",
+                    "platform-web",
+                    "digitalafarin-platform-web.service",
+                ): source
+            },
+        )
+    assert exc.value.code == "service_configuration_changed"
+
+
+def test_trusted_source_repository_rejects_missing_binding():
+    with pytest.raises(TakeoverHelperDomainError) as exc:
+        _trusted_local_source_repository(
+            "digitalafarin-platform",
+            "platform-web",
+            "digitalafarin-platform-web.service",
+            "a" * 40,
+            "deploy",
+            {},
+        )
+    assert exc.value.code == "helper_configuration_error"
 
 
 def _activate_params():

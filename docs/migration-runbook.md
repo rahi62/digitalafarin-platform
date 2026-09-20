@@ -366,6 +366,19 @@ platform-web MainPID/start time did not change because of PREPARE
 PREPARE is a hard non-mutation boundary: no `current` activation, no managed drop-in,
 no `daemon-reload`, and no workload restart.
 
+For private repositories, the privileged helper does not receive Git credentials from the
+Control Plane and does not expose deploy-user SSH material to build scripts. Each allowlisted
+takeover binding must map to a root-configured trusted local source repository through
+`DIGITALAFARIN_TAKEOVER_SOURCE_REPOSITORIES`. The first production mapping is:
+
+```text
+digitalafarin-platform|platform-web|digitalafarin-platform-web.service|/opt/digitalafarin-platform
+```
+
+The helper verifies that the trusted local repository `HEAD` exactly matches the requested
+production commit before allocating a release. The caller-supplied repository value remains
+credential-free HTTPS metadata and is never used as the authenticated clone source.
+
 ### C. ACTIVATE `platform-web`
 
 Before activation, the Agent re-inspects the effective systemd source and must reject

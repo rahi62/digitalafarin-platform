@@ -89,6 +89,30 @@ def allowed_bindings_from_env() -> set[tuple[str, str, str]]:
     return bindings
 
 
+def trusted_source_repositories_from_env() -> dict[tuple[str, str, str], Path]:
+    raw = os.environ.get("DIGITALAFARIN_TAKEOVER_SOURCE_REPOSITORIES", "")
+    repositories: dict[tuple[str, str, str], Path] = {}
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        parts = [part.strip() for part in item.split("|")]
+        if len(parts) != 4 or not all(parts):
+            raise TakeoverHelperDomainError(
+                "helper_configuration_error",
+                "Invalid privileged helper source repository configuration.",
+            )
+        project_slug, service_name, unit_name, raw_path = parts
+        source = Path(raw_path)
+        if not source.is_absolute() or ".." in source.parts:
+            raise TakeoverHelperDomainError(
+                "helper_configuration_error",
+                "Trusted takeover source repository path must be absolute.",
+            )
+        repositories[(project_slug, service_name, unit_name)] = source
+    return repositories
+
+
 def _require_exact_keys(params: dict[str, Any], expected: set[str]) -> None:
     if not isinstance(params, dict) or set(params) != expected:
         raise TakeoverHelperDomainError(
@@ -198,6 +222,94 @@ def _release_path(service_root: Path, release_name: str) -> Path:
             "release_validation_failed", "Release path escapes managed releases root."
         )
     return release
+
+
+def _run_as_user_capture(
+    user: str,
+    argv: list[str],
+    *,
+    cwd: Path | None = None,
+    timeout: int = 60,
+) -> str:
+    _account(user)
+    if not argv or not all(isinstance(item, str) and item for item in argv):
+        raise TakeoverHelperDomainError(
+            "release_prepare_failed", "Invalid takeover source command."
+        )
+    try:
+        result = subprocess.run(
+            [
+                "runuser",
+                "-u",
+                user,
+                "--",
+                "env",
+                "-i",
+                "HOME=/tmp",
+                f"USER={user}",
+                f"LOGNAME={user}",
+                "PATH=/usr/local/bin:/usr/bin:/bin",
+                "GIT_TERMINAL_PROMPT=0",
+                *argv,
+            ],
+            cwd=cwd,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            shell=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise TakeoverHelperDomainError(
+            "release_prepare_failed", type(exc).__name__
+        ) from exc
+    if result.returncode != 0:
+        raise TakeoverHelperDomainError(
+            "release_prepare_failed", "Unable to verify trusted takeover source."
+        )
+    return result.stdout.strip()
+
+
+def _trusted_local_source_repository(
+    project_slug: str,
+    service_name: str,
+    unit_name: str,
+    exact_commit: str,
+    user: str,
+    source_repositories: dict[tuple[str, str, str], Path],
+) -> Path:
+    configured = source_repositories.get((project_slug, service_name, unit_name))
+    if configured is None:
+        raise TakeoverHelperDomainError(
+            "helper_configuration_error",
+            "No trusted local source repository is configured for this takeover binding.",
+        )
+    if configured.is_symlink():
+        raise TakeoverHelperDomainError(
+            "helper_configuration_error",
+            "Trusted local source repository cannot be a symlink.",
+        )
+    try:
+        source = configured.resolve(strict=True)
+    except OSError as exc:
+        raise TakeoverHelperDomainError(
+            "helper_configuration_error",
+            "Trusted local source repository is unavailable.",
+        ) from exc
+    if not source.is_dir():
+        raise TakeoverHelperDomainError(
+            "helper_configuration_error",
+            "Trusted local source repository is not a directory.",
+        )
+    head = _run_as_user_capture(
+        user, ["git", "-C", str(source), "rev-parse", "HEAD"], timeout=30
+    )
+    if not COMMIT.fullmatch(head) or head != exact_commit:
+        raise TakeoverHelperDomainError(
+            "service_configuration_changed",
+            "Trusted local source HEAD does not match the requested production commit.",
+        )
+    return source
 
 
 def _run_as_user(
@@ -393,6 +505,7 @@ def prepare_node_nextjs_release(
     params: dict[str, Any],
     *,
     allowed_bindings: set[tuple[str, str, str]] | None = None,
+    source_repositories: dict[tuple[str, str, str], Path] | None = None,
     apps_root: Path = APPS_ROOT,
 ) -> dict[str, Any]:
     _require_exact_keys(params, _PREPARE_KEYS)
@@ -403,7 +516,7 @@ def prepare_node_nextjs_release(
         allowed_bindings if allowed_bindings is not None else allowed_bindings_from_env()
     )
     unit_name = _validate_binding(project_slug, service_name, params["unit_name"], allowed)
-    repository = _validate_repository(params["repository"])
+    _validate_repository(params["repository"])
     exact_commit = str(params["exact_commit"])
     if not COMMIT.fullmatch(exact_commit):
         raise TakeoverHelperDomainError(
@@ -432,6 +545,19 @@ def prepare_node_nextjs_release(
             "service_configuration_changed",
             "Source service user/group changed before privileged prepare.",
         )
+    sources = (
+        source_repositories
+        if source_repositories is not None
+        else trusted_source_repositories_from_env()
+    )
+    trusted_source = _trusted_local_source_repository(
+        project_slug,
+        service_name,
+        unit_name,
+        exact_commit,
+        user,
+        sources,
+    )
     service_root = _ensure_release_directories(
         apps_root,
         project_slug,
@@ -450,7 +576,7 @@ def prepare_node_nextjs_release(
             release = prepare_release(
                 project_slug,
                 service_name,
-                repository,
+                str(trusted_source),
                 exact_commit,
                 apps_root=apps_root,
                 run_command=lambda argv, timeout=300: _run_as_user(
@@ -729,9 +855,14 @@ def dispatch_helper_operation(
     params: dict[str, Any],
     *,
     allowed_bindings: set[tuple[str, str, str]] | None = None,
+    source_repositories: dict[tuple[str, str, str], Path] | None = None,
 ) -> dict[str, Any]:
     if operation == "prepare_node_nextjs_release":
-        return prepare_node_nextjs_release(params, allowed_bindings=allowed_bindings)
+        return prepare_node_nextjs_release(
+            params,
+            allowed_bindings=allowed_bindings,
+            source_repositories=source_repositories,
+        )
     if operation == "activate_release":
         return activate_release(params, allowed_bindings=allowed_bindings)
     if operation == "rollback_activation":
