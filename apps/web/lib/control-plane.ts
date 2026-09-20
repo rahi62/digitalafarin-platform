@@ -2,6 +2,12 @@ import "server-only";
 import { buildServiceOperation, type ServiceAction } from "./operations";
 import { buildDeployRequest, projectPath } from "./deployments";
 import { buildBootstrapOperation, buildProjectCreate } from "./migration-actions";
+import {
+  buildAdoptServiceRequest,
+  buildDeploymentConfigurationRequest,
+  type ServiceLifecycle,
+  type ServiceRuntime,
+} from "./service-adoption";
 
 export type ServerStatus = "online" | "stale" | "offline" | string;
 
@@ -37,6 +43,7 @@ export type ServiceSnapshot = {
   active_state: string;
   sub_state: string;
   last_seen_at: string;
+  protected: boolean;
 };
 
 export type AuditEvent = {
@@ -64,15 +71,32 @@ export type Operation = {
   completed_at: string | null;
 };
 
-export type ManagedService = {
-  id: string; project_id: string; name: string; executor: "systemd";
-  repository: string; branch: string; root_directory: string;
-  runtime: "node-nextjs" | "python-django"; service_port: number; target_server_id: string;
+export type ProjectService = {
+  id: string;
+  project_id: string;
+  name: string;
+  executor: "systemd";
+  unit_name: string;
+  lifecycle_state: ServiceLifecycle;
+  repository: string | null;
+  branch: string | null;
+  root_directory: string | null;
+  runtime: ServiceRuntime | null;
+  install_configuration: Record<string, unknown>;
+  build_configuration: Record<string, unknown>;
+  service_port: number | null;
+  target_server_id: string;
+  inventory_status: "present" | "missing";
+  load_state: string | null;
+  active_state: string | null;
+  sub_state: string | null;
+  inventory_last_seen_at: string | null;
+  protected: boolean;
 };
 
 export type Project = {
   id: string; name: string; slug: string;
-  services?: ManagedService[];
+  services?: ProjectService[];
   variables?: Array<{ id: string; key: string; value_type: "plain" | "secret"; scope: string; has_value: boolean; value?: string }>;
   volumes?: Array<{ id: string; name: string; host_path: string; mount_path: string }>;
   databases?: Array<{ id: string; database_name: string; username: string; status: string; has_credential: boolean }>;
@@ -230,6 +254,34 @@ export function createProject(name: string, slug: string): Promise<Project> {
 
 export function getProject(projectId: string): Promise<Project> {
   return request(projectPath(projectId));
+}
+
+export function adoptService(
+  projectId: string,
+  serverId: string,
+  unitName: string,
+  name: string,
+): Promise<ProjectService> {
+  return request(
+    `/api/control/v1/projects/${encodeURIComponent(projectId)}/services/adopt/`,
+    {
+      method: "POST",
+      body: JSON.stringify(buildAdoptServiceRequest(serverId, unitName, name)),
+    },
+  );
+}
+
+export function configureServiceDeployment(
+  serviceId: string,
+  input: Parameters<typeof buildDeploymentConfigurationRequest>[0],
+): Promise<ProjectService> {
+  return request(
+    `/api/control/v1/services/${encodeURIComponent(serviceId)}/deployment-configuration/`,
+    {
+      method: "PUT",
+      body: JSON.stringify(buildDeploymentConfigurationRequest(input)),
+    },
+  );
 }
 
 export async function listDeployments(serviceId: string): Promise<Deployment[]> {

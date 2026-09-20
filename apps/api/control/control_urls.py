@@ -25,6 +25,14 @@ urlpatterns = [
         deployment_views.ProjectServiceListCreateView.as_view(),
     ),
     path(
+        "projects/<uuid:project_id>/services/adopt/",
+        deployment_views.ProjectServiceAdoptView.as_view(),
+    ),
+    path(
+        "services/<uuid:service_id>/deployment-configuration/",
+        deployment_views.ServiceDeploymentConfigurationView.as_view(),
+    ),
+    path(
         "services/<uuid:service_id>/deployments/",
         deployment_views.ServiceDeploymentListCreateView.as_view(),
     ),

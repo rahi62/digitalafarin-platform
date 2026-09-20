@@ -3,10 +3,20 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from control.authentication import ServicePrincipalAuthentication
-from control.deployment_serializers import ProjectSerializer, ServiceSerializer
+from control.deployment_serializers import (
+    AdoptServiceSerializer,
+    DeploymentConfigurationSerializer,
+    ProjectSerializer,
+    ServiceSerializer,
+)
 from control.models import AuditEvent, Deployment, Operation, Project, Server, Service
 from control.permissions import require_scope
 from control.services.operations import create_operation
+from control.services.service_adoption import (
+    ServiceAdoptionError,
+    adopt_existing_service,
+    configure_service_deployment,
+)
 from control.services.deployments import DeploymentAdmissionError, queue_deployment, queue_rollback
 from control.environment_views import EnvironmentVariableSerializer
 from control.volume_views import serialize_volume
@@ -69,6 +79,74 @@ class ProjectServiceListCreateView(APIView):
         return Response(
             ServiceSerializer(service).data, status=status.HTTP_201_CREATED
         )
+
+
+class ProjectServiceAdoptView(APIView):
+    authentication_classes = [ServicePrincipalAuthentication]
+    permission_classes = [require_scope("operations:create")]
+
+    def post(self, request, project_id):
+        try:
+            project = Project.objects.get(public_id=project_id)
+        except Project.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        serializer = AdoptServiceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            server = Server.objects.get(
+                public_id=serializer.validated_data["server_id"],
+                is_active=True,
+            )
+        except Server.DoesNotExist:
+            return Response(
+                {"error": "server_not_found", "message": "Server not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        try:
+            service = adopt_existing_service(
+                project=project,
+                server=server,
+                unit_name=serializer.validated_data["unit_name"],
+                name=serializer.validated_data["name"],
+                actor=request.user.name,
+            )
+        except ServiceAdoptionError as exc:
+            http_status = (
+                status.HTTP_404_NOT_FOUND
+                if exc.code == "inventory_unit_not_found"
+                else status.HTTP_409_CONFLICT
+            )
+            return Response(
+                {"error": exc.code, "message": str(exc)}, status=http_status
+            )
+        return Response(ServiceSerializer(service).data, status=status.HTTP_201_CREATED)
+
+
+class ServiceDeploymentConfigurationView(APIView):
+    authentication_classes = [ServicePrincipalAuthentication]
+    permission_classes = [require_scope("operations:create")]
+
+    def put(self, request, service_id):
+        try:
+            service = Service.objects.select_related("project", "target_server").get(
+                public_id=service_id
+            )
+        except Service.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        serializer = DeploymentConfigurationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            service = configure_service_deployment(
+                service=service,
+                configuration=serializer.validated_data,
+                actor=request.user.name,
+            )
+        except ServiceAdoptionError as exc:
+            return Response(
+                {"error": exc.code, "message": str(exc)},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(ServiceSerializer(service).data)
 
 
 class ProjectDetailView(APIView):
@@ -171,7 +249,10 @@ class ServiceDeploymentListCreateView(APIView):
                 requested_by=request.user.name,
             )
         except DeploymentAdmissionError as exc:
-            return Response({"error": "deployment_blocked", "message": str(exc)}, status=status.HTTP_409_CONFLICT)
+            return Response(
+                {"error": exc.code, "message": str(exc)},
+                status=status.HTTP_409_CONFLICT,
+            )
         return Response(serialize_deployment(deployment, operation), status=status.HTTP_201_CREATED)
 
 
@@ -197,7 +278,10 @@ class DeploymentRedeployView(APIView):
                 source=source,
             )
         except DeploymentAdmissionError as exc:
-            return Response({"error": "deployment_blocked", "message": str(exc)}, status=409)
+            return Response(
+                {"error": exc.code, "message": str(exc)},
+                status=status.HTTP_409_CONFLICT,
+            )
         return Response(serialize_deployment(deployment, operation), status=status.HTTP_201_CREATED)
 
 
@@ -215,7 +299,15 @@ class DeploymentRollbackView(APIView):
         release = source.previous_release or source.active_release
         if release is None:
             return Response(status=status.HTTP_409_CONFLICT)
-        deployment, operation = queue_rollback(source=source, release=release, requested_by=request.user.name)
+        try:
+            deployment, operation = queue_rollback(
+                source=source, release=release, requested_by=request.user.name
+            )
+        except DeploymentAdmissionError as exc:
+            return Response(
+                {"error": exc.code, "message": str(exc)},
+                status=status.HTTP_409_CONFLICT,
+            )
         return Response(serialize_deployment(deployment, operation), status=status.HTTP_201_CREATED)
 
 

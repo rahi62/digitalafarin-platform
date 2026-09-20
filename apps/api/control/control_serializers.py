@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from control.models import AuditEvent, Server, ServiceSnapshot
+from control.operation_serializers import is_protected_unit
 
 
 class ServerReadSerializer(serializers.ModelSerializer):
@@ -51,6 +52,11 @@ class MetricsReadSerializer(serializers.ModelSerializer):
 
 
 class ServiceReadSerializer(serializers.ModelSerializer):
+    protected = serializers.SerializerMethodField()
+
+    def get_protected(self, instance):
+        return is_protected_unit(instance.unit_name)
+
     class Meta:
         model = ServiceSnapshot
         fields = [
@@ -60,6 +66,7 @@ class ServiceReadSerializer(serializers.ModelSerializer):
             "active_state",
             "sub_state",
             "last_seen_at",
+            "protected",
         ]
 
 

@@ -63,6 +63,15 @@ class FakeControlPlane:
     async def get_project(self, project_id):
         return {"id": project_id, "variables": [{"key": "SECRET", "has_value": True}]}
 
+    async def adopt_service(self, project_id, server_id, unit_name, name):
+        return {"id": "service-id", "unit_name": unit_name, "name": name, "lifecycle_state": "adopted"}
+
+    async def configure_service_deployment(
+        self, service_id, repository, branch, root_directory, runtime, service_port,
+        install_configuration, build_configuration,
+    ):
+        return {"id": service_id, "lifecycle_state": "configured"}
+
     async def deploy_service(self, service_id, commit):
         return {"id": "deployment-id", "state": "queued"}
 
@@ -98,6 +107,8 @@ async def test_server_discovers_only_inventory_and_typed_operation_tools():
         "vps_get_project",
         "vps_create_bootstrap_operation",
         "vps_create_project",
+        "vps_adopt_service",
+        "vps_configure_service_deployment",
         "vps_deploy_service",
         "vps_get_deployment",
         "vps_redeploy_deployment",
@@ -129,3 +140,39 @@ async def test_project_tool_returns_secret_metadata_only():
 
     assert result.structured_content["variables"] == [{"key": "SECRET", "has_value": True}]
     assert "sentinel-secret" not in str(result)
+
+
+@pytest.mark.asyncio
+async def test_adoption_tool_returns_adopted_service_metadata():
+    server = create_mcp(FakeControlPlane())
+    async with Client(server, raise_exceptions=True) as client:
+        result = await client.call_tool(
+            "vps_adopt_service",
+            {
+                "project_id": "11111111-1111-1111-1111-111111111111",
+                "server_id": "22222222-2222-2222-2222-222222222222",
+                "unit_name": "oily-backend.service",
+                "name": "backend",
+            },
+        )
+    assert result.structured_content["lifecycle_state"] == "adopted"
+
+
+@pytest.mark.asyncio
+async def test_configuration_tool_returns_configured_service_metadata():
+    server = create_mcp(FakeControlPlane())
+    async with Client(server, raise_exceptions=True) as client:
+        result = await client.call_tool(
+            "vps_configure_service_deployment",
+            {
+                "service_id": "33333333-3333-3333-3333-333333333333",
+                "repository": "https://github.com/example/oily.git",
+                "branch": "main",
+                "root_directory": "backend",
+                "runtime": "python-django",
+                "service_port": 8000,
+                "install_configuration": {"requirements_file": "requirements.txt"},
+                "build_configuration": {"migrate": True},
+            },
+        )
+    assert result.structured_content["lifecycle_state"] == "configured"

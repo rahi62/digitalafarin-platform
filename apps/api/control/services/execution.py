@@ -75,7 +75,7 @@ def build_execution_context(operation: Operation) -> dict | None:
             "install_configuration": service.install_configuration,
             "build_configuration": service.build_configuration,
             "root_directory": service.root_directory,
-            "unit_name": f"{service.project.slug}-{service.name}.service",
+            "unit_name": service.unit_name,
             "environment": _deployment_environment(service),
             "volumes": [
                 {"host_path": item.host_path, "mount_path": item.mount_path}
@@ -96,7 +96,7 @@ def build_execution_context(operation: Operation) -> dict | None:
             "service_root": f"/srv/digitalafarin/apps/{service.project.slug}/{service.name}",
             "release_path": release.path,
             "exact_commit": release.exact_commit,
-            "unit_name": f"{service.project.slug}-{service.name}.service",
+            "unit_name": service.unit_name,
             "health_check": _health(service),
         }
     return None

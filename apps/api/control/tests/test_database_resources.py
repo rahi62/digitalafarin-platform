@@ -18,6 +18,8 @@ class DatabaseResourceAPITests(TestCase):
         self.service = Service.objects.create(
             project=self.project,
             name="backend",
+            unit_name="oily-backend.service",
+            lifecycle_state=Service.LIFECYCLE_MANAGED,
             repository="https://github.com/example/oily.git",
             branch="main",
             runtime="python-django",
