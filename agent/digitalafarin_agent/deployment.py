@@ -87,7 +87,7 @@ def deploy_release(
     _event(events, "health_check")
     _event(events, "activating")
     previous = atomic_activate(service_root, release)
-    executor.restart(payload["unit_name"])
+    executor.restart_managed(payload["unit_name"])
     _event(events, "verifying")
     try:
         check_http_health(payload["health_check"])
@@ -95,7 +95,7 @@ def deploy_release(
         if previous is None:
             raise DeploymentFailure("health check failed and no rollback release exists")
         rollback(service_root, previous)
-        executor.restart(payload["unit_name"])
+        executor.restart_managed(payload["unit_name"])
         check_http_health(payload["health_check"])
         _event(events, "rolled_back", "New release failed health verification")
         return {
@@ -121,7 +121,7 @@ def rollback_release(payload: dict, *, executor=None) -> dict:
     service_root = Path(payload["service_root"])
     release = Path(payload["release_path"])
     rollback(service_root, release)
-    executor.restart(payload["unit_name"])
+    executor.restart_managed(payload["unit_name"])
     check_http_health(payload["health_check"])
     return {
         "deployment_id": payload["deployment_id"],

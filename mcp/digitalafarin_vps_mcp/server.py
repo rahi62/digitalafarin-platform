@@ -170,6 +170,35 @@ def create_mcp(control_plane: ControlPlaneClient | Any | None = None) -> MCPServ
         )
 
     @mcp.tool()
+    async def vps_prepare_service_takeover(
+        service_id: str,
+        commit: str,
+    ) -> dict[str, Any]:
+        """Prepare an exact-commit controlled takeover without mutating or restarting the service."""
+        return await _safe(client.prepare_service_takeover(service_id, commit))
+
+    @mcp.tool()
+    async def vps_get_service_takeover(
+        takeover_id: str,
+    ) -> dict[str, Any]:
+        """Read one non-secret controlled takeover record."""
+        return await _safe(client.get_service_takeover(takeover_id))
+
+    @mcp.tool()
+    async def vps_activate_service_takeover(
+        takeover_id: str,
+    ) -> dict[str, Any]:
+        """Activate one prepared takeover using server-derived execution metadata."""
+        return await _safe(client.activate_service_takeover(takeover_id))
+
+    @mcp.tool()
+    async def vps_cancel_service_takeover(
+        takeover_id: str,
+    ) -> dict[str, Any]:
+        """Cancel one prepared takeover before activation."""
+        return await _safe(client.cancel_service_takeover(takeover_id))
+
+    @mcp.tool()
     async def vps_deploy_service(
         service_id: str, commit: str | None = None
     ) -> dict[str, Any]:

@@ -4,12 +4,12 @@ from django.core.exceptions import ObjectDoesNotExist
 
 import os
 
-from control.models import DatabaseResource, Deployment, Domain, Operation, Release
+from control.models import DatabaseResource, Deployment, Domain, Operation, Release, ServiceTakeover
 from control.services.secrets import decrypt_secret
 from control.services.variables import resolve_environment
 
 
-def _health(service) -> dict:
+def build_health_check_context(service) -> dict:
     try:
         check = service.health_check
     except ObjectDoesNotExist:
@@ -81,7 +81,55 @@ def build_execution_context(operation: Operation) -> dict | None:
                 {"host_path": item.host_path, "mount_path": item.mount_path}
                 for item in service.volumes.all()
             ],
-            "health_check": _health(service),
+            "health_check": build_health_check_context(service),
+        }
+    if operation.kind == Operation.KIND_TAKEOVER_PREPARE:
+        takeover = ServiceTakeover.objects.select_related(
+            "service__project", "service__target_server"
+        ).get(
+            public_id=operation.payload["takeover_id"],
+            service__target_server=operation.server,
+        )
+        service = takeover.service
+        return {
+            "takeover_id": str(takeover.public_id),
+            "service_id": str(service.public_id),
+            "project_slug": service.project.slug,
+            "service_name": service.name,
+            "unit_name": service.unit_name,
+            "repository": service.repository,
+            "exact_commit": takeover.requested_commit,
+            "runtime": service.runtime,
+            "root_directory": service.root_directory,
+            "install_configuration": service.install_configuration,
+            "build_configuration": service.build_configuration,
+            "service_port": service.service_port,
+            "health_check": takeover.health_check_snapshot,
+        }
+    if operation.kind == Operation.KIND_TAKEOVER_ACTIVATE:
+        takeover = ServiceTakeover.objects.select_related(
+            "service__project", "service__target_server"
+        ).get(
+            public_id=operation.payload["takeover_id"],
+            service__target_server=operation.server,
+        )
+        service = takeover.service
+        expected_release_path = (
+            f"/srv/digitalafarin/apps/{service.project.slug}/"
+            f"{service.name}/releases/{takeover.release_name}"
+        )
+        return {
+            "takeover_id": str(takeover.public_id),
+            "service_id": str(service.public_id),
+            "project_slug": service.project.slug,
+            "service_name": service.name,
+            "unit_name": service.unit_name,
+            "exact_commit": takeover.requested_commit,
+            "root_directory": service.root_directory,
+            "source_fingerprint": takeover.source_fingerprint,
+            "release_name": takeover.release_name,
+            "release_path": expected_release_path,
+            "health_check": takeover.health_check_snapshot,
         }
     if operation.kind == Operation.KIND_DEPLOYMENT_ROLLBACK:
         deployment = Deployment.objects.select_related("service__project").get(
@@ -97,6 +145,6 @@ def build_execution_context(operation: Operation) -> dict | None:
             "release_path": release.path,
             "exact_commit": release.exact_commit,
             "unit_name": service.unit_name,
-            "health_check": _health(service),
+            "health_check": build_health_check_context(service),
         }
     return None

@@ -9,10 +9,27 @@ from control import (
     github_views,
     operation_views,
     telegram_views,
+    takeover_views,
     volume_views,
 )
 
 urlpatterns = [
+    path(
+        "services/<uuid:service_id>/takeovers/",
+        takeover_views.ServiceTakeoverListCreateView.as_view(),
+    ),
+    path(
+        "takeovers/<uuid:takeover_id>/",
+        takeover_views.TakeoverDetailView.as_view(),
+    ),
+    path(
+        "takeovers/<uuid:takeover_id>/activate/",
+        takeover_views.TakeoverActivateView.as_view(),
+    ),
+    path(
+        "takeovers/<uuid:takeover_id>/cancel/",
+        takeover_views.TakeoverCancelView.as_view(),
+    ),
     path("github/webhook/", github_views.GitHubWebhookView.as_view()),
     path("projects/<uuid:project_id>/", deployment_views.ProjectDetailView.as_view()),
     path(

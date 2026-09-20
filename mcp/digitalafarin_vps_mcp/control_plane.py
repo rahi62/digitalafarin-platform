@@ -8,6 +8,28 @@ from digitalafarin_vps_mcp.errors import MCPDomainError
 _SERVICE_RE = re.compile(r"^[A-Za-z0-9_.@:-]+\.service$")
 UUID_RE = re.compile(r"^[0-9a-fA-F-]{36}$")
 SLUG_RE = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
+EXACT_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+
+TAKEOVER_ERROR_CODES = {
+    "service_not_configured",
+    "unsupported_takeover_runtime",
+    "inventory_unit_missing",
+    "server_offline",
+    "disk_usage_blocked",
+    "invalid_exact_commit",
+    "takeover_already_active",
+    "takeover_not_prepared",
+    "takeover_already_terminal",
+    "takeover_not_found",
+    "source_user_unsafe",
+    "service_configuration_changed",
+    "managed_dropin_conflict",
+    "release_prepare_failed",
+    "release_validation_failed",
+    "takeover_activation_failed",
+    "takeover_health_failed",
+    "takeover_rollback_failed",
+}
 
 
 def _validate_uuid(value: str, field: str) -> None:
@@ -124,7 +146,17 @@ class ControlPlaneClient:
                 "forbidden", "This MCP identity cannot perform this operation."
             )
         if response.status_code in {400, 404, 409}:
-            raise MCPDomainError("invalid_request", "The operation was rejected.")
+            try:
+                body = response.json()
+            except ValueError:
+                body = {}
+            code = body.get("error")
+            message = body.get("message")
+            normalized = code if code in TAKEOVER_ERROR_CODES else "invalid_request"
+            raise MCPDomainError(
+                normalized,
+                message or "The operation was rejected.",
+            )
         raise MCPDomainError("control_plane_unavailable", "Control plane request failed.")
 
     async def _put(self, path: str, payload: dict) -> dict:
@@ -350,6 +382,40 @@ class ControlPlaneClient:
                 "install_configuration": install_configuration,
                 "build_configuration": build_configuration,
             },
+        )
+
+    async def prepare_service_takeover(
+        self, service_id: str, commit: str
+    ) -> dict:
+        _validate_uuid(service_id, "service_id")
+        if not EXACT_COMMIT_RE.fullmatch(commit):
+            raise MCPDomainError(
+                "invalid_request",
+                "commit must be an exact lowercase 40-character Git SHA.",
+            )
+        return await self._post(
+            f"/api/control/v1/services/{quote(service_id, safe='')}/takeovers/",
+            {"commit": commit},
+        )
+
+    async def get_service_takeover(self, takeover_id: str) -> dict:
+        _validate_uuid(takeover_id, "takeover_id")
+        return await self._get(
+            f"/api/control/v1/takeovers/{quote(takeover_id, safe='')}/"
+        )
+
+    async def activate_service_takeover(self, takeover_id: str) -> dict:
+        _validate_uuid(takeover_id, "takeover_id")
+        return await self._post(
+            f"/api/control/v1/takeovers/{quote(takeover_id, safe='')}/activate/",
+            {},
+        )
+
+    async def cancel_service_takeover(self, takeover_id: str) -> dict:
+        _validate_uuid(takeover_id, "takeover_id")
+        return await self._post(
+            f"/api/control/v1/takeovers/{quote(takeover_id, safe='')}/cancel/",
+            {},
         )
 
     async def deploy_service(self, service_id: str, commit: str | None) -> dict:

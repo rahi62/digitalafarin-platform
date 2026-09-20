@@ -8,6 +8,10 @@ import {
   type ServiceLifecycle,
   type ServiceRuntime,
 } from "./service-adoption";
+import {
+  buildPrepareTakeoverRequest,
+  type TakeoverState,
+} from "./takeovers";
 
 export type ServerStatus = "online" | "stale" | "offline" | string;
 
@@ -58,7 +62,7 @@ export type AuditEvent = {
 export type Operation = {
   id: string;
   server_id: string;
-  kind: "service.start" | "service.stop" | "service.restart" | "service.logs" | "volume.create" | "server.bootstrap" | "database.create" | "database.restore" | "deployment.deploy" | "deployment.rollback" | "domain.configure" | "domain.ssl";
+  kind: "service.start" | "service.stop" | "service.restart" | "service.logs" | "volume.create" | "server.bootstrap" | "database.create" | "database.restore" | "deployment.deploy" | "deployment.rollback" | "domain.configure" | "domain.ssl" | "service.takeover.prepare" | "service.takeover.activate";
   state: "queued" | "claimed" | "running" | "succeeded" | "failed";
   payload: { unit_name?: string; lines?: number; since_seconds?: number; [key: string]: unknown };
   result?: { message?: string; logs?: string; truncated?: boolean; [key: string]: unknown };
@@ -108,6 +112,29 @@ export type Deployment = {
   state: string; requested_by: string; queued_at: string; started_at: string | null;
   completed_at: string | null; active_release?: string | null; previous_release?: string | null;
   events?: Array<{ id: string; state: string; message: string; created_at: string }>;
+};
+
+export type ServiceTakeover = {
+  id: string;
+  service_id: string;
+  state: TakeoverState;
+  requested_commit: string;
+  resolved_commit: string;
+  source_fingerprint: string;
+  source_snapshot: Record<string, unknown>;
+  release_name: string;
+  release_path: string;
+  previous_current_path: string | null;
+  managed_dropin_path: string;
+  health_check_snapshot: Record<string, unknown>;
+  prepare_operation_id: string | null;
+  activate_operation_id: string | null;
+  failure_code: string;
+  failure_message: string;
+  queued_at: string;
+  prepared_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
 };
 
 export class ControlPlaneError extends Error {
@@ -281,6 +308,52 @@ export function configureServiceDeployment(
       method: "PUT",
       body: JSON.stringify(buildDeploymentConfigurationRequest(input)),
     },
+  );
+}
+
+export async function listServiceTakeovers(
+  serviceId: string,
+): Promise<ServiceTakeover[]> {
+  const result = await request<{ items: ServiceTakeover[] }>(
+    `/api/control/v1/services/${encodeURIComponent(serviceId)}/takeovers/`,
+  );
+  return result.items;
+}
+
+export function prepareServiceTakeover(
+  serviceId: string,
+  commit: string,
+): Promise<ServiceTakeover> {
+  return request(
+    `/api/control/v1/services/${encodeURIComponent(serviceId)}/takeovers/`,
+    {
+      method: "POST",
+      body: JSON.stringify(buildPrepareTakeoverRequest(commit)),
+    },
+  );
+}
+
+export function getTakeover(takeoverId: string): Promise<ServiceTakeover> {
+  return request(
+    `/api/control/v1/takeovers/${encodeURIComponent(takeoverId)}/`,
+  );
+}
+
+export function activateTakeover(
+  takeoverId: string,
+): Promise<ServiceTakeover> {
+  return request(
+    `/api/control/v1/takeovers/${encodeURIComponent(takeoverId)}/activate/`,
+    { method: "POST", body: "{}" },
+  );
+}
+
+export function cancelTakeover(
+  takeoverId: string,
+): Promise<ServiceTakeover> {
+  return request(
+    `/api/control/v1/takeovers/${encodeURIComponent(takeoverId)}/cancel/`,
+    { method: "POST", body: "{}" },
   );
 }
 

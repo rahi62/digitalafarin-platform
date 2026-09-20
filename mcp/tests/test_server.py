@@ -72,6 +72,23 @@ class FakeControlPlane:
     ):
         return {"id": service_id, "lifecycle_state": "configured"}
 
+    async def prepare_service_takeover(self, service_id, commit):
+        return {
+            "id": "takeover-id",
+            "service_id": service_id,
+            "requested_commit": commit,
+            "state": "queued",
+        }
+
+    async def get_service_takeover(self, takeover_id):
+        return {"id": takeover_id, "state": "prepared"}
+
+    async def activate_service_takeover(self, takeover_id):
+        return {"id": takeover_id, "state": "prepared", "activate_operation_id": "operation-id"}
+
+    async def cancel_service_takeover(self, takeover_id):
+        return {"id": takeover_id, "state": "canceled"}
+
     async def deploy_service(self, service_id, commit):
         return {"id": "deployment-id", "state": "queued"}
 
@@ -109,6 +126,10 @@ async def test_server_discovers_only_inventory_and_typed_operation_tools():
         "vps_create_project",
         "vps_adopt_service",
         "vps_configure_service_deployment",
+        "vps_prepare_service_takeover",
+        "vps_get_service_takeover",
+        "vps_activate_service_takeover",
+        "vps_cancel_service_takeover",
         "vps_deploy_service",
         "vps_get_deployment",
         "vps_redeploy_deployment",
@@ -176,3 +197,33 @@ async def test_configuration_tool_returns_configured_service_metadata():
             },
         )
     assert result.structured_content["lifecycle_state"] == "configured"
+
+
+@pytest.mark.asyncio
+async def test_takeover_tools_expose_only_typed_identity_inputs():
+    server = create_mcp(FakeControlPlane())
+    async with Client(server, raise_exceptions=True) as client:
+        prepared = await client.call_tool(
+            "vps_prepare_service_takeover",
+            {
+                "service_id": "33333333-3333-3333-3333-333333333333",
+                "commit": "a" * 40,
+            },
+        )
+        read = await client.call_tool(
+            "vps_get_service_takeover",
+            {"takeover_id": "22222222-2222-2222-2222-222222222222"},
+        )
+        activated = await client.call_tool(
+            "vps_activate_service_takeover",
+            {"takeover_id": "22222222-2222-2222-2222-222222222222"},
+        )
+        canceled = await client.call_tool(
+            "vps_cancel_service_takeover",
+            {"takeover_id": "22222222-2222-2222-2222-222222222222"},
+        )
+
+    assert prepared.structured_content["state"] == "queued"
+    assert read.structured_content["state"] == "prepared"
+    assert activated.structured_content["activate_operation_id"] == "operation-id"
+    assert canceled.structured_content["state"] == "canceled"

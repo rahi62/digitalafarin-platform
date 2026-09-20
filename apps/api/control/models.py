@@ -149,6 +149,8 @@ class Operation(models.Model):
     KIND_DEPLOYMENT_ROLLBACK = "deployment.rollback"
     KIND_DOMAIN_CONFIGURE = "domain.configure"
     KIND_DOMAIN_SSL = "domain.ssl"
+    KIND_TAKEOVER_PREPARE = "service.takeover.prepare"
+    KIND_TAKEOVER_ACTIVATE = "service.takeover.activate"
     KIND_CHOICES = [
         (KIND_SERVICE_START, "Start service"),
         (KIND_SERVICE_STOP, "Stop service"),
@@ -162,6 +164,8 @@ class Operation(models.Model):
         (KIND_DEPLOYMENT_ROLLBACK, "Rollback release"),
         (KIND_DOMAIN_CONFIGURE, "Configure domain"),
         (KIND_DOMAIN_SSL, "Enable domain SSL"),
+        (KIND_TAKEOVER_PREPARE, "Prepare controlled service takeover"),
+        (KIND_TAKEOVER_ACTIVATE, "Activate controlled service takeover"),
     ]
 
     STATE_QUEUED = "queued"
@@ -335,11 +339,123 @@ class Deployment(models.Model):
         ordering = ["-queued_at"]
 
 
+class ServiceTakeover(models.Model):
+    STATE_QUEUED = "queued"
+    STATE_INSPECTING = "inspecting"
+    STATE_PREPARING = "preparing"
+    STATE_PREPARED = "prepared"
+    STATE_ACTIVATING = "activating"
+    STATE_VERIFYING = "verifying"
+    STATE_SUCCEEDED = "succeeded"
+    STATE_FAILED = "failed"
+    STATE_ROLLED_BACK = "rolled_back"
+    STATE_ROLLBACK_FAILED = "rollback_failed"
+    STATE_CANCELED = "canceled"
+
+    ACTIVE_STATES = (
+        STATE_QUEUED,
+        STATE_INSPECTING,
+        STATE_PREPARING,
+        STATE_PREPARED,
+        STATE_ACTIVATING,
+        STATE_VERIFYING,
+    )
+    TERMINAL_STATES = (
+        STATE_SUCCEEDED,
+        STATE_FAILED,
+        STATE_ROLLED_BACK,
+        STATE_ROLLBACK_FAILED,
+        STATE_CANCELED,
+    )
+    STATE_CHOICES = [
+        (STATE_QUEUED, "Queued"),
+        (STATE_INSPECTING, "Inspecting"),
+        (STATE_PREPARING, "Preparing"),
+        (STATE_PREPARED, "Prepared"),
+        (STATE_ACTIVATING, "Activating"),
+        (STATE_VERIFYING, "Verifying"),
+        (STATE_SUCCEEDED, "Succeeded"),
+        (STATE_FAILED, "Failed"),
+        (STATE_ROLLED_BACK, "Rolled back"),
+        (STATE_ROLLBACK_FAILED, "Rollback failed"),
+        (STATE_CANCELED, "Canceled"),
+    ]
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    service = models.ForeignKey(
+        Service, related_name="takeovers", on_delete=models.CASCADE
+    )
+    state = models.CharField(
+        max_length=24, choices=STATE_CHOICES, default=STATE_QUEUED
+    )
+    requested_commit = models.CharField(max_length=40)
+    resolved_commit = models.CharField(max_length=40, blank=True)
+    requested_by = models.CharField(max_length=120)
+    source_snapshot = models.JSONField(default=dict, blank=True)
+    source_fingerprint = models.CharField(max_length=64, blank=True)
+    release_name = models.CharField(max_length=80, blank=True)
+    release_path = models.CharField(max_length=500, blank=True)
+    previous_current_path = models.CharField(max_length=500, null=True, blank=True)
+    managed_dropin_path = models.CharField(max_length=500, blank=True)
+    health_check_snapshot = models.JSONField(default=dict)
+    prepare_operation = models.OneToOneField(
+        Operation,
+        null=True,
+        blank=True,
+        related_name="prepared_takeover",
+        on_delete=models.SET_NULL,
+    )
+    activate_operation = models.OneToOneField(
+        Operation,
+        null=True,
+        blank=True,
+        related_name="activated_takeover",
+        on_delete=models.SET_NULL,
+    )
+    failure_code = models.CharField(max_length=100, blank=True)
+    failure_message = models.CharField(max_length=500, blank=True)
+    queued_at = models.DateTimeField(auto_now_add=True)
+    prepared_at = models.DateTimeField(null=True, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-queued_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["service"],
+                condition=Q(
+                    state__in=(
+                        "queued",
+                        "inspecting",
+                        "preparing",
+                        "prepared",
+                        "activating",
+                        "verifying",
+                    )
+                ),
+                name="uniq_active_takeover_per_service",
+            )
+        ]
+
+
 class Release(models.Model):
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     service = models.ForeignKey(Service, related_name="releases", on_delete=models.CASCADE)
     deployment = models.OneToOneField(
-        Deployment, related_name="release", on_delete=models.PROTECT
+        Deployment,
+        null=True,
+        blank=True,
+        related_name="release",
+        on_delete=models.PROTECT,
+    )
+    takeover = models.OneToOneField(
+        ServiceTakeover,
+        null=True,
+        blank=True,
+        related_name="release",
+        on_delete=models.PROTECT,
     )
     name = models.CharField(max_length=80)
     exact_commit = models.CharField(max_length=40)
@@ -349,7 +465,14 @@ class Release(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["service", "name"], name="uniq_service_release")
+            models.UniqueConstraint(fields=["service", "name"], name="uniq_service_release"),
+            models.CheckConstraint(
+                condition=(
+                    Q(deployment__isnull=False, takeover__isnull=True)
+                    | Q(deployment__isnull=True, takeover__isnull=False)
+                ),
+                name="release_exactly_one_provenance",
+            ),
         ]
 
 

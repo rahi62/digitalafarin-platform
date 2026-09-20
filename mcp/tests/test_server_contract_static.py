@@ -19,6 +19,10 @@ EXPECTED = {
     "vps_create_project",
     "vps_adopt_service",
     "vps_configure_service_deployment",
+    "vps_prepare_service_takeover",
+    "vps_get_service_takeover",
+    "vps_activate_service_takeover",
+    "vps_cancel_service_takeover",
     "vps_deploy_service",
     "vps_get_deployment",
     "vps_redeploy_deployment",
@@ -48,3 +52,22 @@ def test_server_source_registers_only_inventory_and_typed_operation_tools():
         for name in tool_names
         for fragment in BANNED_FRAGMENTS
     )
+
+
+def test_takeover_tool_signatures_have_no_arbitrary_execution_inputs():
+    source_path = Path(__file__).parents[1] / "digitalafarin_vps_mcp" / "server.py"
+    tree = ast.parse(source_path.read_text(encoding="utf-8"))
+    expected_args = {
+        "vps_prepare_service_takeover": ["service_id", "commit"],
+        "vps_get_service_takeover": ["takeover_id"],
+        "vps_activate_service_takeover": ["takeover_id"],
+        "vps_cancel_service_takeover": ["takeover_id"],
+    }
+    found = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in expected_args:
+            found[node.name] = [arg.arg for arg in node.args.args]
+
+    assert found == expected_args
+    forbidden = {"unit_name", "path", "command", "shell", "environment", "systemctl"}
+    assert not any(arg in forbidden for args in found.values() for arg in args)
