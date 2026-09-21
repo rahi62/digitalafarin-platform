@@ -219,39 +219,20 @@ def _validate_activate_payload(payload: dict) -> None:
         raise TakeoverExecutionError("release_validation_failed", "Invalid release root directory.")
 
 
-def _activation_paths(payload: dict, apps_root: Path) -> tuple[Path, Path, Path]:
-    root = apps_root.resolve()
-    service_root = (root / payload["project_slug"] / payload["service_name"]).resolve()
-    if not service_root.is_relative_to(root):
-        raise TakeoverExecutionError("takeover_activation_failed", "Service root escapes apps root.")
-    release = (service_root / "releases" / payload["release_name"]).resolve()
-    releases_root = (service_root / "releases").resolve()
-    if not release.is_relative_to(releases_root) or not release.is_dir():
-        raise TakeoverExecutionError("release_validation_failed", "Prepared release is missing.")
-    expected = str(release)
-    if payload.get("release_path") != expected:
-        raise TakeoverExecutionError("release_validation_failed", "Prepared release path mismatch.")
-    cwd = (release / payload["root_directory"]).resolve()
-    if not cwd.is_relative_to(release) or not (cwd / ".next").is_dir():
-        raise TakeoverExecutionError("release_validation_failed", "Prepared Next.js artifacts are missing.")
-    return service_root, release, cwd
-
-
-def _validate_previous_current(service_root: Path) -> Path | None:
-    current = service_root / "current"
-    if not current.exists() and not current.is_symlink():
-        return None
-    if not current.is_symlink():
+def _expected_release_path(payload: dict, apps_root: Path) -> Path:
+    """Derive the prepared release path without touching the sealed filesystem."""
+    root = Path(apps_root)
+    if not root.is_absolute() or ".." in root.parts:
         raise TakeoverExecutionError(
-            "takeover_activation_failed", "Current path is not a managed symlink."
+            "release_validation_failed", "Invalid managed apps root."
         )
-    target = current.resolve(strict=False)
-    releases_root = (service_root / "releases").resolve()
-    if not target.is_relative_to(releases_root) or not target.is_dir():
-        raise TakeoverExecutionError(
-            "takeover_activation_failed", "Current symlink points outside managed releases."
-        )
-    return target
+    return (
+        root
+        / payload["project_slug"]
+        / payload["service_name"]
+        / "releases"
+        / payload["release_name"]
+    )
 
 
 def activate_service_takeover(
@@ -261,7 +242,18 @@ def activate_service_takeover(
     helper_client: TakeoverHelperClient | None = None,
 ) -> dict:
     _validate_activate_payload(payload)
-    service_root, release, cwd = _activation_paths(payload, apps_root)
+
+    # Activation stays metadata-only in the unprivileged Agent. The prepared
+    # release is intentionally sealed root:root 0550, so filesystem validation
+    # beneath it belongs to the privileged Helper.
+    expected_release = _expected_release_path(payload, apps_root)
+    if payload.get("release_path") != str(expected_release):
+        raise TakeoverExecutionError(
+            "release_validation_failed", "Prepared release path mismatch."
+        )
+
+    # Keep the cheap source configuration drift check in the Agent. The Helper
+    # repeats it immediately before mutation.
     try:
         snapshot_now = inspect_service(payload["unit_name"])
     except Exception as exc:
@@ -274,13 +266,6 @@ def activate_service_takeover(
             "Source service configuration changed after prepare.",
         )
 
-    previous = _validate_previous_current(service_root)
-    dropin = _managed_dropin_path(payload["unit_name"])
-    if dropin.exists() or dropin.is_symlink():
-        raise TakeoverExecutionError(
-            "managed_dropin_conflict", "Reserved managed systemd drop-in already exists."
-        )
-
     helper = helper_client or TakeoverHelperClient()
     try:
         activation = helper.activate_release(
@@ -291,42 +276,32 @@ def activate_service_takeover(
                 "release_name": payload["release_name"],
                 "root_directory": payload["root_directory"],
                 "source_fingerprint": payload["source_fingerprint"],
+                "exact_commit": payload["exact_commit"],
             }
         )
     except TakeoverHelperError as exc:
         raise TakeoverExecutionError(exc.code, str(exc)) from exc
 
-    expected_previous = previous.name if previous else None
-    if activation.get("previous_release_name") != expected_previous:
-        try:
-            helper.rollback_activation(
-                {
-                    "project_slug": payload["project_slug"],
-                    "service_name": payload["service_name"],
-                    "unit_name": payload["unit_name"],
-                    "previous_release_name": expected_previous,
-                }
-            )
-        except TakeoverHelperError as rollback_exc:
-            raise TakeoverExecutionError(
-                "takeover_rollback_failed",
-                "Controlled takeover rollback did not restore the original service.",
-            ) from rollback_exc
+    previous_release_name = activation.get("previous_release_name")
+    if previous_release_name is not None and not re.fullmatch(
+        r"[0-9]{8}-[0-9]{6}-[0-9a-f]{7}(?:-[0-9]+)?",
+        str(previous_release_name),
+    ):
         raise TakeoverExecutionError(
             "takeover_activation_failed",
-            "Privileged helper reported an unexpected previous release.",
+            "Privileged helper returned invalid activation metadata.",
         )
 
     try:
         check_http_health_stable(payload["health_check"])
-    except HealthCheckError as exc:
+    except HealthCheckError:
         try:
             helper.rollback_activation(
                 {
                     "project_slug": payload["project_slug"],
                     "service_name": payload["service_name"],
                     "unit_name": payload["unit_name"],
-                    "previous_release_name": expected_previous,
+                    "previous_release_name": previous_release_name,
                 }
             )
             check_http_health_stable(payload["health_check"])
@@ -349,7 +324,7 @@ def activate_service_takeover(
             "resolved_commit": payload["exact_commit"],
             "release_name": payload["release_name"],
             "previous_current_path": activation.get("previous_current_path"),
-            "managed_dropin_path": activation.get("managed_dropin_path", str(dropin)),
+            "managed_dropin_path": activation.get("managed_dropin_path"),
             "events": [
                 {"state": "activating", "message": ""},
                 {"state": "verifying", "message": ""},
@@ -366,7 +341,7 @@ def activate_service_takeover(
         "resolved_commit": payload["exact_commit"],
         "release_name": payload["release_name"],
         "previous_current_path": activation.get("previous_current_path"),
-        "managed_dropin_path": activation.get("managed_dropin_path", str(dropin)),
+        "managed_dropin_path": activation.get("managed_dropin_path"),
         "events": [
             {"state": "activating", "message": ""},
             {"state": "verifying", "message": ""},

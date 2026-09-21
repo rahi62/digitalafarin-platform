@@ -57,6 +57,7 @@ _ACTIVATE_KEYS = {
     "release_name",
     "root_directory",
     "source_fingerprint",
+    "exact_commit",
 }
 _ROLLBACK_KEYS = {
     "project_slug",
@@ -806,6 +807,11 @@ def activate_release(
     unit_name = _validate_binding(project_slug, service_name, params["unit_name"], allowed)
     release_name = _validate_release_name(params["release_name"])
     root_directory = _validate_root_directory(params["root_directory"])
+    exact_commit = str(params["exact_commit"])
+    if not COMMIT.fullmatch(exact_commit):
+        raise TakeoverHelperDomainError(
+            "invalid_exact_commit", "Takeover requires an exact lowercase commit."
+        )
     expected_fingerprint = str(params["source_fingerprint"])
     if not FINGERPRINT.fullmatch(expected_fingerprint):
         raise TakeoverHelperDomainError(
@@ -827,16 +833,19 @@ def activate_release(
 
     service_root = _service_root(apps_root, project_slug, service_name)
     release = _release_path(service_root, release_name)
-    cwd = (release / root_directory).resolve()
-    if (
-        not release.is_dir()
-        or release.is_symlink()
-        or not cwd.is_relative_to(release)
-        or not (cwd / ".next").is_dir()
-    ):
-        raise TakeoverHelperDomainError(
-            "release_validation_failed", "Prepared Next.js artifacts are missing."
-        )
+
+    # The release is deliberately inaccessible to digitalafarin-agent after
+    # PREPARE. Re-validate the sealed tree here as root immediately before any
+    # activation mutation instead of requiring Agent-side traversal.
+    _validate_prepared_release(
+        release,
+        service_root,
+        root_directory,
+        exact_commit,
+        {"lockfile": "package-lock.json"},
+        sealed=True,
+    )
+
     previous = _validate_previous_current(service_root)
     dropin = managed_dropin_path(unit_name, systemd_root=systemd_root)
     if dropin.exists() or dropin.is_symlink():

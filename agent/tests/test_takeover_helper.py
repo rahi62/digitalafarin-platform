@@ -521,6 +521,7 @@ def _activate_params():
         "release_name": "20260920-120000-aaaaaaa",
         "root_directory": "apps/web",
         "source_fingerprint": "a" * 64,
+        "exact_commit": "a" * 40,
     }
 
 
@@ -532,6 +533,13 @@ def _stub_systemd(monkeypatch, systemd_root, calls):
     monkeypatch.setattr(
         "digitalafarin_agent.takeover_helper.fingerprint_snapshot",
         lambda _snapshot: "a" * 64,
+    )
+
+    monkeypatch.setattr(
+        "digitalafarin_agent.takeover_helper._validate_prepared_release",
+        lambda _release, _service_root, _root_directory, exact_commit, _install, *, sealed: exact_commit
+        if sealed
+        else (_ for _ in ()).throw(AssertionError("activation must validate sealed release")),
     )
 
     def write(unit, working_directory, **_kwargs):
@@ -621,6 +629,74 @@ def test_activate_helper_rolls_back_if_current_changes_during_atomic_switch(tmp_
         )
     assert exc.value.code == "takeover_activation_failed"
     assert not (service_root / "current").exists()
+
+
+def test_activate_helper_revalidates_sealed_release_before_mutation(tmp_path, monkeypatch):
+    service_root, release, _cwd = _release_tree(tmp_path)
+    calls = []
+    systemd_root = tmp_path / "systemd"
+    _stub_systemd(monkeypatch, systemd_root, calls)
+    validated = {}
+
+    def validate(candidate, root, root_directory, exact_commit, install, *, sealed):
+        validated.update(
+            candidate=candidate,
+            root=root,
+            root_directory=root_directory,
+            exact_commit=exact_commit,
+            install=install,
+            sealed=sealed,
+        )
+        return exact_commit
+
+    monkeypatch.setattr(
+        "digitalafarin_agent.takeover_helper._validate_prepared_release", validate
+    )
+
+    result = activate_release(
+        _activate_params(),
+        allowed_bindings=ALLOWED_BINDINGS,
+        apps_root=tmp_path / "apps",
+        systemd_root=systemd_root,
+    )
+
+    assert result["previous_release_name"] is None
+    assert validated == {
+        "candidate": release.resolve(),
+        "root": service_root.resolve(),
+        "root_directory": "apps/web",
+        "exact_commit": "a" * 40,
+        "install": {"lockfile": "package-lock.json"},
+        "sealed": True,
+    }
+
+
+def test_activate_helper_rejects_invalid_sealed_release_before_mutation(tmp_path, monkeypatch):
+    service_root, _release, _cwd = _release_tree(tmp_path)
+    calls = []
+    systemd_root = tmp_path / "systemd"
+    _stub_systemd(monkeypatch, systemd_root, calls)
+
+    def reject(*_args, **_kwargs):
+        raise TakeoverHelperDomainError(
+            "release_validation_failed", "Prepared release failed privileged validation."
+        )
+
+    monkeypatch.setattr(
+        "digitalafarin_agent.takeover_helper._validate_prepared_release", reject
+    )
+
+    with pytest.raises(TakeoverHelperDomainError) as exc:
+        activate_release(
+            _activate_params(),
+            allowed_bindings=ALLOWED_BINDINGS,
+            apps_root=tmp_path / "apps",
+            systemd_root=systemd_root,
+        )
+
+    assert exc.value.code == "release_validation_failed"
+    assert not (service_root / "current").exists()
+    assert calls == []
 
 
 def test_activate_and_rollback_helper_only_mutate_derived_current_and_dropin(tmp_path, monkeypatch):
