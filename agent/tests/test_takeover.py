@@ -76,7 +76,14 @@ class FakeHelper:
     def prepare_node_nextjs_release(self, params):
         self.calls.append(("prepare", params))
         assert self.release is not None
-        return {"release_name": self.release.name, "release_path": str(self.release)}
+        from digitalafarin_agent.takeover import fingerprint_snapshot
+        return {
+            "release_name": self.release.name,
+            "release_path": str(self.release),
+            "resolved_commit": params["exact_commit"],
+            "source_snapshot": snapshot(),
+            "source_fingerprint": fingerprint_snapshot(snapshot()),
+        }
 
     def activate_release(self, params):
         self.calls.append(("activate", params))
@@ -344,3 +351,62 @@ def test_activate_sends_derived_identity_not_arbitrary_working_directory(tmp_pat
     }
     assert "working_directory" not in params
     assert "release_path" not in params
+
+
+def test_prepare_never_accesses_filesystem_after_helper_success(tmp_path, monkeypatch):
+    from digitalafarin_agent.takeover_systemd import fingerprint_snapshot
+
+    release = tmp_path / "apps/digitalafarin-platform/platform-web/releases/20260920-120000-aaaaaaa"
+    monkeypatch.setattr("digitalafarin_agent.takeover.inspect_service", lambda _u: snapshot())
+    monkeypatch.setattr("digitalafarin_agent.takeover._account", lambda _u: SimpleNamespace(pw_uid=1000))
+    dropin = tmp_path / "not-present.conf"
+    monkeypatch.setattr("digitalafarin_agent.takeover.managed_dropin_path", lambda _u: dropin)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Agent accessed filesystem after Helper success")
+
+    with pytest.MonkeyPatch.context() as guard:
+        class SealedHelper:
+            def prepare_node_nextjs_release(self, params):
+                for method in ("resolve", "stat", "lstat", "exists", "is_dir", "is_file", "is_symlink", "open", "iterdir"):
+                    guard.setattr(Path, method, forbidden)
+                return {
+                    "release_name": release.name,
+                    "release_path": str(release),
+                    "resolved_commit": "a" * 40,
+                    "source_snapshot": snapshot(),
+                    "source_fingerprint": fingerprint_snapshot(snapshot()),
+                }
+
+        result = prepare_service_takeover(
+            prepare_payload(), apps_root=tmp_path / "apps", helper_client=SealedHelper()
+        )
+    assert result["final_state"] == "prepared"
+    assert result["resolved_commit"] == "a" * 40
+    assert not (release.parent.parent / "current").exists()
+    assert not dropin.exists()
+
+
+@pytest.mark.parametrize("field,value", [
+    ("release_name", "../escape"),
+    ("release_path", "/outside/release"),
+    ("release_path", "/srv/digitalafarin/apps/../outside"),
+    ("resolved_commit", "b" * 40),
+    ("resolved_commit", "A" * 40),
+    ("resolved_commit", None),
+    ("source_snapshot", {}),
+    ("source_fingerprint", "bad"),
+])
+def test_prepare_rejects_invalid_helper_metadata(tmp_path, monkeypatch, field, value):
+    release = _make_prepared_release(tmp_path)
+    class InvalidHelper(FakeHelper):
+        def prepare_node_nextjs_release(self, params):
+            result = super().prepare_node_nextjs_release(params)
+            result[field] = value
+            return result
+    monkeypatch.setattr("digitalafarin_agent.takeover.inspect_service", lambda _u: snapshot())
+    monkeypatch.setattr("digitalafarin_agent.takeover._account", lambda _u: SimpleNamespace(pw_uid=1000))
+    monkeypatch.setattr("digitalafarin_agent.takeover.managed_dropin_path", lambda _u: tmp_path / "absent")
+    with pytest.raises(TakeoverExecutionError) as exc:
+        prepare_service_takeover(prepare_payload(), apps_root=tmp_path / "apps", helper_client=InvalidHelper(release=release))
+    assert exc.value.code == "release_validation_failed"
