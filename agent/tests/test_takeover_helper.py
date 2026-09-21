@@ -178,7 +178,7 @@ def test_prepare_helper_derives_release_and_runs_build_as_service_user(tmp_path,
     monkeypatch.setattr("digitalafarin_agent.takeover_helper.os.chown", lambda *_a, **_k: None)
     monkeypatch.setattr(
         "digitalafarin_agent.takeover_helper.inspect_service",
-        lambda _unit: {"user": "deploy", "group": "www-data"},
+        lambda _unit: {"unit_name": _unit, "user": "deploy", "group": "www-data"},
     )
 
     service_root = tmp_path / "apps" / "digitalafarin-platform" / "platform-web"
@@ -229,10 +229,18 @@ def test_prepare_helper_derives_release_and_runs_build_as_service_user(tmp_path,
         ),
     )
 
+    # This test isolates worker dispatch; sealed-filesystem validation has its
+    # own real-tree regressions and privileged Linux integration probe.
+    monkeypatch.setattr(
+        "digitalafarin_agent.takeover_helper._validate_prepared_release",
+        lambda *_a, **_k: "a" * 40,
+    )
     result = prepare_node_nextjs_release(_prepare_params(), allowed_bindings=ALLOWED_BINDINGS, apps_root=tmp_path / "apps")
     release = prepared[0]
 
-    assert result == {"release_name": release.name, "release_path": str(release)}
+    assert result["release_name"] == release.name
+    assert result["release_path"] == str(release)
+    assert result["resolved_commit"] == "a" * 40
     assert calls == [
         (
             "deploy",
@@ -290,7 +298,7 @@ def test_prepare_helper_cleans_partial_release_when_build_fails(tmp_path, monkey
     monkeypatch.setattr("digitalafarin_agent.takeover_helper.os.chown", lambda *_a, **_k: None)
     monkeypatch.setattr(
         "digitalafarin_agent.takeover_helper.inspect_service",
-        lambda _unit: {"user": "deploy", "group": "www-data"},
+        lambda _unit: {"unit_name": _unit, "user": "deploy", "group": "www-data"},
     )
     trusted_source = tmp_path / "trusted-source-fail"
     trusted_source.mkdir()

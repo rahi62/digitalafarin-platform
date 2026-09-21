@@ -516,6 +516,81 @@ def _seal_release(
         seal(root_path)
 
 
+def _validate_prepared_release(
+    release: Path,
+    service_root: Path,
+    root_directory: str,
+    exact_commit: str,
+    install_configuration: dict[str, Any],
+    *,
+    sealed: bool,
+) -> str:
+    """Validate built content as Helper, including the existing sealing policy."""
+    try:
+        releases_root = service_root / "releases"
+        if (
+            releases_root.resolve(strict=True) != releases_root
+            or release.parent != releases_root
+            or release.resolve(strict=True) != release
+            or not release.is_dir()
+            or not RELEASE_NAME.fullmatch(release.name)
+            or not COMMIT.fullmatch(exact_commit)
+            or release.name.split("-")[2] != exact_commit[:7]
+        ):
+            raise ValueError("invalid release path or commit")
+        cwd = release / root_directory
+        if cwd.resolve(strict=True) != cwd or not cwd.is_dir():
+            raise ValueError("invalid release root directory")
+        _validate_node_artifacts(cwd, install_configuration)
+        for path in (cwd / "package.json", cwd / "package-lock.json", cwd / ".next", release / ".git/HEAD"):
+            if path.resolve(strict=True) != path:
+                raise ValueError("aliased release artifact")
+        # prepare_release performs a detached checkout. Read HEAD as data, never
+        # execute repository-controlled Git configuration as the privileged user.
+        head = release / ".git/HEAD"
+        head_info = head.lstat()
+        if not stat.S_ISREG(head_info.st_mode) or head_info.st_size not in {40, 41}:
+            raise ValueError("invalid detached HEAD file")
+        with head.open(encoding="ascii") as stream:
+            resolved_commit = stream.read(42).strip()
+        if not COMMIT.fullmatch(resolved_commit) or resolved_commit != exact_commit:
+            raise ValueError("prepared commit mismatch")
+
+        cache = cwd / ".next/cache"
+        if cache.is_symlink():
+            raise ValueError("aliased runtime cache")
+
+        def check(path: Path) -> None:
+            info = path.lstat()
+            if stat.S_ISLNK(info.st_mode):
+                if not path.resolve().is_relative_to(release):
+                    raise ValueError("release symlink escape")
+            elif not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
+                raise ValueError("unsupported release entry")
+            if sealed and not path.is_relative_to(cache):
+                if info.st_uid != 0 or info.st_gid != 0:
+                    raise ValueError("release ownership mismatch")
+                if not stat.S_ISLNK(info.st_mode) and info.st_mode & 0o222:
+                    raise ValueError("release is writable")
+
+        def walk_error(exc: OSError) -> None:
+            raise exc
+
+        check(release)
+        for root, dirs, files in os.walk(release, followlinks=False, onerror=walk_error):
+            for name in dirs + files:
+                check(Path(root) / name)
+        if sealed and stat.S_IMODE(release.stat().st_mode) != 0o550:
+            raise ValueError("invalid sealed release mode")
+        return resolved_commit
+    except (OSError, ValueError, RuntimeError) as exc:
+        if isinstance(exc, TakeoverHelperDomainError):
+            raise
+        raise TakeoverHelperDomainError(
+            "release_validation_failed", "Prepared release failed privileged validation."
+        ) from exc
+
+
 def prepare_node_nextjs_release(
     params: dict[str, Any],
     *,
@@ -555,7 +630,11 @@ def prepare_node_nextjs_release(
         raise TakeoverHelperDomainError(
             "release_prepare_failed", "Unable to inspect source service identity."
         ) from exc
-    if source_snapshot.get("user") != user or source_snapshot.get("group", "") != group:
+    if (
+        source_snapshot.get("unit_name") != unit_name
+        or source_snapshot.get("user") != user
+        or source_snapshot.get("group", "") != group
+    ):
         raise TakeoverHelperDomainError(
             "service_configuration_changed",
             "Source service user/group changed before privileged prepare.",
@@ -640,11 +719,24 @@ def prepare_node_nextjs_release(
                 npm_cache=True,
                 timeout=900,
             )
-        _validate_node_artifacts(cwd, install_configuration)
+        _validate_prepared_release(
+            release, service_root, root_directory, exact_commit, install_configuration,
+            sealed=False,
+        )
         runtime_cache = _prepare_next_runtime_cache(cwd, user=user, group=group)
         _seal_release(release, service_root, writable_paths=(runtime_cache,))
+        resolved_commit = _validate_prepared_release(
+            release, service_root, root_directory, exact_commit, install_configuration,
+            sealed=True,
+        )
         allocated.clear()
-        return {"release_name": release.name, "release_path": str(release)}
+        return {
+            "release_name": release.name,
+            "release_path": str(release),
+            "resolved_commit": resolved_commit,
+            "source_snapshot": source_snapshot,
+            "source_fingerprint": fingerprint_snapshot(source_snapshot),
+        }
     except Exception:
         for candidate in allocated:
             try:

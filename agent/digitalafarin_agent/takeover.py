@@ -105,21 +105,6 @@ def _validate_prepare_payload(payload: dict) -> None:
         )
 
 
-def _validate_node_artifacts(cwd: Path, install_configuration: dict) -> None:
-    package_json = cwd / "package.json"
-    raw_lockfile = install_configuration.get("lockfile", "package-lock.json")
-    lockfile = "package-lock.json" if raw_lockfile is True else raw_lockfile
-    if not isinstance(lockfile, str) or lockfile != "package-lock.json":
-        raise TakeoverExecutionError(
-            "release_validation_failed", "Stage B3 requires package-lock.json."
-        )
-    required = (package_json, cwd / lockfile, cwd / ".next")
-    if not package_json.is_file() or not (cwd / lockfile).is_file() or not (cwd / ".next").is_dir():
-        raise TakeoverExecutionError(
-            "release_validation_failed", "Prepared Next.js release is incomplete."
-        )
-
-
 def prepare_service_takeover(
     payload: dict,
     *,
@@ -147,6 +132,10 @@ def prepare_service_takeover(
             "managed_dropin_conflict", "Reserved managed systemd drop-in already exists."
         )
 
+    # Resolve only the managed parent before the privileged Helper seals the release.
+    releases_root = (
+        apps_root.resolve() / payload["project_slug"] / payload["service_name"] / "releases"
+    )
     helper = helper_client or TakeoverHelperClient()
     try:
         prepared = helper.prepare_node_nextjs_release(
@@ -166,29 +155,23 @@ def prepare_service_takeover(
     except TakeoverHelperError as exc:
         raise TakeoverExecutionError(exc.code, str(exc)) from exc
 
-    service_root = (
-        apps_root.resolve() / payload["project_slug"] / payload["service_name"]
-    ).resolve()
-    releases_root = (service_root / "releases").resolve()
-    release = Path(str(prepared.get("release_path", ""))).resolve()
-    release_name = str(prepared.get("release_name", ""))
+    # Helper success attests filesystem validation. Only inspect metadata here:
+    # the sealed root:root release is intentionally inaccessible to the Agent.
+    release_name = prepared.get("release_name")
+    release_path = prepared.get("release_path")
+    resolved_commit = prepared.get("resolved_commit")
     if (
-        not release_name
-        or release.name != release_name
-        or release.parent != releases_root
-        or not release.is_relative_to(releases_root)
-        or not release.is_dir()
+        not isinstance(release_name, str)
+        or not re.fullmatch(r"[0-9]{8}-[0-9]{6}-[0-9a-f]{7}(?:-[0-9]+)?", release_name)
+        or release_path != str(releases_root / release_name)
+        or resolved_commit != payload["exact_commit"]
+        or release_name.split("-")[2] != resolved_commit[:7]
+        or prepared.get("source_snapshot") != source_snapshot
+        or prepared.get("source_fingerprint") != fingerprint_snapshot(source_snapshot)
     ):
         raise TakeoverExecutionError(
-            "release_validation_failed", "Privileged helper returned an invalid release."
+            "release_validation_failed", "Privileged helper returned invalid release metadata."
         )
-    root_directory = payload["root_directory"]
-    cwd = (release / root_directory).resolve()
-    if not cwd.is_relative_to(release):
-        raise TakeoverExecutionError(
-            "release_validation_failed", "Root directory escapes prepared release."
-        )
-    _validate_node_artifacts(cwd, payload.get("install_configuration", {}))
 
     # account is intentionally resolved before clone/build. Keep the access here
     # so tests can prove the non-root identity path was exercised.
@@ -196,11 +179,11 @@ def prepare_service_takeover(
     return {
         "takeover_id": payload["takeover_id"],
         "final_state": "prepared",
-        "resolved_commit": payload["exact_commit"],
+        "resolved_commit": resolved_commit,
         "source_snapshot": source_snapshot,
         "source_fingerprint": fingerprint_snapshot(source_snapshot),
-        "release_name": release.name,
-        "release_path": str(release),
+        "release_name": release_name,
+        "release_path": release_path,
         "events": [
             {"state": "inspecting", "message": ""},
             {"state": "preparing", "message": ""},
