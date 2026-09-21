@@ -268,20 +268,46 @@ def test_activate_blocks_fingerprint_drift_before_helper(tmp_path, monkeypatch):
     assert helper.calls == []
 
 
-def test_activate_rejects_current_symlink_outside_managed_releases_before_helper(tmp_path, monkeypatch):
-    payload = activate_payload_for(tmp_path)
-    root = tmp_path / "apps" / "digitalafarin-platform" / "platform-web"
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    (root / "current").symlink_to(outside)
+def test_activate_never_traverses_sealed_release_in_agent(tmp_path, monkeypatch):
+    payload = activate_payload()
+    release = (
+        tmp_path
+        / "apps"
+        / "digitalafarin-platform"
+        / "platform-web"
+        / "releases"
+        / payload["release_name"]
+    )
+    payload["release_path"] = str(release)
     helper = FakeHelper()
     _activation_common(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "digitalafarin_agent.takeover.check_http_health_stable",
+        lambda _spec: {"attempts": 2, "status": 200, "consecutive_successes": 2},
+    )
 
-    with pytest.raises(TakeoverExecutionError) as exc:
-        activate_service_takeover(payload, apps_root=tmp_path / "apps", helper_client=helper)
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("Agent traversed sealed release filesystem")
 
-    assert exc.value.code == "takeover_activation_failed"
-    assert helper.calls == []
+    with pytest.MonkeyPatch.context() as guard:
+        for method in (
+            "resolve",
+            "stat",
+            "lstat",
+            "exists",
+            "is_dir",
+            "is_file",
+            "is_symlink",
+            "open",
+            "iterdir",
+        ):
+            guard.setattr(Path, method, forbidden)
+        result = activate_service_takeover(
+            payload, apps_root=tmp_path / "apps", helper_client=helper
+        )
+
+    assert result["final_state"] == "succeeded"
+    assert [name for name, _params in helper.calls] == ["activate"]
 
 
 def test_first_takeover_health_failure_delegates_rollback_and_cleanup(tmp_path, monkeypatch):
@@ -348,6 +374,7 @@ def test_activate_sends_derived_identity_not_arbitrary_working_directory(tmp_pat
         "release_name",
         "root_directory",
         "source_fingerprint",
+        "exact_commit",
     }
     assert "working_directory" not in params
     assert "release_path" not in params
