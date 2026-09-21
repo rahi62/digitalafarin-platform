@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "digitalafarin-host-agent"
-version = "0.2.5"
+version = "0.2.6"
 description = "Read-only host agent for DigitalAfarin Platform"
 requires-python = ">=3.12"
 dependencies = [

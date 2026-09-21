@@ -30,7 +30,13 @@ class TakeoverHelperClient:
         self.socket_path = Path(socket_path) if socket_path else DEFAULT_SOCKET_PATH
         self.timeout = timeout
 
-    def call(self, operation: str, params: dict[str, Any]) -> dict[str, Any]:
+    def call(
+        self,
+        operation: str,
+        params: dict[str, Any],
+        *,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
         if not isinstance(operation, str) or not operation:
             raise TakeoverHelperError("helper_invalid_request", "Invalid helper operation.")
         if not isinstance(params, dict):
@@ -46,7 +52,7 @@ class TakeoverHelperClient:
         )
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-                client.settimeout(self.timeout)
+                client.settimeout(self.timeout if timeout is None else timeout)
                 client.connect(str(self.socket_path))
                 client.sendall(raw)
                 client.shutdown(socket.SHUT_WR)
@@ -106,7 +112,7 @@ class TakeoverHelperClient:
         raise TakeoverHelperError(code, message)
 
     def prepare_node_nextjs_release(self, params: dict[str, Any]) -> dict[str, Any]:
-        return self.call("prepare_node_nextjs_release", params)
+        return self.call("prepare_node_nextjs_release", params, timeout=1200)
 
     def activate_release(self, params: dict[str, Any]) -> dict[str, Any]:
         return self.call("activate_release", params)

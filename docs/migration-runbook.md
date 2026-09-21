@@ -549,7 +549,7 @@ test "$(stat -c %a /srv/digitalafarin/apps)" = 751
 test "$(stat -c %a /srv/digitalafarin/apps/digitalafarin-platform/platform-web/releases)" = 755
 
 agent/.venv/bin/pip install ./agent
-test "$(agent/.venv/bin/python -c 'import digitalafarin_agent; print(digitalafarin_agent.__version__)')" = 0.2.5
+test "$(agent/.venv/bin/python -c 'import digitalafarin_agent; print(digitalafarin_agent.__version__)')" = 0.2.6
 install -o root -g root -m 0644 \
   infra/systemd/digitalafarin-platform-takeover-helper.service \
   /etc/systemd/system/digitalafarin-platform-takeover-helper.service
@@ -567,7 +567,7 @@ cd "$API_DIR"
 for attempt in $(seq 1 24); do
   HEARTBEAT=$($API_PY manage.py shell -c \
     "from control.models import Server; s=Server.objects.get(name='DigitalAfarin-Primary'); print(s.agent_version+'|'+s.status+'|'+str('takeover_helper_v1' in s.capabilities))")
-  test "$HEARTBEAT" = '0.2.5|online|True' && break
+  test "$HEARTBEAT" = '0.2.6|online|True' && break
   test "$attempt" -lt 24
   sleep 5
 done
