@@ -460,6 +460,7 @@ def _seal_release(
     release: Path,
     service_root: Path,
     *,
+    runtime_gid: int,
     writable_paths: tuple[Path, ...] = (),
 ) -> None:
     release = release.resolve()
@@ -516,6 +517,17 @@ def _seal_release(
             seal(root_path / name)
         seal(root_path)
 
+    # Keep the immutable release root executable by the service runtime group.
+    # The unprivileged Agent is intentionally not a member of that group.
+    try:
+        os.chown(release, 0, runtime_gid)
+        os.chmod(release, 0o550)
+    except OSError as exc:
+        raise TakeoverHelperDomainError(
+            "release_prepare_failed",
+            "Unable to grant runtime traversal on sealed takeover release.",
+        ) from exc
+
 
 def _validate_prepared_release(
     release: Path,
@@ -569,7 +581,9 @@ def _validate_prepared_release(
             elif not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
                 raise ValueError("unsupported release entry")
             if sealed and not path.is_relative_to(cache):
-                if info.st_uid != 0 or info.st_gid != 0:
+                if info.st_uid != 0:
+                    raise ValueError("release ownership mismatch")
+                if path != release and info.st_gid != 0:
                     raise ValueError("release ownership mismatch")
                 if not stat.S_ISLNK(info.st_mode) and info.st_mode & 0o222:
                     raise ValueError("release is writable")
@@ -725,7 +739,13 @@ def prepare_node_nextjs_release(
             sealed=False,
         )
         runtime_cache = _prepare_next_runtime_cache(cwd, user=user, group=group)
-        _seal_release(release, service_root, writable_paths=(runtime_cache,))
+        runtime_gid = _group_id(group, _account(user).pw_gid)
+        _seal_release(
+            release,
+            service_root,
+            runtime_gid=runtime_gid,
+            writable_paths=(runtime_cache,),
+        )
         resolved_commit = _validate_prepared_release(
             release, service_root, root_directory, exact_commit, install_configuration,
             sealed=True,
