@@ -549,7 +549,7 @@ test "$(stat -c %a /srv/digitalafarin/apps)" = 751
 test "$(stat -c %a /srv/digitalafarin/apps/digitalafarin-platform/platform-web/releases)" = 755
 
 agent/.venv/bin/pip install ./agent
-test "$(agent/.venv/bin/python -c 'import digitalafarin_agent; print(digitalafarin_agent.__version__)')" = 0.2.7
+test "$(agent/.venv/bin/python -c 'import digitalafarin_agent; print(digitalafarin_agent.__version__)')" = 0.2.10
 install -o root -g root -m 0644 \
   infra/systemd/digitalafarin-platform-takeover-helper.service \
   /etc/systemd/system/digitalafarin-platform-takeover-helper.service
@@ -567,7 +567,7 @@ cd "$API_DIR"
 for attempt in $(seq 1 24); do
   HEARTBEAT=$($API_PY manage.py shell -c \
     "from control.models import Server; s=Server.objects.get(name='DigitalAfarin-Primary'); print(s.agent_version+'|'+s.status+'|'+str('takeover_helper_v1' in s.capabilities))")
-  test "$HEARTBEAT" = '0.2.7|online|True' && break
+  test "$HEARTBEAT" = '0.2.10|online|True' && break
   test "$attempt" -lt 24
   sleep 5
 done
@@ -620,3 +620,43 @@ without rebuild, (14) volume persistence, (15) managed PostgreSQL restore,
 
 Run it twice locally. Production evidence is read-only unless the exact mutation
 has separately been approved and demonstrated safe.
+
+### Stage B3.1 managed deployment and rollback
+
+Agent package version: `digitalafarin-host-agent==0.2.10`.
+
+Managed deploys and manual deployment rollbacks use the privileged takeover
+helper. The agent only sends bound identities/release names and performs HTTP
+health verification. Manual rollback accepts the existing control-plane
+`service_root`/`release_path` payload, validates it lexically, and sends only the
+project, service, unit, release name, and exact commit to the helper. The helper
+derives the working directory from the existing managed drop-in and preserves
+that file. A failed HTTP check restores the previous release through the helper.
+
+Before enabling managed deploys, configure the root-owned helper service
+with `DIGITALAFARIN_MANAGED_REPOSITORIES`. Its comma-separated entries are:
+
+```text
+project_slug|service_name|unit_name|https://host/owner/repository.git
+```
+
+Use the exact credential-free HTTPS URL configured for that service in the
+control plane. Every entry is an explicit repository trust decision for one
+allowed binding. Missing entries fail with `managed_repository_not_configured`;
+a different payload URL fails with `managed_repository_not_allowed`. This
+setting is independent of `DIGITALAFARIN_TAKEOVER_SOURCE_REPOSITORIES`, which
+continues to select trusted local repositories for initial takeover. Managed
+builds still use detached exact-commit checkouts and sandboxed service-user
+workers; repository code is never executed as root.
+
+After successful HTTP verification, privileged retention keeps at most five
+sealed releases: current, the previous rollback-safe release, and the newest
+remaining releases. Retention refuses stale-current requests and symlinked
+release entries; current is checked again by privileged cleanup before each
+deletion. Unrecognized or unsealed entries are not automatically deleted.
+Releases removed by retention can no longer be manually rolled back to; their
+existing control-plane records may remain and such requests fail safely.
+
+Update the helper and agent together. Non-empty environment/volume payloads
+remain explicitly unsupported. These changes require no database migration.
+The patch does not install configuration or restart any production service.

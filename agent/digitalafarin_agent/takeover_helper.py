@@ -209,7 +209,7 @@ def _group_id(group: Any, fallback_gid: int) -> int:
 def _service_root(apps_root: Path, project_slug: str, service_name: str) -> Path:
     root = apps_root.resolve()
     service_root = (root / project_slug / service_name).resolve()
-    if not service_root.is_relative_to(root) or service_root == root:
+    if service_root != root / project_slug / service_name:
         raise TakeoverHelperDomainError(
             "release_validation_failed", "Service root escapes approved apps root."
         )
@@ -217,8 +217,12 @@ def _service_root(apps_root: Path, project_slug: str, service_name: str) -> Path
 
 
 def _release_path(service_root: Path, release_name: str) -> Path:
-    releases_root = (service_root / "releases").resolve()
-    release = (releases_root / release_name).resolve()
+    releases_path = service_root / "releases"
+    candidate = releases_path / release_name
+    if releases_path.is_symlink() or candidate.is_symlink():
+        raise TakeoverHelperDomainError("release_validation_failed", "Aliased release path.")
+    releases_root = releases_path.resolve()
+    release = candidate.resolve()
     if not release.is_relative_to(releases_root) or release == releases_root:
         raise TakeoverHelperDomainError(
             "release_validation_failed", "Release path escapes managed releases root."
@@ -675,6 +679,18 @@ def prepare_node_nextjs_release(
         user=user,
         group=group,
     )
+    return _build_node_release(
+        service_root, apps_root, project_slug, service_name, str(trusted_source),
+        exact_commit, root_directory, install_configuration, build_configuration,
+        user, group, source_snapshot,
+    )
+
+
+def _build_node_release(
+    service_root, apps_root, project_slug, service_name, repository,
+    exact_commit, root_directory, install_configuration, build_configuration,
+    user, group, source_snapshot,
+):
     allocated: list[Path] = []
 
     try:
@@ -689,7 +705,7 @@ def prepare_node_nextjs_release(
             release = prepare_release(
                 project_slug,
                 service_name,
-                str(trusted_source),
+                repository,
                 exact_commit,
                 apps_root=apps_root,
                 run_command=lambda argv, timeout=300: _run_as_worker(
@@ -1012,6 +1028,15 @@ def dispatch_helper_operation(
     allowed_bindings: set[tuple[str, str, str]] | None = None,
     source_repositories: dict[tuple[str, str, str], Path] | None = None,
 ) -> dict[str, Any]:
+    managed_operations = {
+        "prepare_managed_node_nextjs_release": prepare_managed_node_nextjs_release,
+        "activate_managed_release": activate_managed_release,
+        "rollback_managed_activation": rollback_managed_activation,
+        "rollback_managed_release": rollback_managed_release,
+        "prune_managed_releases": prune_managed_releases,
+    }
+    if operation in managed_operations:
+        return managed_operations[operation](params, allowed_bindings=allowed_bindings)
     if operation == "prepare_node_nextjs_release":
         return prepare_node_nextjs_release(
             params,
@@ -1027,3 +1052,237 @@ def dispatch_helper_operation(
     raise TakeoverHelperDomainError(
         "helper_operation_not_allowed", "Privileged helper operation is not allowlisted."
     )
+
+
+_MANAGED_PREPARE_KEYS = (_PREPARE_KEYS - {"user", "group"}) | {"runtime", "environment", "volumes"}
+_MANAGED_ACTIVATE_KEYS = _ACTIVATE_KEYS - {"source_fingerprint"}
+_MANAGED_ROLLBACK_KEYS = _ROLLBACK_KEYS | {"root_directory", "release_name"}
+
+
+def _managed_context(params, allowed_bindings, apps_root, systemd_root):
+    project, service = _validate_identity(params["project_slug"], params["service_name"])
+    allowed = allowed_bindings if allowed_bindings is not None else allowed_bindings_from_env()
+    unit = _validate_binding(project, service, params["unit_name"], allowed)
+    root_directory = _validate_root_directory(params["root_directory"])
+    service_root = _service_root(apps_root, project, service)
+    if service_root != apps_root.resolve() / project / service:
+        raise TakeoverHelperDomainError("release_validation_failed", "Aliased service root.")
+    # Every mutation requires trusted parents, not just release preparation.
+    for path in (service_root, service_root / "releases"):
+        info = path.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+            raise TakeoverHelperDomainError("release_validation_failed", "Unsafe managed release root.")
+    dropin = managed_dropin_path(unit, systemd_root=systemd_root)
+    if dropin.is_symlink() or not dropin.is_file():
+        raise TakeoverHelperDomainError("managed_dropin_missing", "Managed deployment requires an existing drop-in.")
+    info = dropin.stat()
+    expected = f"[Service]\nWorkingDirectory={service_root / 'current' / root_directory}\n"
+    if info.st_uid != 0 or info.st_mode & 0o022 or dropin.read_text() != expected:
+        raise TakeoverHelperDomainError("managed_dropin_mismatch", "Managed drop-in does not match the bound working directory.")
+    previous = _validate_previous_current(service_root)
+    if previous is None or previous.parent != service_root / "releases" or not RELEASE_NAME.fullmatch(previous.name):
+        raise TakeoverHelperDomainError("managed_current_missing", "Managed deployment requires a previous release.")
+    return project, service, unit, service_root, root_directory, previous
+
+
+def prepare_managed_node_nextjs_release(
+    params, *, allowed_bindings=None, apps_root=APPS_ROOT, systemd_root=SYSTEMD_ROOT,
+):
+    _require_exact_keys(params, _MANAGED_PREPARE_KEYS)
+    project, service, unit, service_root, root_directory, _ = _managed_context(
+        params, allowed_bindings, apps_root, systemd_root,
+    )
+    if params["runtime"] != "node-nextjs":
+        raise TakeoverHelperDomainError("managed_runtime_unsupported", "Only node-nextjs managed deployment is supported.")
+    if params["environment"] != {}:
+        raise TakeoverHelperDomainError("managed_environment_unsupported", "Managed environment updates are not supported.")
+    if params["volumes"] != []:
+        raise TakeoverHelperDomainError("managed_volumes_unsupported", "Managed volume updates are not supported.")
+    repository = _validate_repository(params["repository"])
+    trusted = managed_repositories_from_env().get((project, service, unit))
+    if trusted is None:
+        raise TakeoverHelperDomainError("managed_repository_not_configured", "No trusted managed repository is configured for this binding.")
+    if repository != trusted:
+        raise TakeoverHelperDomainError("managed_repository_not_allowed", "Repository does not match the trusted binding.")
+    commit = params["exact_commit"]
+    if not isinstance(commit, str) or not COMMIT.fullmatch(commit):
+        raise TakeoverHelperDomainError("invalid_exact_commit", "An exact lowercase commit is required.")
+    install, build = params["install_configuration"], params["build_configuration"]
+    if not isinstance(install, dict) or not isinstance(build, dict):
+        raise TakeoverHelperDomainError("release_validation_failed", "Invalid build configuration.")
+    snapshot = inspect_service(unit)
+    if snapshot.get("unit_name") != unit:
+        raise TakeoverHelperDomainError("service_configuration_changed", "Managed unit identity changed.")
+    user, group = snapshot["user"], snapshot["group"]
+    account = _account(user)
+    if account.pw_uid == 0 or user == "digitalafarin-agent":
+        raise TakeoverHelperDomainError("source_user_unsafe", "Unsafe managed build identity.")
+    return _build_node_release(
+        service_root, apps_root, project, service, repository, commit,
+        root_directory, install, build, user, group, snapshot,
+    )
+
+
+def activate_managed_release(
+    params, *, allowed_bindings=None, apps_root=APPS_ROOT, systemd_root=SYSTEMD_ROOT,
+):
+    _require_exact_keys(params, _MANAGED_ACTIVATE_KEYS)
+    _, _, unit, service_root, root_directory, previous = _managed_context(
+        params, allowed_bindings, apps_root, systemd_root,
+    )
+    release = _release_path(service_root, _validate_release_name(params["release_name"]))
+    _validate_prepared_release(
+        release, service_root, root_directory, params["exact_commit"],
+        {"lockfile": "package-lock.json"}, sealed=True,
+    )
+    _switch_managed_current(service_root, release, previous, unit, root_directory)
+    return {
+        "previous_release_name": previous.name, "previous_current_path": str(previous),
+        "current_release_name": release.name, "current_path": str(release),
+    }
+
+
+def rollback_managed_activation(
+    params, *, allowed_bindings=None, apps_root=APPS_ROOT, systemd_root=SYSTEMD_ROOT,
+):
+    _require_exact_keys(params, _MANAGED_ROLLBACK_KEYS)
+    _, _, unit, service_root, root_directory, current = _managed_context(
+        params, allowed_bindings, apps_root, systemd_root,
+    )
+    if current.name != _validate_release_name(params["release_name"]):
+        raise TakeoverHelperDomainError("managed_current_changed", "Current release changed before rollback.")
+    previous = _release_path(service_root, _validate_release_name(params["previous_release_name"]))
+    try:
+        commit = (previous / ".git/HEAD").read_text(encoding="ascii").strip()
+        _validate_prepared_release(previous, service_root, root_directory, commit, {"lockfile": "package-lock.json"}, sealed=True)
+        _switch_managed_current(service_root, previous, current, unit, root_directory)
+    except TakeoverHelperDomainError:
+        raise
+    except Exception as exc:
+        raise TakeoverHelperDomainError("managed_rollback_failed", "Managed rollback failed.") from exc
+    return {"previous_release_name": previous.name, "current_path": str(previous)}
+
+
+def managed_repositories_from_env() -> dict[tuple[str, str, str], str]:
+    """Root-admin configuration; never supplied by a helper request or Git config."""
+    repositories = {}
+    raw = os.environ.get("DIGITALAFARIN_MANAGED_REPOSITORIES", "")
+    for item in raw.split(","):
+        if not item.strip():
+            continue
+        parts = [part.strip() for part in item.split("|")]
+        if len(parts) != 4 or not all(parts):
+            raise TakeoverHelperDomainError("helper_configuration_error", "Invalid managed repository binding.")
+        project, service, unit, repository = parts
+        _validate_identity(project, service)
+        _validate_repository(repository)
+        binding = (project, service, unit)
+        if binding in repositories:
+            raise TakeoverHelperDomainError("helper_configuration_error", "Duplicate managed repository binding.")
+        repositories[binding] = repository
+    return repositories
+
+
+def _validate_retained_release(release: Path, service_root: Path, root_directory: str) -> None:
+    # Read only a bounded, regular HEAD file, then apply the full seal validation.
+    head = release / ".git/HEAD"
+    if head.resolve(strict=True) != head or not stat.S_ISREG(head.lstat().st_mode):
+        raise TakeoverHelperDomainError("release_validation_failed", "Invalid retained release HEAD.")
+    with head.open(encoding="ascii") as stream:
+        commit = stream.read(42).strip()
+    _validate_prepared_release(
+        release, service_root, root_directory, commit,
+        {"lockfile": "package-lock.json"}, sealed=True,
+    )
+
+
+def _switch_managed_current(service_root, release, expected_previous, unit, root_directory):
+    restore = expected_previous
+    try:
+        actual_previous = atomic_activate(service_root, release)
+        if actual_previous != expected_previous:
+            # Preserve the displaced, newer valid activation instead of restoring
+            # the stale snapshot. Never restore an arbitrary path returned by a race.
+            if actual_previous is not None:
+                try:
+                    candidate = _release_path(service_root, _validate_release_name(actual_previous.name))
+                    if candidate == actual_previous:
+                        _validate_retained_release(candidate, service_root, root_directory)
+                        restore = candidate
+                except (TakeoverHelperDomainError, OSError, ValueError):
+                    # A raced target that is unsafe cannot become the recovery target.
+                    # Restore the last known valid current and report the race.
+                    pass
+            raise TakeoverHelperDomainError("managed_current_changed", "Current release changed during activation.")
+        restart_takeover_unit(unit)
+    except Exception as exc:
+        try:
+            current = _validate_previous_current(service_root)
+            if current not in {release, expected_previous}:
+                raise TakeoverHelperDomainError("managed_current_changed", "Current changed again during recovery.")
+            _restore_current(service_root, restore)
+            restart_takeover_unit(unit)
+        except Exception as rollback_exc:
+            raise TakeoverHelperDomainError("managed_rollback_failed", "Unable to restore previous managed release safely.") from rollback_exc
+        if isinstance(exc, TakeoverHelperDomainError):
+            raise
+        raise TakeoverHelperDomainError("managed_activation_failed", "Managed activation failed; previous current restored.") from exc
+
+
+def rollback_managed_release(
+    params, *, allowed_bindings=None, apps_root=APPS_ROOT, systemd_root=SYSTEMD_ROOT,
+):
+    """Activate a retained release; derive the working directory from the drop-in."""
+    _require_exact_keys(params, _MANAGED_ACTIVATE_KEYS - {"root_directory"})
+    project, service = _validate_identity(params["project_slug"], params["service_name"])
+    allowed = allowed_bindings if allowed_bindings is not None else allowed_bindings_from_env()
+    unit = _validate_binding(project, service, params["unit_name"], allowed)
+    service_root = _service_root(apps_root, project, service)
+    dropin = managed_dropin_path(unit, systemd_root=systemd_root)
+    if dropin.is_symlink() or not dropin.is_file():
+        raise TakeoverHelperDomainError("managed_dropin_missing", "Managed rollback requires the existing drop-in.")
+    content = dropin.read_text()
+    prefix = f"[Service]\nWorkingDirectory={service_root / 'current'}"
+    if not content.startswith(prefix) or not content.endswith("\n"):
+        raise TakeoverHelperDomainError("managed_dropin_mismatch", "Invalid managed working directory.")
+    suffix = content[len(prefix):-1]
+    root_directory = "." if suffix == "" else suffix[1:] if suffix.startswith("/") else ""
+    root_directory = _validate_root_directory(root_directory)
+    result = activate_managed_release(
+        {**params, "root_directory": root_directory}, allowed_bindings=allowed,
+        apps_root=apps_root, systemd_root=systemd_root,
+    )
+    return {**result, "root_directory": root_directory}
+
+
+def prune_managed_releases(
+    params, *, allowed_bindings=None, apps_root=APPS_ROOT, systemd_root=SYSTEMD_ROOT,
+):
+    """Retain at most five sealed releases, including current and rollback target."""
+    _require_exact_keys(params, _MANAGED_ROLLBACK_KEYS)
+    project, service, unit, service_root, root_directory, current = _managed_context(
+        params, allowed_bindings, apps_root, systemd_root,
+    )
+    if current.name != _validate_release_name(params["release_name"]):
+        raise TakeoverHelperDomainError("managed_current_changed", "Current changed before retention.")
+    previous = _release_path(service_root, _validate_release_name(params["previous_release_name"]))
+    _validate_retained_release(previous, service_root, root_directory)
+    protected = {current, previous}
+    candidates = []
+    for path in (service_root / "releases").iterdir():
+        if not RELEASE_NAME.fullmatch(path.name):
+            continue
+        # Reject aliases before any deletion, including aliases into another service.
+        candidate = _release_path(service_root, path.name)
+        info = candidate.lstat()
+        if stat.S_ISDIR(info.st_mode) and info.st_uid == 0 and stat.S_IMODE(info.st_mode) == 0o550:
+            candidates.append(candidate)
+    recent = sorted((p for p in candidates if p not in protected), key=lambda p: tuple(p.name.split("-")[:3]) + (int(p.name.split("-")[3]) if len(p.name.split("-")) == 4 else 1,), reverse=True)
+    removed = []
+    for path in recent[max(0, 5 - len(protected)):]:
+        cleanup_release(
+            {"project_slug": project, "service_name": service, "unit_name": unit, "release_name": path.name},
+            allowed_bindings=allowed_bindings, apps_root=apps_root,
+        )
+        removed.append(path.name)
+    return {"removed": removed, "retained": sorted(p.name for p in protected | set(recent[:max(0, 5 - len(protected))]))}
