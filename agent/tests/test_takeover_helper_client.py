@@ -36,7 +36,12 @@ def _serve_once(socket_path: Path, response: dict, captured: list[dict]):
     return thread
 
 
-def test_client_uses_versioned_allowlisted_protocol(tmp_path):
+@pytest.mark.parametrize("operation", [
+    "prepare_node_nextjs_release", "prepare_managed_node_nextjs_release",
+    "activate_managed_release", "rollback_managed_activation",
+    "rollback_managed_release", "prune_managed_releases",
+])
+def test_client_uses_versioned_allowlisted_protocol(tmp_path, operation):
     socket_path = tmp_path / "helper.sock"
     captured = []
     thread = _serve_once(
@@ -46,14 +51,14 @@ def test_client_uses_versioned_allowlisted_protocol(tmp_path):
     )
     client = TakeoverHelperClient(socket_path, timeout=2)
 
-    result = client.prepare_node_nextjs_release({"project_slug": "p"})
+    result = getattr(client, operation)({"project_slug": "p"})
     thread.join(2)
 
     assert result["release_name"] == "r"
     assert captured == [
         {
             "protocol": 1,
-            "operation": "prepare_node_nextjs_release",
+            "operation": operation,
             "params": {"project_slug": "p"},
         }
     ]

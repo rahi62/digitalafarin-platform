@@ -3,7 +3,7 @@ import subprocess
 
 from .bootstrap import BootstrapError, bootstrap_server
 from .postgres import DatabaseError, create_database, restore_database
-from .deployment import DeploymentFailure, deploy_release, rollback_release
+from .deployment import DeploymentFailure, deploy_managed_release, rollback_managed_release
 from .domains import DomainError, configure_domain, enable_ssl
 from .redaction import redact
 from .takeover import TakeoverExecutionError, activate_service_takeover, prepare_service_takeover
@@ -90,15 +90,25 @@ def execute_operation(kind: str, payload: dict) -> dict:
             raise OperationExecutionError("domain_ssl_failed", str(exc)) from exc
     if kind == "deployment.deploy":
         try:
-            return deploy_release(payload)
+            result = deploy_managed_release(payload)
+            if result["final_state"] == "failed":
+                code = result["error_code"]
+                raise OperationExecutionError(code, code)
+            return result
         except Exception as exc:
             if isinstance(exc, OperationExecutionError):
                 raise
             raise OperationExecutionError("deployment_failed", redact(str(exc))[:500]) from exc
     if kind == "deployment.rollback":
         try:
-            return rollback_release(payload)
+            result = rollback_managed_release(payload)
+            if result["final_state"] == "failed":
+                code = result["error_code"]
+                raise OperationExecutionError(code, code)
+            return result
         except Exception as exc:
+            if isinstance(exc, OperationExecutionError):
+                raise
             raise OperationExecutionError("rollback_failed", redact(str(exc))[:500]) from exc
     if kind == "database.create":
         try:

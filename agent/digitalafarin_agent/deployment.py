@@ -1,13 +1,8 @@
-import os
 import re
-from pathlib import Path
+from pathlib import PurePosixPath
 
-from .executors.systemd import SystemdExecutor
-from .health import HealthCheckError, check_http_health
-from .releases import atomic_activate, cleanup_releases, prepare_release, resolve_exact_commit, rollback
+from .health import check_http_health
 
-
-SAFE_ROOT = re.compile(r"^(?:\.|[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)$")
 
 
 class DeploymentFailure(RuntimeError):
@@ -18,121 +13,136 @@ def _event(events: list[dict], state: str, message: str = "") -> None:
     events.append({"state": state, "message": message})
 
 
-def _write_environment(release: Path, values: dict[str, str]) -> Path:
-    path = release / ".digitalafarin.env"
-    lines = []
-    for key, value in sorted(values.items()):
-        if not re.fullmatch(r"[A-Z_][A-Z0-9_]{0,127}", key):
-            raise DeploymentFailure("invalid environment key")
-        escaped = value.replace("\\", "\\\\").replace("\n", "\\n")
-        lines.append(f"{key}={escaped}")
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    os.chmod(path, 0o600)
-    return path
+def deploy_release(payload: dict, *, helper=None) -> dict:
+    """Compatibility entry point; all deployments use the privileged helper."""
+    return deploy_managed_release(payload, helper=helper)
 
 
-def _attach_volumes(release: Path, volumes: list[dict]) -> None:
-    for volume in volumes:
-        mount = volume["mount_path"].lstrip("/")
-        if not SAFE_ROOT.fullmatch(mount):
-            raise DeploymentFailure("invalid volume mount path")
-        target = release / mount
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if target.exists() or target.is_symlink():
-            if target.is_dir() and not target.is_symlink():
-                raise DeploymentFailure("volume mount target already exists")
-            target.unlink()
-        target.symlink_to(Path(volume["host_path"]))
+def rollback_release(payload: dict, *, helper=None) -> dict:
+    """Compatibility entry point; rollback never runs agent-side mutations."""
+    return rollback_managed_release(payload, helper=helper)
 
 
-def deploy_release(
-    payload: dict,
-    *,
-    apps_root: Path = Path("/srv/digitalafarin/apps"),
-    executor=None,
-) -> dict:
-    executor = executor or SystemdExecutor()
-    events: list[dict] = []
+def deploy_managed_release(payload: dict, *, helper=None) -> dict:
+    """Coordinate managed deployment without opening or mutating release files."""
+    from .takeover_helper_client import TakeoverHelperClient, TakeoverHelperError
+
+    helper = helper or TakeoverHelperClient()
+    events = []
+    release_name = None
+    exact_commit = payload.get("exact_commit")
+    result = {"deployment_id": payload["deployment_id"], "exact_commit": exact_commit, "events": events}
+    identity = {key: payload[key] for key in ("project_slug", "service_name", "unit_name")}
+    root = payload.get("root_directory", ".")
     _event(events, "preparing")
-    exact_commit = payload.get("exact_commit") or resolve_exact_commit(
-        payload["repository"], payload["requested_ref"]
-    )
-    service_root = apps_root.resolve() / payload["project_slug"] / payload["service_name"]
-    _event(events, "cloning")
-    release = prepare_release(
-        payload["project_slug"],
-        payload["service_name"],
-        payload["repository"],
-        exact_commit,
-        apps_root=apps_root,
-    )
-    _write_environment(release, payload.get("environment", {}))
-    _attach_volumes(release, payload.get("volumes", []))
-    root_directory = payload.get("root_directory", ".")
-    if not SAFE_ROOT.fullmatch(root_directory):
-        raise DeploymentFailure("invalid root directory")
-    cwd = (release / root_directory).resolve()
-    if not cwd.is_relative_to(release.resolve()):
-        raise DeploymentFailure("root directory escapes release")
-    commands = executor.recipe_commands(
-        payload["runtime"],
-        payload.get("install_configuration", {}),
-        payload.get("build_configuration", {}),
-        root_directory,
-    )
-    _event(events, "building")
-    secrets = tuple(payload.get("environment", {}).values())
-    executor.run_commands(commands, cwd, payload.get("environment", {}), secrets)
-    _event(events, "releasing")
-    _event(events, "health_check")
-    _event(events, "activating")
-    previous = atomic_activate(service_root, release)
-    executor.restart_managed(payload["unit_name"])
-    _event(events, "verifying")
     try:
-        check_http_health(payload["health_check"])
-    except HealthCheckError:
-        if previous is None:
-            raise DeploymentFailure("health check failed and no rollback release exists")
-        rollback(service_root, previous)
-        executor.restart_managed(payload["unit_name"])
-        check_http_health(payload["health_check"])
-        _event(events, "rolled_back", "New release failed health verification")
-        return {
-            "deployment_id": payload["deployment_id"],
-            "final_state": "rolled_back",
-            "release_name": release.name,
+        for key, empty, code in (
+            ("environment", {}, "managed_environment_unsupported"),
+            ("volumes", [], "managed_volumes_unsupported"),
+        ):
+            if payload.get(key, empty) != empty:
+                raise TakeoverHelperError(code, f"Managed {key} updates are not supported.")
+        if payload.get("runtime") != "node-nextjs":
+            raise TakeoverHelperError("managed_runtime_unsupported", "Only node-nextjs is supported.")
+        if not isinstance(exact_commit, str) or not re.fullmatch(r"[0-9a-f]{40}", exact_commit):
+            raise TakeoverHelperError("invalid_exact_commit", "An exact lowercase commit is required.")
+        _event(events, "cloning")
+        _event(events, "building")
+        prepared = helper.prepare_managed_node_nextjs_release({
+            **identity, "repository": payload["repository"], "exact_commit": exact_commit,
+            "runtime": payload["runtime"], "root_directory": root,
+            "install_configuration": payload.get("install_configuration", {}),
+            "build_configuration": payload.get("build_configuration", {}),
+            "environment": payload.get("environment", {}), "volumes": payload.get("volumes", []),
+        })
+        release_name = prepared["release_name"]
+        result["release_name"] = release_name
+        if prepared["resolved_commit"] != exact_commit:
+            raise TakeoverHelperError("invalid_exact_commit", "Prepared commit does not match request.")
+        _event(events, "releasing")
+        _event(events, "health_check")
+        _event(events, "activating")
+        activation = helper.activate_managed_release({
+            **identity, "release_name": release_name, "root_directory": root,
             "exact_commit": exact_commit,
-            "events": events,
-        }
-    _event(events, "succeeded")
-    cleanup_releases(service_root, keep=5, protected={release, previous} if previous else {release})
-    return {
-        "deployment_id": payload["deployment_id"],
-        "final_state": "succeeded",
-        "release_name": release.name,
-        "exact_commit": exact_commit,
-        "events": events,
-    }
+        })
+        _event(events, "verifying")
+        try:
+            check_http_health(payload["health_check"])
+        except Exception:
+            helper.rollback_managed_activation({
+                **identity, "release_name": release_name, "root_directory": root,
+                "previous_release_name": activation["previous_release_name"],
+            })
+            check_http_health(payload["health_check"])
+            helper.cleanup_release({**identity, "release_name": release_name})
+            _event(events, "rolled_back", "New release failed health verification")
+            return {**result, "final_state": "rolled_back"}
+        helper.prune_managed_releases({
+            **identity, "root_directory": root, "release_name": release_name,
+            "previous_release_name": activation["previous_release_name"],
+        })
+        _event(events, "succeeded")
+        return {**result, "final_state": "succeeded"}
+    except Exception as exc:
+        if release_name is not None:
+            try:
+                helper.cleanup_release({**identity, "release_name": release_name})
+            except Exception:
+                # The helper refuses to delete an active release, including when
+                # an activation response was lost or rollback failed.
+                result["cleanup_error_code"] = "managed_cleanup_failed"
+        code = exc.code if isinstance(exc, TakeoverHelperError) else "managed_deployment_failed"
+        _event(events, "failed", code)
+        return {**result, "final_state": "failed", "error_code": code}
 
 
-def rollback_release(payload: dict, *, executor=None) -> dict:
-    executor = executor or SystemdExecutor()
-    service_root = Path(payload["service_root"])
-    release = Path(payload["release_path"])
-    rollback(service_root, release)
-    executor.restart_managed(payload["unit_name"])
-    check_http_health(payload["health_check"])
-    return {
-        "deployment_id": payload["deployment_id"],
-        "final_state": "succeeded",
-        "release_name": release.name,
-        "exact_commit": payload["exact_commit"],
-        "events": [
-            {"state": state, "message": "Rollback activation"}
-            for state in (
-                "preparing", "cloning", "building", "releasing", "health_check",
-                "activating", "verifying", "succeeded",
-            )
-        ],
-    }
+def rollback_managed_release(payload: dict, *, helper=None) -> dict:
+    """Accept the existing control-plane payload without accessing release files."""
+    from .takeover_helper_client import TakeoverHelperClient, TakeoverHelperError
+
+    helper = helper or TakeoverHelperClient()
+    events = []
+    result = {"deployment_id": payload["deployment_id"], "exact_commit": payload["exact_commit"], "events": events}
+    _event(events, "preparing")
+    try:
+        # Pure lexical parsing only. The helper independently binds names to paths.
+        root = PurePosixPath(payload["service_root"])
+        release = PurePosixPath(payload["release_path"])
+        base = PurePosixPath("/srv/digitalafarin/apps")
+        relative = root.relative_to(base)
+        if (
+            len(relative.parts) != 2 or ".." in root.parts or ".." in release.parts
+            or str(root) != payload["service_root"] or str(release) != payload["release_path"]
+            or release.parent != root / "releases"
+        ):
+            raise ValueError("Invalid managed rollback path")
+        identity = {"project_slug": relative.parts[0], "service_name": relative.parts[1], "unit_name": payload["unit_name"]}
+        for state in ("cloning", "building", "releasing", "health_check", "activating"):
+            _event(events, state, "Retained release rollback")
+        activation = helper.rollback_managed_release({
+            **identity, "release_name": release.name, "exact_commit": payload["exact_commit"],
+        })
+        result["release_name"] = release.name
+        root_directory = activation["root_directory"]
+        _event(events, "verifying")
+        try:
+            check_http_health(payload["health_check"])
+        except Exception:
+            helper.rollback_managed_activation({
+                **identity, "root_directory": root_directory, "release_name": release.name,
+                "previous_release_name": activation["previous_release_name"],
+            })
+            check_http_health(payload["health_check"])
+            _event(events, "rolled_back", "Rollback target failed health verification")
+            return {**result, "final_state": "rolled_back"}
+        helper.prune_managed_releases({
+            **identity, "root_directory": root_directory, "release_name": release.name,
+            "previous_release_name": activation["previous_release_name"],
+        })
+        _event(events, "succeeded")
+        return {**result, "final_state": "succeeded"}
+    except Exception as exc:
+        code = exc.code if isinstance(exc, TakeoverHelperError) else "managed_rollback_failed"
+        _event(events, "failed", code)
+        return {**result, "final_state": "failed", "error_code": code}

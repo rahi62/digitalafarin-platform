@@ -16,6 +16,11 @@ from digitalafarin_agent.takeover_helper_client import TakeoverHelperClient
         "activate_release",
         "rollback_activation",
         "cleanup_release",
+        "prepare_managed_node_nextjs_release",
+        "activate_managed_release",
+        "rollback_managed_activation",
+        "rollback_managed_release",
+        "prune_managed_releases",
     ],
 )
 def test_operation_socket_timeout(monkeypatch, configured_timeout, operation):
@@ -44,7 +49,14 @@ def test_operation_socket_timeout(monkeypatch, configured_timeout, operation):
             pass
 
         def recv(self, size):
-            expected = 1200.0 if operation == "prepare_node_nextjs_release" else configured_timeout
+            expected = {
+                "prepare_node_nextjs_release": 1200.0,
+                "prepare_managed_node_nextjs_release": 3000.0,
+                "activate_managed_release": 120.0,
+                "rollback_managed_activation": 120.0,
+                "rollback_managed_release": 120.0,
+                "prune_managed_releases": 300.0,
+            }.get(operation, configured_timeout)
             assert self.sock.gettimeout() == expected
             return b'{"ok":true,"result":{"done":true}}\n'
 

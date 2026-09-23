@@ -122,3 +122,18 @@ class TakeoverHelperClient:
 
     def cleanup_release(self, params: dict[str, Any]) -> dict[str, Any]:
         return self.call("cleanup_release", params)
+
+    def prepare_managed_node_nextjs_release(self, params: dict[str, Any]) -> dict[str, Any]:
+        return self.call("prepare_managed_node_nextjs_release", params, timeout=3000)
+
+    def activate_managed_release(self, params: dict[str, Any]) -> dict[str, Any]:
+        return self.call("activate_managed_release", params, timeout=120)
+
+    def rollback_managed_activation(self, params: dict[str, Any]) -> dict[str, Any]:
+        return self.call("rollback_managed_activation", params, timeout=120)
+
+    def rollback_managed_release(self, params: dict[str, Any]) -> dict[str, Any]:
+        return self.call("rollback_managed_release", params, timeout=120)
+
+    def prune_managed_releases(self, params: dict[str, Any]) -> dict[str, Any]:
+        return self.call("prune_managed_releases", params, timeout=300)
