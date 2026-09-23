@@ -1,31 +1,40 @@
+import Link from "next/link";
 import { SidebarNav } from "./SidebarNav";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="appShell">
-      <aside className="sidebar">
-        <div className="brandBlock">
-          <div className="brandMark" aria-hidden="true">DA</div>
-          <div className="brandCopy">
+    <div className="railShell">
+      <aside className="railSidebar">
+        <Link href="/projects" className="railBrand">
+          <span className="railBrandMark">DA</span>
+          <span>
             <strong>DigitalAfarin</strong>
-            <span>Platform</span>
-          </div>
-        </div>
+            <small>Platform</small>
+          </span>
+        </Link>
+
         <SidebarNav />
-        <div className="sidebarFooter">
-          <span className="readOnlyDot" />
-          <div>
-            <strong>Control Plane</strong>
-            <small>Typed Operations · Phase 2</small>
-          </div>
+
+        <div className="railSidebarFooter">
+          <span className="railStatusDot" />
+          <span>
+            <strong>Production</strong>
+            <small>Control Plane online</small>
+          </span>
         </div>
       </aside>
-      <div className="workspace">
-        <div className="mobileBrand">
-          <div className="brandMark" aria-hidden="true">DA</div>
-          <div className="brandCopy"><strong>DigitalAfarin</strong><span>Platform</span></div>
-        </div>
-        <div className="mobileNav"><SidebarNav /></div>
+
+      <div className="railWorkspace">
+        <header className="railMobileHeader">
+          <Link href="/projects" className="railBrand">
+            <span className="railBrandMark">DA</span>
+            <span>
+              <strong>DigitalAfarin</strong>
+              <small>Platform</small>
+            </span>
+          </Link>
+        </header>
+        <div className="railMobileNav"><SidebarNav /></div>
         {children}
       </div>
     </div>

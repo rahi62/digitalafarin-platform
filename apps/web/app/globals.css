@@ -236,3 +236,67 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 .filterBar button { min-height: 36px; padding: 0 13px; border: 1px solid #3b3a6c; border-radius: 8px; color: #d4cffd; background: #17172a; cursor: pointer; }
 .filterBar button:hover { background: #1d1d34; }
 .countPill { display: inline-flex; align-items: center; min-height: 25px; padding: 0 9px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font: 600 9px/1 "SFMono-Regular", Consolas, monospace; direction: ltr; }
+
+
+/* === DigitalAfarin Railway-style UI === */
+.railShell{min-height:100vh;background:#0b0d10;color:#f4f5f7;display:grid;grid-template-columns:232px minmax(0,1fr);direction:ltr}
+.railSidebar{position:sticky;top:0;height:100vh;border-right:1px solid #20242b;background:#0d0f13;padding:18px 14px;display:flex;flex-direction:column;gap:24px}
+.railWorkspace{min-width:0;direction:rtl}
+.railBrand{display:flex;align-items:center;gap:10px;color:inherit;text-decoration:none;direction:ltr;padding:4px 6px}
+.railBrandMark{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;background:#f5f5f5;color:#090a0c;font-size:12px;font-weight:900;letter-spacing:-.04em}
+.railBrand>span:last-child{display:flex;flex-direction:column;line-height:1.15}
+.railBrand strong{font-size:14px}.railBrand small{font-size:11px;color:#7f8792;margin-top:3px}
+.railNav{display:flex;flex-direction:column;gap:18px;direction:ltr}.railNavGroup{display:grid;gap:4px}
+.railNavItem{height:38px;padding:0 10px;border-radius:8px;color:#a7adb6;text-decoration:none;display:flex;align-items:center;gap:10px;font-size:13px;font-weight:600;transition:.15s ease}
+.railNavItem:hover{background:#15191f;color:#fff}.railNavItemActive{background:#191d24;color:#fff;box-shadow:inset 0 0 0 1px #252b34}
+.railNavIcon{width:18px;text-align:center;color:#737b86}.railAdvanced{border-top:1px solid #1b1f25;padding-top:14px}
+.railAdvanced summary{cursor:pointer;color:#636b76;font-size:10px;text-transform:uppercase;letter-spacing:.12em;padding:0 10px 9px;list-style:none}
+.railAdvanced summary::-webkit-details-marker{display:none}.railAdvanced .railNavGroup{margin-top:2px}
+.railSidebarFooter{margin-top:auto;border-top:1px solid #1b1f25;padding:14px 8px 0;display:flex;gap:9px;align-items:center;direction:ltr}
+.railSidebarFooter>span:last-child{display:flex;flex-direction:column}.railSidebarFooter strong{font-size:11px}.railSidebarFooter small{font-size:10px;color:#69717d;margin-top:2px}
+.railStatusDot{width:8px;height:8px;border-radius:50%;background:#47d18c;box-shadow:0 0 0 4px rgba(71,209,140,.08)}
+.railMobileHeader,.railMobileNav{display:none}
+.railPage{max-width:1180px;margin:0 auto;padding:42px 36px 70px;direction:rtl}
+.railPageHeader,.railProjectTitleRow,.railServicePageHeader .railProjectTitleRow{display:flex;align-items:flex-start;justify-content:space-between;gap:24px}
+.railPageHeader h1,.railProjectTitleRow h1{margin:3px 0 8px;font-size:28px;letter-spacing:-.03em}.railPageHeader p,.railProjectTitleRow p{color:#858d98;margin:0;font-size:13px}
+.railEyebrow{font-size:10px!important;color:#68717c!important;letter-spacing:.13em;font-weight:800}
+.railNewProject{position:relative;direction:ltr}.railNewProject>summary,.railPrimaryButton{list-style:none;cursor:pointer;border:0;border-radius:8px;background:#f6f7f8;color:#0c0d10;padding:10px 14px;font-size:12px;font-weight:800;text-decoration:none;display:inline-flex;align-items:center}
+.railNewProject>summary::-webkit-details-marker{display:none}.railCreateForm{position:absolute;z-index:10;top:46px;right:0;width:310px;padding:16px;background:#13161b;border:1px solid #292f38;border-radius:12px;box-shadow:0 20px 70px rgba(0,0,0,.45);display:grid;gap:12px}
+.railCreateForm label{display:grid;gap:6px;color:#9ba2ac;font-size:11px}.railCreateForm input,.railDeployForm input{height:38px;border:1px solid #2a3039;background:#0e1014;color:#fff;border-radius:7px;padding:0 10px;outline:none}
+.railCreateForm input:focus,.railDeployForm input:focus{border-color:#565f6d}.railCreateForm button,.railDeployForm button{height:38px;border:0;border-radius:7px;background:#f6f7f8;color:#111;font-weight:800;cursor:pointer}
+.railProjectGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:28px;direction:ltr}
+.railProjectCard{min-height:190px;border:1px solid #242a32;background:#111419;border-radius:12px;padding:18px;color:inherit;text-decoration:none;display:flex;flex-direction:column;justify-content:space-between;transition:.16s ease;direction:ltr}
+.railProjectCard:hover{transform:translateY(-2px);border-color:#3a424d;background:#14181e}.railProjectTop{display:flex;justify-content:space-between;align-items:center}
+.railProjectIcon{width:38px;height:38px;border-radius:9px;background:#1d222a;border:1px solid #303743;display:grid;place-items:center;font-weight:900}
+.railProjectCard h2{margin:0 0 5px;font-size:17px}.railProjectCard code{font-size:11px;color:#747e8a}
+.railProjectMeta{display:flex;gap:14px;color:#727b86;font-size:11px}.railState{font-size:10px;padding:5px 8px;border:1px solid #2a3038;border-radius:999px;color:#8f98a4}
+.railStateRunning{color:#74dda7;border-color:rgba(116,221,167,.25);background:rgba(55,180,117,.06)}.railStateDegraded{color:#ff848f}.railStateEmpty{color:#737b85}
+.railEmpty{margin-top:30px;border:1px dashed #2a3038;border-radius:12px;min-height:260px;display:grid;place-items:center;align-content:center;text-align:center;padding:30px;color:#7f8791}
+.railEmptyIcon{font-size:28px;color:#555e69}.railEmpty h2{color:#e5e8ec;margin:12px 0 4px}.railEmpty p{max-width:480px;font-size:12px;line-height:1.8}
+.railBreadcrumb{display:flex;gap:8px;align-items:center;color:#6e7782;font-size:11px;direction:ltr;margin-bottom:14px}.railBreadcrumb a{color:#8c95a0;text-decoration:none}.railBreadcrumb strong{color:#d8dbe0}
+.railProjectHeader{margin-bottom:18px}.railHeaderActions{display:flex;gap:9px;align-items:center;direction:ltr}.railEnvironment{border:1px solid #282e36;border-radius:8px;padding:8px 10px;font-size:11px;color:#a5adb7;background:#111419;display:flex;align-items:center;gap:7px}
+.railEnvironment i,.railServiceStatus i{width:7px;height:7px;border-radius:50%;background:#47d18c;display:inline-block}.railSecondaryButton{border:1px solid #303640;background:#14171c;color:#d7dbe0;text-decoration:none;border-radius:8px;padding:8px 11px;font-size:11px;font-weight:700}
+.railCanvas{position:relative;min-height:430px;border:1px solid #20262e;background:#0d1014;border-radius:14px;overflow:hidden;padding:28px}
+.railCanvasGrid{position:absolute;inset:0;opacity:.18;background-image:radial-gradient(#59616d 1px,transparent 1px);background-size:22px 22px;pointer-events:none}
+.railServiceGrid{position:relative;z-index:1;display:grid;grid-template-columns:repeat(3,minmax(230px,1fr));gap:16px;direction:ltr}
+.railServiceCard,.railAddServiceCard{min-height:164px;border:1px solid #2a3038;background:rgba(18,22,27,.95);border-radius:11px;padding:16px;color:inherit;text-decoration:none;box-shadow:0 12px 40px rgba(0,0,0,.18)}
+.railServiceCard:hover{border-color:#48515d}.railServiceHead{display:flex;justify-content:space-between;gap:12px}.railServiceIdentity{display:flex;gap:10px;align-items:flex-start}
+.railServiceIcon{width:30px;height:30px;border-radius:7px;background:#212731;display:grid;place-items:center;color:#aeb5bf;font-size:10px}.railServiceIdentity h2{font-size:14px;margin:0 0 4px}.railServiceIdentity code{font-size:9px;color:#68717c}
+.railServiceStatus{font-size:9px;display:flex;align-items:center;gap:5px;white-space:nowrap;color:#8d96a1}.railTone-good{color:#6edda3}.railTone-good i{background:#47d18c}.railTone-bad{color:#ff7b86}.railTone-bad i{background:#ff5969}.railTone-warn{color:#e4bc69}.railTone-warn i{background:#dbad4d}.railTone-muted i{background:#68717c}
+.railServiceInfo{display:flex;gap:8px;margin-top:26px;color:#89929d;font-size:10px}.railServiceInfo span{background:#181c22;border-radius:6px;padding:5px 7px}
+.railServiceRepo{margin-top:12px;color:#606975;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.railAddServiceCard{border-style:dashed;background:rgba(15,18,22,.72);display:grid;place-items:center;align-content:center;text-align:center;color:#8a939e}.railAddServiceCard>span{font-size:22px}.railAddServiceCard strong{color:#d5d9de;margin-top:7px;font-size:12px}.railAddServiceCard small{font-size:9px;margin-top:4px}
+.railResourceStrip{display:flex;gap:22px;align-items:center;margin-top:14px;border:1px solid #20262d;background:#101318;border-radius:10px;padding:13px 16px;direction:ltr}.railResourceStrip div{display:flex;gap:6px;align-items:baseline}.railResourceStrip strong{font-size:12px}.railResourceStrip span{color:#747d88;font-size:10px}.railResourceStrip a{margin-left:auto;color:#9aa3ad;font-size:10px;text-decoration:none}
+.railServicePageHeader{margin-bottom:4px}.railTitleWithStatus{display:flex;align-items:center;gap:12px}.railTitleWithStatus h1{margin:0;font-size:28px}
+.railTabs{display:flex;gap:22px;border-bottom:1px solid #242a31;margin-top:24px;direction:ltr}.railTabs a{padding:12px 2px;color:#78818d;text-decoration:none;font-size:11px;border-bottom:2px solid transparent}.railTabs a:hover{color:#d8dce1}.railTabs .railTabActive{color:#f2f3f5;border-color:#f2f3f5}
+.railServiceSection{margin-top:22px;border:1px solid #232932;background:#101318;border-radius:12px;padding:18px}.railSectionHeader{display:flex;justify-content:space-between;gap:18px;align-items:center;margin-bottom:16px}.railSectionHeader h2{font-size:15px;margin:0 0 4px}.railSectionHeader p{font-size:10px;color:#747d88;margin:0}
+.railDeployForm{display:flex;gap:7px;direction:ltr}.railDeployForm input{width:210px}.railDeployForm button{padding:0 13px}
+.railDeploymentList{display:grid;gap:7px}.railDeploymentRow{display:grid;grid-template-columns:12px 1fr auto;align-items:center;gap:10px;padding:11px 12px;border:1px solid #20262e;background:#0d1014;border-radius:8px;color:inherit;text-decoration:none;direction:ltr}
+.railDeploymentRow:hover{border-color:#343c47}.railDeploymentRow div{display:flex;flex-direction:column}.railDeploymentRow strong{font-size:11px}.railDeploymentRow small{font-size:9px;color:#66707b}.railDeploymentStatus{font-size:9px;color:#818a95}
+.railDeployState{width:7px;height:7px;border-radius:50%;background:#68717c}.railDeploy-succeeded{background:#47d18c}.railDeploy-failed{background:#ff5969}.railDeploy-running,.railDeploy-queued{background:#dbad4d}
+.railKeyValueList{border:1px solid #20262d;border-radius:8px;overflow:hidden}.railKeyValueList>div{display:flex;justify-content:space-between;gap:20px;padding:12px;border-bottom:1px solid #1d232a;direction:ltr}.railKeyValueList>div:last-child{border:0}.railKeyValueList code{font-size:10px}.railKeyValueList span{font-size:10px;color:#717a85}
+.railTerminalPlaceholder{background:#090b0e;border:1px solid #1d2229;border-radius:9px;padding:18px;display:flex;flex-direction:column;gap:8px;color:#83d6a7;font:11px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}.railTerminalPlaceholder small{color:#59636f}
+.railSettingsGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));border:1px solid #20262d;border-radius:8px;overflow:hidden}.railSettingsGrid>div{min-height:76px;padding:13px;border-bottom:1px solid #1d232a;border-left:1px solid #1d232a;display:flex;flex-direction:column;gap:7px}.railSettingsGrid span{font-size:9px;color:#69727d}.railSettingsGrid code,.railSettingsGrid strong{font-size:10px;overflow-wrap:anywhere}
+.railMuted{color:#747d88;font-size:11px}.railEmptyCompact{min-height:150px;margin-top:0}
+@media(max-width:980px){.railProjectGrid,.railServiceGrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){.railShell{display:block}.railSidebar{display:none}.railMobileHeader{display:flex;height:58px;align-items:center;padding:0 16px;border-bottom:1px solid #20252d;background:#0d1014}.railMobileNav{display:block;overflow:auto;border-bottom:1px solid #20252d;background:#0d1014}.railMobileNav .railNav{display:flex;flex-direction:row;padding:7px 10px;direction:ltr}.railMobileNav .railNavGroup{display:flex}.railMobileNav .railAdvanced{display:none}.railNavItem{white-space:nowrap}.railPage{padding:28px 16px 50px}.railPageHeader,.railProjectTitleRow{flex-direction:column}.railProjectGrid,.railServiceGrid,.railSettingsGrid{grid-template-columns:1fr}.railCanvas{padding:16px}.railResourceStrip{overflow:auto}.railSectionHeader{align-items:flex-start;flex-direction:column}.railDeployForm{width:100%}.railDeployForm input{min-width:0;width:100%;flex:1}}

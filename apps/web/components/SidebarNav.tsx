@@ -3,49 +3,44 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-type NavItem = {
-  label: string;
-  href?: string;
-  icon: string;
-  disabled?: boolean;
-};
+type Item = { href: string; label: string; icon: string };
 
-const items: NavItem[] = [
-  { label: "نمای کلی", href: "/", icon: "⌂" },
-  { label: "سرورها", href: "/servers", icon: "▤" },
-  { label: "سرویس‌ها", href: "/services", icon: "◫" },
-  { label: "پروژه‌ها", href: "/projects", icon: "▦" },
-  { label: "مهاجرت", href: "/migration", icon: "⇢" },
-  { label: "فعالیت‌ها", href: "/activity", icon: "◷" },
-  { label: "عملیات", href: "/operations", icon: "▶" },
-  { label: "دامنه‌ها", icon: "◎", disabled: true },
-  { label: "پشتیبان‌گیری", icon: "◌", disabled: true },
-  { label: "تنظیمات", icon: "⚙", disabled: true },
+const primary: Item[] = [
+  { href: "/projects", label: "Projects", icon: "◫" },
+  { href: "/activity", label: "Observability", icon: "⌁" },
 ];
+
+const advanced: Item[] = [
+  { href: "/servers", label: "Infrastructure", icon: "▤" },
+  { href: "/operations", label: "Operations", icon: "↗" },
+  { href: "/services", label: "All services", icon: "◎" },
+];
+
+function NavLink({ item, pathname }: { item: Item; pathname: string }) {
+  const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+  return (
+    <Link className={`railNavItem ${active ? "railNavItemActive" : ""}`} href={item.href}>
+      <span className="railNavIcon" aria-hidden="true">{item.icon}</span>
+      <span>{item.label}</span>
+    </Link>
+  );
+}
 
 export function SidebarNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="sidebarNav" aria-label="ناوبری اصلی">
-      {items.map((item) => {
-        const active = item.href === "/" ? pathname === "/" : Boolean(item.href && pathname.startsWith(item.href));
-        if (!item.href || item.disabled) {
-          return (
-            <span className="navItem navItemDisabled" key={item.label} aria-disabled="true">
-              <span className="navIcon" aria-hidden="true">{item.icon}</span>
-              <span>{item.label}</span>
-              <small>به‌زودی</small>
-            </span>
-          );
-        }
-        return (
-          <Link className={`navItem ${active ? "navItemActive" : ""}`} href={item.href} key={item.label}>
-            <span className="navIcon" aria-hidden="true">{item.icon}</span>
-            <span>{item.label}</span>
-          </Link>
-        );
-      })}
+    <nav className="railNav" aria-label="ناوبری اصلی">
+      <div className="railNavGroup">
+        {primary.map((item) => <NavLink key={item.href} item={item} pathname={pathname} />)}
+      </div>
+
+      <details className="railAdvanced" open={advanced.some((item) => pathname.startsWith(item.href))}>
+        <summary>Advanced</summary>
+        <div className="railNavGroup">
+          {advanced.map((item) => <NavLink key={item.href} item={item} pathname={pathname} />)}
+        </div>
+      </details>
     </nav>
   );
 }

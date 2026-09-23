@@ -1,141 +1,92 @@
 import Link from "next/link";
-import { adoptExistingServiceAction } from "@/app/services/adoption-actions";
-import { getProject, listServers, listServices } from "@/lib/control-plane";
-import {
-  availableInventoryUnits,
-  serviceLifecycleLabel,
-} from "@/lib/service-adoption";
+import { getProject } from "@/lib/control-plane";
 
 export const dynamic = "force-dynamic";
 
-export default async function ProjectPage({
-  params,
-  searchParams,
-}: {
-  params: Promise<{ projectId: string }>;
-  searchParams: Promise<{ server_id?: string }>;
-}) {
-  const { projectId } = await params;
-  const query = await searchParams;
-  const project = await getProject(projectId);
-  const servers = await listServers();
-  const selectedServer =
-    servers.find((item) => item.id === query.server_id) ??
-    servers.find((item) => item.is_default) ??
-    servers[0];
-  const inventory = selectedServer ? await listServices(selectedServer.id) : [];
-  const available = availableInventoryUnits(
-    inventory,
-    (project.services ?? []).map((item) => item.unit_name),
-  );
+function displayState(service: NonNullable<Awaited<ReturnType<typeof getProject>>["services"]>[number]) {
+  if (service.inventory_status === "missing") return { label: "Missing", tone: "muted" };
+  if (service.active_state === "active") return { label: "Running", tone: "good" };
+  if (service.active_state === "failed") return { label: "Failed", tone: "bad" };
+  if (service.lifecycle_state === "managed") return { label: "Managed", tone: "good" };
+  return { label: "Needs setup", tone: "warn" };
+}
 
-  const resources = [
-    ["Variables", project.variables ?? [], "key"],
-    ["Volumes", project.volumes ?? [], "name"],
-    ["Databases", project.databases ?? [], "database_name"],
-    ["Domains", project.domains ?? [], "hostname"],
-  ] as const;
+export default async function ProjectPage({ params }: { params: Promise<{ projectId: string }> }) {
+  const { projectId } = await params;
+  const project = await getProject(projectId);
+  const services = project.services ?? [];
 
   return (
-    <main className="page">
-      <header className="pageHeader">
-        <div>
-          <p className="eyebrow">PROJECT</p>
-          <h1>{project.name}</h1>
-          <p className="pageLead"><code>{project.slug}</code></p>
+    <main className="railPage railCanvasPage">
+      <header className="railProjectHeader">
+        <div className="railBreadcrumb">
+          <Link href="/projects">Projects</Link><span>/</span><strong>{project.name}</strong>
+        </div>
+        <div className="railProjectTitleRow">
+          <div>
+            <h1>{project.name}</h1>
+            <p><code dir="ltr">{project.slug}</code></p>
+          </div>
+          <div className="railHeaderActions">
+            <span className="railEnvironment"><i /> Production</span>
+            <Link className="railSecondaryButton" href={`/migration?project=${encodeURIComponent(project.id)}`}>
+              + Add Service
+            </Link>
+          </div>
         </div>
       </header>
 
-      <section className="panel" style={{ marginBottom: 12 }}>
-        <div className="panelHeader">
-          <div>
-            <h2>Services</h2>
-            <p>{project.services?.length ?? 0} bound services</p>
-          </div>
-        </div>
-        <div className="panelBody">
-          {(project.services ?? []).length === 0 ? (
-            <p>No services bound to this project yet.</p>
-          ) : (
-            (project.services ?? []).map((service) => (
-              <p key={service.id}>
-                <Link href={`/services/${service.id}`}>{service.name}</Link>
-                {" · "}<code>{service.unit_name}</code>
-                {" · "}{serviceLifecycleLabel(service.lifecycle_state)}
-                {" · "}{service.inventory_status === "missing" ? "missing" : (service.active_state ?? "unknown")}
-                {service.protected ? " · Protected" : ""}
-              </p>
-            ))
-          )}
+      <section className="railCanvas">
+        <div className="railCanvasGrid" />
+        <div className="railServiceGrid">
+          {services.map((service) => {
+            const state = displayState(service);
+            return (
+              <Link
+                href={`/projects/${project.id}/services/${service.id}`}
+                className="railServiceCard"
+                key={service.id}
+              >
+                <div className="railServiceHead">
+                  <div className="railServiceIdentity">
+                    <span className="railServiceIcon">◆</span>
+                    <div>
+                      <h2>{service.name}</h2>
+                      <code dir="ltr">{service.unit_name}</code>
+                    </div>
+                  </div>
+                  <span className={`railServiceStatus railTone-${state.tone}`}>
+                    <i /> {state.label}
+                  </span>
+                </div>
+
+                <div className="railServiceInfo">
+                  <span>{service.runtime ?? "Runtime not set"}</span>
+                  <span>{service.service_port ? `:${service.service_port}` : "No port"}</span>
+                </div>
+
+                <div className="railServiceRepo" dir="ltr">
+                  {service.repository ?? "Repository not configured"}
+                </div>
+              </Link>
+            );
+          })}
+
+          <Link className="railAddServiceCard" href={`/migration?project=${encodeURIComponent(project.id)}`}>
+            <span>＋</span>
+            <strong>Add Service</strong>
+            <small>Repository or existing systemd service</small>
+          </Link>
         </div>
       </section>
 
-      <section className="panel" style={{ marginBottom: 12 }}>
-        <div className="panelHeader">
-          <div>
-            <h2>Existing services</h2>
-            <p>Adopt inventory metadata only. No workload operation is queued.</p>
-          </div>
-        </div>
-        <div className="panelBody">
-          <form className="filterBar" method="get">
-            <label>
-              <span>Server</span>
-              <select name="server_id" defaultValue={selectedServer?.id ?? ""}>
-                {servers.map((server) => (
-                  <option key={server.id} value={server.id}>
-                    {server.name}{server.is_default ? " · default" : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button type="submit">Load inventory</button>
-          </form>
-
-          {selectedServer ? (
-            <form className="filterBar" action={adoptExistingServiceAction}>
-              <input type="hidden" name="project_id" value={project.id} />
-              <input type="hidden" name="server_id" value={selectedServer.id} />
-              <label>
-                <span>Systemd unit</span>
-                <select name="unit_name" required defaultValue="">
-                  <option value="" disabled>Select an unbound unit</option>
-                  {available.map((item) => (
-                    <option key={item.unit_name} value={item.unit_name}>
-                      {item.unit_name} · {item.active_state}/{item.sub_state}{item.protected ? " · Protected" : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <span>Project-local name</span>
-                <input name="name" required pattern="[A-Za-z0-9_-]{1,80}" placeholder="backend" />
-              </label>
-              <button type="submit" disabled={available.length === 0}>Adopt metadata</button>
-            </form>
-          ) : (
-            <p>No server is available.</p>
-          )}
-          {selectedServer && available.length === 0 ? <p>No unbound inventory units on this server.</p> : null}
-        </div>
+      <section className="railResourceStrip">
+        <div><strong>{project.variables?.length ?? 0}</strong><span>Variables</span></div>
+        <div><strong>{project.domains?.length ?? 0}</strong><span>Domains</span></div>
+        <div><strong>{project.volumes?.length ?? 0}</strong><span>Volumes</span></div>
+        <div><strong>{project.databases?.length ?? 0}</strong><span>Databases</span></div>
+        <Link href="/servers">Infrastructure →</Link>
       </section>
-
-      {resources.map(([title, items, key]) => (
-        <section className="panel" style={{ marginBottom: 12 }} key={title}>
-          <div className="panelHeader"><div><h2>{title}</h2><p>{items.length} item</p></div></div>
-          <div className="panelBody">
-            {items.map((item) => {
-              const record = item as unknown as Record<string, unknown>;
-              const label = String(record[key]);
-              return (
-                <p key={String(record.id)}>
-                  <code>{label}</code>{record.value_type === "secret" ? " • hidden" : ""}
-                </p>
-              );
-            })}
-          </div>
-        </section>
-      ))}
     </main>
   );
 }
