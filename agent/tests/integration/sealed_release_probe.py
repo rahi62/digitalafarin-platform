@@ -5,6 +5,8 @@ Git/build output is a tiny fixture; identity changes use real isolated systemd
 workers. No production service, lifecycle record, or release is modified.
 """
 import argparse
+import grp
+import pwd
 import json
 import os
 import stat
@@ -81,7 +83,11 @@ def helper_check(root: Path, user: str, group: str) -> None:
         )
     release = Path(prepared["release_path"])
     info = release.stat()
-    assert (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)) == (0, 0, 0o550)
+    try:
+        runtime_gid = grp.getgrnam(group).gr_gid
+    except KeyError:
+        runtime_gid = pwd.getpwnam(user).pw_gid
+    assert (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)) == (0, runtime_gid, 0o550)
     payload = {key: value for key, value in params.items() if key not in {"user", "group"}}
     payload.update({
         "takeover_id": "11111111-1111-1111-1111-111111111111",
@@ -101,7 +107,7 @@ def helper_check(root: Path, user: str, group: str) -> None:
     assert json.loads(output) == {"agent_traverse": False, "agent_read": False, "prepare": "prepared"}
     assert not (release.parent.parent / "current").exists()
     assert not takeover.managed_dropin_path(UNIT).exists()
-    assert (release.stat().st_uid, release.stat().st_gid, stat.S_IMODE(release.stat().st_mode)) == (0, 0, 0o550)
+    assert (release.stat().st_uid, release.stat().st_gid, stat.S_IMODE(release.stat().st_mode)) == (0, runtime_gid, 0o550)
     print(output, flush=True)
     print("SEALED RELEASE SYSTEMD INTEGRATION: PASS", flush=True)
 

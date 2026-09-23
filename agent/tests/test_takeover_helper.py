@@ -224,8 +224,8 @@ def test_prepare_helper_derives_release_and_runs_build_as_service_user(tmp_path,
     sealed = []
     monkeypatch.setattr(
         "digitalafarin_agent.takeover_helper._seal_release",
-        lambda release_path, root, *, writable_paths=(): sealed.append(
-            (release_path, root, writable_paths)
+        lambda release_path, root, *, runtime_gid, writable_paths=(): sealed.append(
+            (release_path, root, runtime_gid, writable_paths)
         ),
     )
 
@@ -289,7 +289,8 @@ def test_prepare_helper_derives_release_and_runs_build_as_service_user(tmp_path,
     ]
     assert sealed[0][0] == release
     assert sealed[0][1] == service_root
-    assert sealed[0][2] == (release / "apps" / "web" / ".next" / "cache",)
+    assert sealed[0][2] == 33
+    assert sealed[0][3] == (release / "apps" / "web" / ".next" / "cache",)
 
 
 def test_prepare_helper_cleans_partial_release_when_build_fails(tmp_path, monkeypatch):
@@ -835,12 +836,12 @@ def test_seal_release_removes_write_bits_and_root_owns_tree(tmp_path, monkeypatc
         lambda path, uid, gid, **_kwargs: chowns.append((Path(path), uid, gid)),
     )
 
-    _seal_release(release, service_root)
+    _seal_release(release, service_root, runtime_gid=33)
 
     assert executable.stat().st_mode & 0o222 == 0
     assert executable.stat().st_mode & 0o111 != 0
     assert normal.stat().st_mode & 0o222 == 0
-    assert any(path == release and uid == 0 and gid == 0 for path, uid, gid in chowns)
+    assert any(path == release and uid == 0 and gid == 33 for path, uid, gid in chowns)
 
 
 def test_seal_release_preserves_declared_next_runtime_cache_write_permissions(tmp_path, monkeypatch):
@@ -864,7 +865,7 @@ def test_seal_release_preserves_declared_next_runtime_cache_write_permissions(tm
         lambda path, uid, gid, **_kwargs: chowns.append((Path(path), uid, gid)),
     )
 
-    _seal_release(release, service_root, writable_paths=(cache,))
+    _seal_release(release, service_root, runtime_gid=33, writable_paths=(cache,))
 
     assert normal.stat().st_mode & 0o222 == 0
     assert cache.stat().st_mode & 0o200 != 0

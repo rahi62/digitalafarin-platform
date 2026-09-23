@@ -67,7 +67,7 @@ def test_helper_returns_verified_sealed_release_metadata(prepared_tree):
         "source_snapshot": snapshot(),
         "source_fingerprint": helper.fingerprint_snapshot(snapshot()),
     }
-    assert (release.stat().st_uid, release.stat().st_gid) == (0, 0)
+    assert (release.stat().st_uid, release.stat().st_gid) == (0, 33)
     assert stat.S_IMODE(release.stat().st_mode) == 0o550
     assert not (release.parent.parent / "current").exists()
 
