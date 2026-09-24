@@ -326,7 +326,9 @@ def _ensure_release_directories(
     for path in (service_root, releases, shared):
         path.mkdir(parents=True, exist_ok=True)
     try:
-        # Workers need traversal, but never list or write access, through apps/.
+        # Workers need traversal, but never list or write access, through the managed path.
+        if apps_root == APPS_ROOT:
+            os.chmod(apps_root.parent, 0o751)
         os.chmod(apps_root, 0o751)
         for path in (service_root, releases):
             os.chown(path, 0, 0)
@@ -1117,8 +1119,18 @@ def prepare_managed_node_nextjs_release(
     account = _account(user)
     if account.pw_uid == 0 or user == "digitalafarin-agent":
         raise TakeoverHelperDomainError("source_user_unsafe", "Unsafe managed build identity.")
+    sources = trusted_source_repositories_from_env()
+    trusted_source = _trusted_local_source_repository(
+        project,
+        service,
+        unit,
+        commit,
+        user,
+        group,
+        sources,
+    )
     return _build_node_release(
-        service_root, apps_root, project, service, repository, commit,
+        service_root, apps_root, project, service, str(trusted_source), commit,
         root_directory, install, build, user, group, snapshot,
     )
 
