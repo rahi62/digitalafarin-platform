@@ -124,12 +124,16 @@ def cleanup_releases(service_root: Path, *, keep: int = 5, protected: set[Path])
     if not releases.is_dir():
         return []
     protected_resolved = {path.resolve() for path in protected}
+    protected_count = sum(
+        1 for path in releases.iterdir()
+        if path.is_dir() and not path.is_symlink() and path.resolve() in protected_resolved
+    )
     candidates = [
         path for path in sorted(releases.iterdir(), key=lambda item: item.name, reverse=True)
         if path.is_dir() and not path.is_symlink() and path.resolve() not in protected_resolved
     ]
     removed = []
-    for path in candidates[max(0, keep):]:
+    for path in candidates[max(0, keep - protected_count):]:
         shutil.rmtree(path)
         removed.append(path)
     return removed

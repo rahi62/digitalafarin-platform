@@ -1,0 +1,79 @@
+name: Deployment Platform CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'agent/**'
+      - 'apps/**'
+      - 'mcp/**'
+      - 'infra/**'
+      - 'acceptance/**'
+      - '.github/workflows/deployment-platform-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  agent:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m venv /tmp/platform-test-env
+      - run: /tmp/platform-test-env/bin/pip install -e './agent[dev]'
+      # Ownership fixtures exercise the privileged helper boundary in disposable paths.
+      - run: sudo /tmp/platform-test-env/bin/python -m pytest agent/tests -q -p no:cacheprovider
+  api:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: platform
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: platform
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://platform:ci-only@127.0.0.1:5432/platform
+      DJANGO_SECRET_KEY: test-only-not-for-production
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: python manage.py test control.tests --noinput
+      - run: python manage.py check
+      - run: python manage.py makemigrations --check --dry-run
+  web:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run lint
+      - run: npm run build
+  contracts:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -e './mcp[dev]'
+      - run: python -m pytest mcp/tests -q

@@ -41,7 +41,7 @@ The browser and ChatGPT never receive agent credentials. The MCP does not contac
 - Persistent managed volumes under `/srv/digitalafarin/volumes`
 - Managed PostgreSQL resources and restore from `/srv/digitalafarin/backups`
 - Exact-commit deployments under `/srv/digitalafarin/apps`, atomic activation, health verification, and rollback without rebuild
-- Five successful inactive releases retained while active/rollback releases and persistent roots remain protected
+- Five total managed releases retained, including active/rollback releases; protected releases and persistent roots are never removed to satisfy the budget
 - Typed domain/Nginx/Certbot workflows with validate-before-install behavior
 - Migration readiness UI backed by current operations, deployments, resources, and disk telemetry
 

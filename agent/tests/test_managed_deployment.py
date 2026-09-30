@@ -153,12 +153,20 @@ def test_health_failure_restores_current_through_helper(managed, monkeypatch):
 def test_managed_prepare_allocates_under_root_owned_0755(managed, monkeypatch):
     m = managed
     commands = []
+    source = m.tmp_path / 'trusted-source'
+    source.mkdir()
+    monkeypatch.setenv('DIGITALAFARIN_TAKEOVER_SOURCE_REPOSITORIES', f'project|web|web.service|{source}')
+    def verify_source(**kwargs):
+        assert kwargs['argv'] == ['git', '-C', str(source), 'rev-parse', 'HEAD']
+        assert kwargs['user'] == 'nobody'
+        return 'c' * 40
+    monkeypatch.setattr(h, 'run_takeover_worker', verify_source)
     monkeypatch.setattr(h, 'inspect_service', lambda unit: {'unit_name': unit, 'user': 'nobody', 'group': 'nogroup'})
     def worker(user, group, argv, **kwargs):
         commands.append(argv)
         dest = kwargs['writable_path']
         if argv[:2] == ['git', 'clone']:
-            assert argv[4] == 'https://example.com/repo.git'
+            assert argv[4] == str(source)
             assert dest.stat().st_uid != 0
             assert m.releases.stat().st_uid == 0
             assert stat.S_IMODE(m.releases.stat().st_mode) == 0o755

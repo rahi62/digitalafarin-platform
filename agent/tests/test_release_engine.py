@@ -87,6 +87,26 @@ def test_cleanup_retains_five_and_never_follows_symlinks(tmp_path):
     assert (volume / "sentinel").read_text(encoding="utf-8") == "keep"
 
 
+def test_cleanup_counts_protected_releases_in_total_budget(tmp_path):
+    root = tmp_path / "service"
+    releases = root / "releases"
+    for number in range(12):
+        (releases / f"release-{number:02}").mkdir(parents=True)
+    protected = {releases / "release-00", releases / "release-01"}
+    cleanup_releases(root, keep=5, protected=protected)
+    assert len(list(releases.iterdir())) == 5
+    assert all(path.is_dir() for path in protected)
+
+
+def test_cleanup_never_deletes_protected_releases_above_budget(tmp_path):
+    root = tmp_path / "service"
+    protected = {root / "releases" / str(number) for number in range(3)}
+    for path in protected:
+        path.mkdir(parents=True)
+    cleanup_releases(root, keep=1, protected=protected)
+    assert all(path.is_dir() for path in protected)
+
+
 def test_prepare_release_uses_injected_runner_for_git_commands(tmp_path):
     repo = tmp_path / "source"
     repo.mkdir()
