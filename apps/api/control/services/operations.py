@@ -65,6 +65,8 @@ def create_operation(
 def claim_next_operation(
     *, server: Server, lease_seconds: int = 60
 ) -> ClaimedOperation | None:
+    # Serialize claims per host, including on PostgreSQL with multiple API workers.
+    Server.objects.select_for_update().get(pk=server.pk)
     now = timezone.now()
     Operation.objects.filter(
         server=server,
@@ -76,6 +78,8 @@ def claim_next_operation(
         lease_expires_at=None,
         claimed_at=None,
     )
+    if Operation.objects.filter(server=server, state__in=[Operation.STATE_CLAIMED, Operation.STATE_RUNNING]).exists():
+        return None
     operation = (
         Operation.objects.select_for_update()
         .filter(server=server, state=Operation.STATE_QUEUED)
@@ -137,6 +141,20 @@ def _bounded_json(value: dict, limit: int = 65536) -> dict:
     if len(encoded.encode("utf-8")) > limit:
         return {"message": "result truncated", "truncated": True}
     return value
+
+
+@transaction.atomic
+def report_progress(*, operation_id, server, claim_token, sequence, stage):
+    operation = _locked_operation(operation_id, server, claim_token)
+    if operation.state != Operation.STATE_RUNNING:
+        raise OperationTransitionError('operation is not running')
+    now = timezone.now()
+    if sequence > operation.progress_sequence:
+        operation.progress = {'stage': stage, 'reported_at': now.isoformat()}
+        operation.progress_sequence = sequence
+    operation.lease_expires_at = now + timedelta(seconds=60)
+    operation.save(update_fields=['progress', 'progress_sequence', 'lease_expires_at', 'updated_at'])
+    return operation
 
 
 @transaction.atomic

@@ -153,3 +153,65 @@ def test_takeover_prepare_uses_dedicated_executor_and_generic_protection_remains
             {"unit_name": "digitalafarin-platform-web.service"},
         )
     assert exc.value.code == "protected_unit"
+
+
+@pytest.mark.asyncio
+async def test_blocking_execution_does_not_block_event_loop(monkeypatch):
+    import asyncio
+    import threading
+    released = threading.Event()
+    def slow(_kind, _payload):
+        assert released.wait(timeout=2), 'event loop was blocked by deployment'
+        return {'message': 'done'}
+    monkeypatch.setattr('digitalafarin_agent.operations.execute_operation', slow)
+    client = FakeClient()
+    runner = asyncio.create_task(OperationRunner(client).run_once('token'))
+    await asyncio.sleep(0.05)
+    released.set()
+    assert await runner
+    assert client.calls[-1][1]['succeeded'] is True
+
+
+@pytest.mark.asyncio
+async def test_completion_survives_runner_restart_without_execution(monkeypatch, tmp_path):
+    from digitalafarin_agent.operation_journal import OperationJournal
+    journal = OperationJournal(tmp_path / 'operation.json')
+    journal.write({'operation_id': '11111111-1111-1111-1111-111111111111', 'claim_token': 'claim',
+                   'completion': {'succeeded': True, 'result': {'message': 'done'}}})
+    monkeypatch.setattr('digitalafarin_agent.operations.execute_operation', lambda *_: pytest.fail('executed twice'))
+    client = FakeClient()
+    assert await OperationRunner(client, journal=journal).run_once('token')
+    assert client.calls == [('complete', {'succeeded': True, 'result': {'message': 'done'}})]
+    assert journal.read() is None
+
+
+@pytest.mark.asyncio
+async def test_interrupted_execution_is_reported_as_uncertain_not_reexecuted(monkeypatch, tmp_path):
+    from digitalafarin_agent.operation_journal import OperationJournal
+    journal = OperationJournal(tmp_path / 'operation.json')
+    journal.write({'operation_id': '11111111-1111-1111-1111-111111111111', 'claim_token': 'claim'})
+    monkeypatch.setattr('digitalafarin_agent.operations.execute_operation', lambda *_: pytest.fail('unsafe replay'))
+    client = FakeClient()
+    assert await OperationRunner(client, journal=journal).run_once('token')
+    assert client.calls[-1][1]['succeeded'] is False
+    assert client.calls[-1][1]['error_code'] == 'execution_interrupted'
+
+
+@pytest.mark.asyncio
+async def test_failed_completion_is_retried_without_reexecuting(monkeypatch):
+    executions = []
+    monkeypatch.setattr('digitalafarin_agent.operations.execute_operation', lambda *_: executions.append('once') or {'message': 'done'})
+    class UnreliableClient(FakeClient):
+        attempts = 0
+        async def complete_operation(self, *args):
+            self.attempts += 1
+            if self.attempts == 1:
+                raise ConnectionError('offline')
+            await super().complete_operation(*args)
+    client = UnreliableClient()
+    runner = OperationRunner(client)
+    with pytest.raises(ConnectionError):
+        await runner.run_once('token')
+    assert await runner.run_once('token')
+    assert executions == ['once']
+    assert client.calls.count('claim') == 1

@@ -60,6 +60,8 @@ export type AuditEvent = {
 };
 
 export type Operation = {
+  progress?: { stage?: string; reported_at?: string };
+  lease_expires_at?: string | null;
   id: string;
   server_id: string;
   kind: "service.start" | "service.stop" | "service.restart" | "service.logs" | "volume.create" | "server.bootstrap" | "database.create" | "database.restore" | "deployment.deploy" | "deployment.rollback" | "domain.configure" | "domain.ssl" | "service.takeover.prepare" | "service.takeover.activate";

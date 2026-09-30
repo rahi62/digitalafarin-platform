@@ -92,6 +92,8 @@ def serialize_operation(operation: Operation, *, include_result: bool) -> dict:
         "server_id": str(operation.server.public_id),
         "kind": operation.kind,
         "state": operation.state,
+        "progress": operation.progress,
+        "lease_expires_at": operation.lease_expires_at,
         "payload": operation.payload,
         "error_code": operation.error_code,
         "error_message": operation.error_message,

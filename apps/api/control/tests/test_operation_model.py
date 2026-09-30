@@ -14,6 +14,16 @@ from control.services.operations import (
 
 
 class OperationLifecycleTests(TestCase):
+    def test_server_does_not_claim_another_operation_while_running(self):
+        for index in range(2):
+            create_operation(server=self.server, kind='server.bootstrap', payload={}, actor='operator')
+        first = claim_next_operation(server=self.server)
+        self.assertIsNone(claim_next_operation(server=self.server))
+        start_operation(operation_id=first.operation.public_id, server=self.server, claim_token=first.claim_token)
+        self.assertIsNone(claim_next_operation(server=self.server))
+        complete_operation(operation_id=first.operation.public_id, server=self.server, claim_token=first.claim_token, succeeded=True)
+        self.assertIsNotNone(claim_next_operation(server=self.server))
+
     def setUp(self):
         self.server = Server.objects.create(name="Worker", hostname="worker")
 

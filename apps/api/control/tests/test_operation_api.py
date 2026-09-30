@@ -16,6 +16,24 @@ from control.security import issue_secret
 
 
 class OperationAPITests(TestCase):
+    def test_progress_renews_lease_and_rejects_wrong_claim(self):
+        self.create_operation()
+        claim = self.agent.post('/api/agent/v1/operations/claim', {}, format='json').json()
+        operation_id = claim['operation']['id']
+        token = claim['claim_token']
+        self.agent.post(f'/api/agent/v1/operations/{operation_id}/started', {'claim_token': token}, format='json')
+        url = f'/api/agent/v1/operations/{operation_id}/progress'
+        data = {'claim_token': token, 'sequence': 1, 'stage': 'building'}
+        self.assertEqual(self.agent.post(url, {**data, 'claim_token': 'wrong'}, format='json').status_code, 409)
+        self.assertEqual(self.agent.post(url, data, format='json').status_code, 200)
+        operation = Operation.objects.get(public_id=operation_id)
+        self.assertEqual(operation.progress['stage'], 'building')
+        self.assertGreater(operation.lease_expires_at, timezone.now())
+        self.assertEqual(self.agent.post(url, {**data, 'sequence': 0, 'stage': 'preparing'}, format='json').status_code, 200)
+        operation.refresh_from_db()
+        self.assertEqual(operation.progress['stage'], 'building')
+        self.assertEqual(self.agent.post(url, {**data, 'stage': 'password=secret'}, format='json').status_code, 400)
+
     def setUp(self):
         self.server = Server.objects.create(
             name="Worker",

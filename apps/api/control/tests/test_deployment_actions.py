@@ -214,3 +214,52 @@ class DeploymentActionTests(TestCase):
         self.assertEqual(deployment.state, "succeeded")
         self.assertEqual(deployment.active_release.exact_commit, "e" * 40)
         self.assertEqual(deployment.events.count(), 9)
+
+        repeated = agent.post(
+            f"/api/agent/v1/operations/{operation_id}/complete",
+            {"claim_token": token, "succeeded": True, "result": Operation.objects.get(public_id=operation_id).result},
+            format="json",
+        )
+        self.assertEqual(repeated.status_code, 200)
+        self.assertEqual(deployment.events.count(), 9)
+        self.assertEqual(Release.objects.count(), 1)
+
+    def test_invalid_claim_cannot_fail_deployment(self):
+        created = self.client.post(
+            f"/api/control/v1/services/{self.service.public_id}/deployments/",
+            {"commit": "e" * 40}, format="json",
+        ).json()
+        issued = issue_secret("agent")
+        AgentCredential.objects.create(server=self.server, token_prefix=issued.prefix, token_hash=issued.digest)
+        agent = APIClient()
+        agent.credentials(HTTP_AUTHORIZATION=f"Bearer {issued.cleartext}")
+        claim = agent.post("/api/agent/v1/operations/claim", {}, format="json").json()
+        operation_id = claim["operation"]["id"]
+        agent.post(f"/api/agent/v1/operations/{operation_id}/started", {"claim_token": claim["claim_token"]}, format="json")
+        response = agent.post(
+            f"/api/agent/v1/operations/{operation_id}/complete",
+            {"claim_token": "invalid-claim", "succeeded": False, "error_code": "fake_failure"}, format="json",
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(Deployment.objects.get(public_id=created['id']).state, 'queued')
+        self.assertEqual(Operation.objects.get(public_id=operation_id).state, 'running')
+
+    def test_invalid_result_rolls_back_operation_completion(self):
+        created = self.client.post(
+            f"/api/control/v1/services/{self.service.public_id}/deployments/",
+            {"commit": "e" * 40}, format="json",
+        ).json()
+        issued = issue_secret("agent")
+        AgentCredential.objects.create(server=self.server, token_prefix=issued.prefix, token_hash=issued.digest)
+        agent = APIClient()
+        agent.credentials(HTTP_AUTHORIZATION=f"Bearer {issued.cleartext}")
+        claim = agent.post("/api/agent/v1/operations/claim", {}, format="json").json()
+        operation_id = claim["operation"]["id"]
+        agent.post(f"/api/agent/v1/operations/{operation_id}/started", {"claim_token": claim["claim_token"]}, format="json")
+        response = agent.post(
+            f"/api/agent/v1/operations/{operation_id}/complete",
+            {"claim_token": claim["claim_token"], "succeeded": True, "result": {"events": [], "final_state": "succeeded"}}, format="json",
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(Operation.objects.get(public_id=operation_id).state, 'running')
+        self.assertEqual(Deployment.objects.get(public_id=created['id']).state, 'queued')

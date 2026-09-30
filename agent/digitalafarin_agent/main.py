@@ -8,6 +8,7 @@ from .config import get_settings
 from .control_plane import AgentControlPlaneClient
 from .heartbeat import HeartbeatRunner
 from .identity import AgentIdentityStore
+from .operation_journal import OperationJournal
 from .metrics import collect_metrics
 from .security import require_agent_token
 from .systemd import list_services
@@ -26,6 +27,7 @@ async def lifespan(_app: FastAPI):
             enrollment_token=settings.platform_enrollment_token,
             agent_name=settings.agent_name,
             interval_seconds=settings.agent_heartbeat_interval_seconds,
+            operation_journal=OperationJournal(settings.agent_token_path.parent / 'operation.json'),
         )
         task = asyncio.create_task(runner.run_forever())
     try:

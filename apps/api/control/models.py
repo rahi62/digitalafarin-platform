@@ -191,6 +191,8 @@ class Operation(models.Model):
     )
     payload = models.JSONField(default=dict)
     result = models.JSONField(default=dict, blank=True)
+    progress = models.JSONField(default=dict, blank=True)
+    progress_sequence = models.PositiveIntegerField(default=0)
     error_code = models.CharField(max_length=100, blank=True)
     error_message = models.CharField(max_length=500, blank=True)
     actor = models.CharField(max_length=120)

@@ -53,3 +53,11 @@ class OperationCompleteSerializer(OperationStartedSerializer):
     result = serializers.DictField(required=False, default=dict)
     error_code = serializers.CharField(max_length=100, required=False, default="")
     error_message = serializers.CharField(max_length=500, required=False, default="")
+
+
+class OperationProgressSerializer(OperationStartedSerializer):
+    sequence = serializers.IntegerField(min_value=0, max_value=2147483647)
+    stage = serializers.ChoiceField(choices=[
+        'running', 'preparing', 'cloning', 'building', 'releasing',
+        'health_check', 'activating', 'verifying', 'rolling_back',
+    ])

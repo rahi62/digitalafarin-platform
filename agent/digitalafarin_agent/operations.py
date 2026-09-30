@@ -1,5 +1,9 @@
+import asyncio
+import logging
 import re
 import subprocess
+from contextlib import suppress
+from .progress import reporter
 
 from .bootstrap import BootstrapError, bootstrap_server
 from .postgres import DatabaseError, create_database, restore_database
@@ -165,19 +169,71 @@ def execute_operation(kind: str, payload: dict) -> dict:
 
 
 class OperationRunner:
-    def __init__(self, client):
+    def __init__(self, client, *, journal=None):
         self.client = client
+        self.journal = journal
+        self.pending = journal.read() if journal else None
+
+    def _save(self, record):
+        if self.journal:
+            self.journal.write(record)
+        self.pending = record
+
+    async def _deliver(self, agent_token):
+        record = self.pending
+        if 'completion' not in record:
+            # An interrupted process may have mutated the host. Never replay it
+            # on a timer; surface uncertainty for inspection/reconciliation.
+            await self.client.start_operation(agent_token, record['operation_id'], record['claim_token'])
+            self._save({**record, 'completion': {
+                'succeeded': False, 'error_code': 'execution_interrupted',
+                'error_message': 'Agent restarted during execution; inspect host state before retrying.',
+            }})
+            record = self.pending
+        await self.client.complete_operation(
+            agent_token, record['operation_id'], record['claim_token'], record['completion'],
+        )
+        if self.journal:
+            self.journal.clear()
+        self.pending = None
+
+    async def run_forever(self, agent_token, *, interval_seconds=5):
+        while True:
+            try:
+                await self.run_once(agent_token)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logging.getLogger(__name__).warning('operation delivery failed: %s', type(exc).__name__)
+            await asyncio.sleep(interval_seconds)
 
     async def run_once(self, agent_token: str) -> bool:
+        if self.pending is not None:
+            await self._deliver(agent_token)
+            return True
         claimed = await self.client.claim_operation(agent_token)
         if claimed is None:
             return False
         operation = claimed["operation"]
         claim_token = claimed["claim_token"]
         operation_id = operation["id"]
+        record = {'operation_id': operation_id, 'claim_token': claim_token}
+        self._save(record)
         await self.client.start_operation(agent_token, operation_id, claim_token)
+        stage = ['running']
+        context = reporter.set(lambda value: stage.__setitem__(0, value))
+        async def renew():
+            sequence = 0
+            while True:
+                sequence += 1
+                try:
+                    await self.client.progress_operation(agent_token, operation_id, claim_token, sequence, stage[0])
+                except Exception as exc:
+                    logging.getLogger(__name__).warning('progress delivery failed: %s', type(exc).__name__)
+                await asyncio.sleep(15)
+        renewal = asyncio.create_task(renew()) if hasattr(self.client, 'progress_operation') else None
         try:
-            result = execute_operation(
+            result = await asyncio.to_thread(execute_operation,
                 operation["kind"], operation.get("execution", operation["payload"])
             )
             completion = {"succeeded": True, "result": result}
@@ -193,7 +249,12 @@ class OperationRunner:
                 "error_code": "execution_failed",
                 "error_message": type(exc).__name__,
             }
-        await self.client.complete_operation(
-            agent_token, operation_id, claim_token, completion
-        )
+        finally:
+            reporter.reset(context)
+            if renewal:
+                renewal.cancel()
+                with suppress(asyncio.CancelledError):
+                    await renewal
+        self._save({**record, 'completion': completion})
+        await self._deliver(agent_token)
         return True

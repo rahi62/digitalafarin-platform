@@ -10,6 +10,7 @@ from control.agent_serializers import (
     HeartbeatRequestSerializer,
     OperationCompleteSerializer,
     OperationStartedSerializer,
+    OperationProgressSerializer,
 )
 from control.operation_serializers import serialize_operation
 from control.services.operations import (
@@ -17,10 +18,11 @@ from control.services.operations import (
     claim_next_operation,
     complete_operation,
     start_operation,
+    report_progress,
 )
 from control.services.execution import build_execution_context
 from control.models import Operation
-from control.services.deployments import apply_deployment_result
+from control.services.deployments import DeploymentTransitionError, apply_deployment_result
 from control.services.takeovers import (
     TakeoverError,
     apply_takeover_result,
@@ -112,27 +114,42 @@ class OperationStartedView(AgentOperationView):
         return Response(serialize_operation(operation, include_result=False))
 
 
+class OperationProgressView(AgentOperationView):
+    def post(self, request, operation_id):
+        serializer = OperationProgressSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            operation = report_progress(operation_id=operation_id, server=request.user.server, **serializer.validated_data)
+        except OperationTransitionError as exc:
+            return Response({'error': 'operation_transition_rejected', 'message': str(exc)}, status=409)
+        return Response(serialize_operation(operation, include_result=False))
+
+
 class OperationCompleteView(AgentOperationView):
     def post(self, request, operation_id):
         serializer = OperationCompleteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            operation_record = Operation.objects.get(
-                public_id=operation_id, server=request.user.server
-            )
-            if operation_record.kind in {
-                Operation.KIND_TAKEOVER_PREPARE,
-                Operation.KIND_TAKEOVER_ACTIVATE,
-            }:
-                # Validate the claim and operation state before trusting any takeover result.
-                # The outer transaction rolls the Operation completion back if takeover
-                # result validation/finalization rejects the Agent response.
-                with transaction.atomic():
-                    operation = complete_operation(
-                        operation_id=operation_id,
-                        server=request.user.server,
-                        **serializer.validated_data,
-                    )
+            with transaction.atomic():
+                operation_record = Operation.objects.select_for_update().get(
+                    public_id=operation_id, server=request.user.server
+                )
+                already_complete = operation_record.state in {
+                    Operation.STATE_SUCCEEDED, Operation.STATE_FAILED,
+                }
+                # Validate ownership/claim before ANY domain mutation. Failure in the
+                # result application rolls back the operation and domain together.
+                operation = complete_operation(
+                    operation_id=operation_id,
+                    server=request.user.server,
+                    **serializer.validated_data,
+                )
+                if already_complete:
+                    return Response(serialize_operation(operation, include_result=False))
+                if operation.kind in {
+                    Operation.KIND_TAKEOVER_PREPARE,
+                    Operation.KIND_TAKEOVER_ACTIVATE,
+                }:
                     apply_takeover_result(
                         operation,
                         succeeded=serializer.validated_data["succeeded"],
@@ -140,23 +157,19 @@ class OperationCompleteView(AgentOperationView):
                         error_code=serializer.validated_data.get("error_code", ""),
                         error_message=serializer.validated_data.get("error_message", ""),
                     )
-            else:
-                if operation_record.kind in {
+                elif operation.kind in {
                     Operation.KIND_DEPLOYMENT_DEPLOY,
                     Operation.KIND_DEPLOYMENT_ROLLBACK,
                 }:
                     apply_deployment_result(
-                        operation_record,
+                        operation,
                         succeeded=serializer.validated_data["succeeded"],
                         result=serializer.validated_data.get("result", {}),
                         error_code=serializer.validated_data.get("error_code", ""),
                     )
-                operation = complete_operation(
-                    operation_id=operation_id,
-                    server=request.user.server,
-                    **serializer.validated_data,
-                )
-        except (OperationTransitionError, TakeoverError) as exc:
+        except Operation.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        except (OperationTransitionError, TakeoverError, DeploymentTransitionError) as exc:
             return Response(
                 {"error": "operation_transition_rejected", "message": str(exc)},
                 status=status.HTTP_409_CONFLICT,

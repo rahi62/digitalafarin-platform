@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import socket
+from contextlib import suppress
 
 from digitalafarin_agent import __version__
 from digitalafarin_agent.metrics import collect_metrics
@@ -43,12 +44,14 @@ class HeartbeatRunner:
         enrollment_token: str | None,
         agent_name: str,
         interval_seconds: int,
+        operation_journal=None,
     ):
         self.client = client
         self.identity_store = identity_store
         self.enrollment_token = enrollment_token
         self.agent_name = agent_name
         self.interval_seconds = max(5, interval_seconds)
+        self.operation_journal = operation_journal
 
     async def ensure_identity(self) -> str:
         token = self.identity_store.read()
@@ -72,14 +75,19 @@ class HeartbeatRunner:
 
     async def run_forever(self) -> None:
         token = await self.ensure_identity()
-        operation_runner = OperationRunner(self.client)
-        while True:
-            try:
-                await self.client.heartbeat(token, build_heartbeat_payload())
-                await operation_runner.run_once(token)
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                # Never log HTTP payloads, headers, or bearer values.
-                logger.warning("heartbeat failed: %s", type(exc).__name__)
-            await asyncio.sleep(self.interval_seconds)
+        operation_runner = OperationRunner(self.client, journal=self.operation_journal)
+        worker = asyncio.create_task(operation_runner.run_forever(token))
+        try:
+            while True:
+                try:
+                    payload = await asyncio.to_thread(build_heartbeat_payload)
+                    await self.client.heartbeat(token, payload)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.warning("heartbeat failed: %s", type(exc).__name__)
+                await asyncio.sleep(self.interval_seconds)
+        finally:
+            worker.cancel()
+            with suppress(asyncio.CancelledError):
+                await worker

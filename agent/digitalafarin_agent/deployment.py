@@ -2,6 +2,7 @@ import re
 from pathlib import PurePosixPath
 
 from .health import check_http_health
+from .progress import report
 
 
 
@@ -11,6 +12,8 @@ class DeploymentFailure(RuntimeError):
 
 def _event(events: list[dict], state: str, message: str = "") -> None:
     events.append({"state": state, "message": message})
+    if state not in {'succeeded', 'failed', 'rolled_back'}:
+        report(state)
 
 
 def deploy_release(payload: dict, *, helper=None) -> dict:

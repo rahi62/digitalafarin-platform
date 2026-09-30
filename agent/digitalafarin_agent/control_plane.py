@@ -89,6 +89,11 @@ class AgentControlPlaneClient:
             "operation completion failed",
         )
 
+    async def progress_operation(self, agent_token, operation_id, claim_token, sequence, stage):
+        await self._operation_post(agent_token, operation_id, 'progress',
+                                   {'claim_token': claim_token, 'sequence': sequence, 'stage': stage},
+                                   'operation progress failed')
+
     async def _operation_post(
         self,
         agent_token: str,
