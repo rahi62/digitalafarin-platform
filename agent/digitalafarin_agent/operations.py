@@ -72,6 +72,13 @@ def _bounded(text: str) -> tuple[str, bool]:
 
 
 def execute_operation(kind: str, payload: dict) -> dict:
+    if kind == 'service.provision':
+        from .provisioning import provision_service
+        from .takeover_helper_client import TakeoverHelperError
+        try:
+            return provision_service(payload)
+        except TakeoverHelperError as exc:
+            raise OperationExecutionError(exc.code, str(exc)) from exc
     if kind == "service.takeover.prepare":
         try:
             return prepare_service_takeover(payload)
@@ -94,7 +101,11 @@ def execute_operation(kind: str, payload: dict) -> dict:
             raise OperationExecutionError("domain_ssl_failed", str(exc)) from exc
     if kind == "deployment.deploy":
         try:
-            result = deploy_managed_release(payload)
+            if payload.get('platform_managed'):
+                from .provisioning import provision_service
+                result = provision_service(payload, action='deploy_service')
+            else:
+                result = deploy_managed_release(payload)
             if result["final_state"] == "failed":
                 code = result["error_code"]
                 raise OperationExecutionError(code, code)
@@ -105,7 +116,11 @@ def execute_operation(kind: str, payload: dict) -> dict:
             raise OperationExecutionError("deployment_failed", redact(str(exc))[:500]) from exc
     if kind == "deployment.rollback":
         try:
-            result = rollback_managed_release(payload)
+            if payload.get('platform_managed'):
+                from .provisioning import provision_service
+                result = provision_service(payload, action='rollback_service')
+            else:
+                result = rollback_managed_release(payload)
             if result["final_state"] == "failed":
                 code = result["error_code"]
                 raise OperationExecutionError(code, code)

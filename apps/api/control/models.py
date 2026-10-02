@@ -137,6 +137,7 @@ class AuditEvent(models.Model):
 
 
 class Operation(models.Model):
+    KIND_SERVICE_PROVISION = 'service.provision'
     KIND_SERVICE_START = "service.start"
     KIND_SERVICE_STOP = "service.stop"
     KIND_SERVICE_RESTART = "service.restart"
@@ -152,6 +153,7 @@ class Operation(models.Model):
     KIND_TAKEOVER_PREPARE = "service.takeover.prepare"
     KIND_TAKEOVER_ACTIVATE = "service.takeover.activate"
     KIND_CHOICES = [
+        (KIND_SERVICE_PROVISION, 'Provision service'),
         (KIND_SERVICE_START, "Start service"),
         (KIND_SERVICE_STOP, "Stop service"),
         (KIND_SERVICE_RESTART, "Restart service"),
@@ -237,6 +239,9 @@ class Service(models.Model):
     LIFECYCLE_CONFIGURED = "configured"
     LIFECYCLE_MANAGED = "managed"
     LIFECYCLE_CHOICES = [
+        ('pending', 'Pending provisioning'),
+        ('provisioning', 'Provisioning'),
+        ('provision_failed', 'Provisioning failed'),
         (LIFECYCLE_ADOPTED, "Adopted"),
         (LIFECYCLE_CONFIGURED, "Configured"),
         (LIFECYCLE_MANAGED, "Managed"),
@@ -251,6 +256,7 @@ class Service(models.Model):
         default=EXECUTOR_SYSTEMD,
     )
     unit_name = models.CharField(max_length=255)
+    platform_managed = models.BooleanField(default=False)
     lifecycle_state = models.CharField(
         max_length=16,
         choices=LIFECYCLE_CHOICES,
@@ -339,6 +345,16 @@ class Deployment(models.Model):
 
     class Meta:
         ordering = ["-queued_at"]
+
+
+class ServiceProvisioning(models.Model):
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    service = models.ForeignKey(Service, related_name='provisionings', on_delete=models.PROTECT)
+    deployment = models.OneToOneField(Deployment, on_delete=models.PROTECT)
+    operation = models.OneToOneField(Operation, on_delete=models.PROTECT)
+    request_fingerprint = models.CharField(max_length=64)
+    configuration = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class ServiceTakeover(models.Model):

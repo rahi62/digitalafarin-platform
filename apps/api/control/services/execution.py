@@ -59,12 +59,15 @@ def build_execution_context(operation: Operation) -> dict | None:
         else:
             context["backup_name"] = operation.payload["backup_name"]
         return context
-    if operation.kind == Operation.KIND_DEPLOYMENT_DEPLOY:
+    if operation.kind in {Operation.KIND_DEPLOYMENT_DEPLOY, Operation.KIND_SERVICE_PROVISION}:
         deployment = Deployment.objects.select_related("service__project").get(
             public_id=operation.payload["deployment_id"], service__target_server=operation.server
         )
         service = deployment.service
         return {
+            'service_id': str(service.public_id),
+            'platform_managed': service.platform_managed,
+            'service_port': service.service_port,
             "deployment_id": str(deployment.public_id),
             "project_slug": service.project.slug,
             "service_name": service.name,
@@ -139,6 +142,18 @@ def build_execution_context(operation: Operation) -> dict | None:
             public_id=operation.payload["release_id"], service=deployment.service
         )
         service = deployment.service
+        if service.platform_managed:
+            return {
+                'service_id': str(service.public_id), 'platform_managed': True,
+                'service_port': service.service_port, 'deployment_id': str(deployment.public_id),
+                'project_slug': service.project.slug, 'service_name': service.name,
+                'repository': service.repository, 'requested_ref': release.exact_commit,
+                'exact_commit': release.exact_commit, 'runtime': service.runtime,
+                'install_configuration': service.install_configuration, 'build_configuration': service.build_configuration,
+                'root_directory': service.root_directory, 'unit_name': service.unit_name,
+                'environment': _deployment_environment(service), 'volumes': [],
+                'health_check': build_health_check_context(service), 'release_name': release.name,
+            }
         return {
             "deployment_id": str(deployment.public_id),
             "service_root": f"/srv/digitalafarin/apps/{service.project.slug}/{service.name}",

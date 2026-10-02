@@ -186,13 +186,15 @@ def apply_deployment_result(operation: Operation, *, succeeded: bool, result: di
         raise DeploymentTransitionError("invalid release result")
     service = deployment.service
     release, _created = service.releases.get_or_create(
-        deployment=deployment,
+        name=release_name,
         defaults={
-            "name": release_name,
+            "deployment": deployment,
             "exact_commit": exact_commit,
             "path": f"/srv/digitalafarin/apps/{service.project.slug}/{service.name}/releases/{release_name}",
         },
     )
+    if release.exact_commit != exact_commit:
+        raise DeploymentTransitionError('release commit mismatch')
     deployment.resolved_commit = exact_commit
     if final_state == "succeeded":
         previous = (

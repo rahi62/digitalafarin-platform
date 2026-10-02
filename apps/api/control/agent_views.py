@@ -21,7 +21,8 @@ from control.services.operations import (
     report_progress,
 )
 from control.services.execution import build_execution_context
-from control.models import Operation
+from control.services.provisioning import apply_provisioning_result
+from control.models import Operation, Service
 from control.services.deployments import DeploymentTransitionError, apply_deployment_result
 from control.services.takeovers import (
     TakeoverError,
@@ -106,6 +107,10 @@ class OperationStartedView(AgentOperationView):
                     **serializer.validated_data,
                 )
                 mark_takeover_operation_started(operation)
+                if operation.kind == Operation.KIND_SERVICE_PROVISION:
+                    Service.objects.filter(
+                        pk=operation.serviceprovisioning.service_id, lifecycle_state='pending'
+                    ).update(lifecycle_state='provisioning')
         except (OperationTransitionError, TakeoverError) as exc:
             return Response(
                 {"error": "operation_transition_rejected", "message": str(exc)},
@@ -157,6 +162,10 @@ class OperationCompleteView(AgentOperationView):
                         error_code=serializer.validated_data.get("error_code", ""),
                         error_message=serializer.validated_data.get("error_message", ""),
                     )
+                elif operation.kind == Operation.KIND_SERVICE_PROVISION:
+                    apply_provisioning_result(operation, succeeded=serializer.validated_data['succeeded'],
+                                              result=serializer.validated_data.get('result', {}),
+                                              error_code=serializer.validated_data.get('error_code', ''))
                 elif operation.kind in {
                     Operation.KIND_DEPLOYMENT_DEPLOY,
                     Operation.KIND_DEPLOYMENT_ROLLBACK,

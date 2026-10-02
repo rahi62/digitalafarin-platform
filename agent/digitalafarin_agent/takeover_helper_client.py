@@ -114,6 +114,15 @@ class TakeoverHelperClient:
     def prepare_node_nextjs_release(self, params: dict[str, Any]) -> dict[str, Any]:
         return self.call("prepare_node_nextjs_release", params, timeout=1200)
 
+    def provision_service(self, params: dict[str, Any]) -> dict[str, Any]:
+        return self.call('provision_service', params, timeout=3000)
+
+    def deploy_service(self, params: dict[str, Any]) -> dict[str, Any]:
+        return self.call('deploy_service', params, timeout=3000)
+
+    def rollback_service(self, params: dict[str, Any]) -> dict[str, Any]:
+        return self.call('rollback_service', params, timeout=300)
+
     def activate_release(self, params: dict[str, Any]) -> dict[str, Any]:
         return self.call("activate_release", params)
 

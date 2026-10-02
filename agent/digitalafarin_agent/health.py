@@ -1,4 +1,5 @@
 import time
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -8,7 +9,7 @@ class HealthCheckError(RuntimeError):
 
 
 def _request(url: str, timeout: int) -> int:
-    return httpx.get(url, timeout=timeout, follow_redirects=False).status_code
+    return httpx.get(url, timeout=timeout, follow_redirects=False, trust_env=False).status_code
 
 
 def _validated(spec: dict) -> tuple[str, int, int, int, int]:
@@ -16,7 +17,15 @@ def _validated(spec: dict) -> tuple[str, int, int, int, int]:
     if set(spec) - allowed:
         raise HealthCheckError("invalid health check")
     url = spec.get("url")
-    if not isinstance(url, str) or not url.startswith("http://127.0.0.1:"):
+    try:
+        parsed = urlsplit(url) if isinstance(url, str) else None
+        valid = (parsed is not None and parsed.scheme == 'http' and parsed.hostname == '127.0.0.1'
+                 and parsed.port is not None and 1 <= parsed.port <= 65535
+                 and not parsed.username and not parsed.password and not parsed.fragment
+                 and not any(ord(char) < 32 for char in url))
+    except ValueError:
+        valid = False
+    if not valid:
         raise HealthCheckError("health check must target loopback")
     expected = spec.get("expected_status", 200)
     attempts = spec.get("attempts", 6)
@@ -24,7 +33,7 @@ def _validated(spec: dict) -> tuple[str, int, int, int, int]:
     interval = spec.get("interval_seconds", 5)
     if not isinstance(expected, int) or not 100 <= expected <= 599:
         raise HealthCheckError("invalid expected status")
-    if not 1 <= attempts <= 20 or not 1 <= timeout <= 30 or not 0 <= interval <= 30:
+    if any(type(value) is not int for value in (attempts, timeout, interval)) or not 1 <= attempts <= 20 or not 1 <= timeout <= 30 or not 0 <= interval <= 30:
         raise HealthCheckError("invalid health check bounds")
     return url, expected, attempts, timeout, interval
 

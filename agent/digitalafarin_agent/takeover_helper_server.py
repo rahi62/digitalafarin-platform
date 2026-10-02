@@ -179,8 +179,8 @@ def main() -> None:
         "DIGITALAFARIN_TAKEOVER_HELPER_SOCKET_GROUP", "digitalafarin-agent"
     )
     allowed_bindings = allowed_bindings_from_env()
-    if not allowed_bindings:
-        raise SystemExit("No takeover project/service/unit bindings are allowlisted.")
+    # Fresh hosts may have no legacy takeover bindings. Provisioned workloads
+    # use generated identities and their own root-owned ownership records.
     source_repositories = trusted_source_repositories_from_env()
     missing_sources = allowed_bindings.difference(source_repositories)
     if missing_sources:

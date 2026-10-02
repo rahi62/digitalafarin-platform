@@ -64,11 +64,11 @@ class ProjectServiceAPITests(TestCase):
         self.assertEqual(service_response.status_code, 201)
         self.assertEqual(service_response.json()["executor"], "systemd")
         self.assertEqual(service_response.json()["unit_name"], "oily-backend.service")
-        self.assertEqual(service_response.json()["lifecycle_state"], "managed")
+        self.assertEqual(service_response.json()["lifecycle_state"], "pending")
         service = Service.objects.get()
         self.assertEqual(service.project.slug, "oily")
         self.assertEqual(service.unit_name, "oily-backend.service")
-        self.assertEqual(service.lifecycle_state, Service.LIFECYCLE_MANAGED)
+        self.assertEqual(service.lifecycle_state, 'pending')
         self.assertNotIn("credential", str(service_response.json()).lower())
 
 

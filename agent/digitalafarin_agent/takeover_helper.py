@@ -327,9 +327,18 @@ def _ensure_release_directories(
         path.mkdir(parents=True, exist_ok=True)
     try:
         # Workers need traversal, but never list or write access, through the managed path.
-        if apps_root == APPS_ROOT:
-            os.chmod(apps_root.parent, 0o751)
+        if apps_root == APPS_ROOT and not apps_root.parent.stat().st_mode & stat.S_IXOTH:
+            raise TakeoverHelperDomainError(
+                "release_prepare_failed", "Managed apps parent is not traversable."
+            )
         os.chmod(apps_root, 0o751)
+        project_root = service_root.parent
+        if project_root.is_symlink():
+            raise TakeoverHelperDomainError(
+                "release_prepare_failed", "Managed project directory is aliased."
+            )
+        os.chown(project_root, 0, 0)
+        os.chmod(project_root, 0o751)
         for path in (service_root, releases):
             os.chown(path, 0, 0)
             os.chmod(path, 0o755)
@@ -1030,6 +1039,9 @@ def dispatch_helper_operation(
     allowed_bindings: set[tuple[str, str, str]] | None = None,
     source_repositories: dict[tuple[str, str, str], Path] | None = None,
 ) -> dict[str, Any]:
+    if operation in {'provision_service', 'deploy_service', 'rollback_service'}:
+        from . import provisioning_helper
+        return getattr(provisioning_helper, operation)(params)
     managed_operations = {
         "prepare_managed_node_nextjs_release": prepare_managed_node_nextjs_release,
         "activate_managed_release": activate_managed_release,

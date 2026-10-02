@@ -22,6 +22,14 @@ Implemented atomic authenticated completion, replay without duplicate domain eve
 Ruling: Do not automatically rerun an interrupted mutation — the durable journal reports execution_interrupted; a missing journal leaves the running operation blocked for reconciliation. Automatic replay without host proof could restart a live workload twice. Provisioning's host journal must provide that proof in Phase 2.
 Outstanding verification: actual PostgreSQL concurrency and VM restart/fencing tests; CI configured, not yet executed remotely.
 
+## Phase 2 — initial managed Next.js provisioning implemented
+
+The project-scoped API accepts a validated public Git repository and creates a pending service, deployment, provisioning record, and typed asynchronous operation in one transaction. The Agent resolves an exact commit, builds an immutable release, installs a fixed systemd unit, checks health, and persists the result. Retries, redeploy, rollback, and best-effort release retention are wired through the same managed binding. The Railway-style project UI now opens a dedicated new-service form and redirects to the service detail page; Migration remains an Advanced workflow.
+
+Verification: Agent 225 passed (Linux root fixture), API 110 passed, web 33 passed, MCP 27 passed, Django system check and migration drift check clean, web lint/build passed, `git diff --check` clean. No VPS smoke test or PostgreSQL concurrency/restart acceptance test was run. The Linux acceptance suite needs a test environment with both Django and Linux Agent dependencies; the available Windows Django environment cannot import `pwd`, while the Linux Agent environment lacks Django.
+
+Remaining Phase 2 release gate: exercise an actual fresh VPS provisioning/deploy/rollback with systemd sandbox, public Git repository, and health endpoint; verify host reconciliation after an interrupted privileged operation.
+
 ## Remaining
 
 - Phase 1: operations and recovery

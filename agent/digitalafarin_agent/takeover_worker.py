@@ -100,6 +100,9 @@ def run_takeover_worker(
         f"--setenv=LOGNAME={user}",
         "--setenv=PATH=/usr/local/bin:/usr/bin:/bin",
         "--setenv=GIT_TERMINAL_PROMPT=0",
+        "--setenv=GIT_CONFIG_COUNT=1",
+        "--setenv=GIT_CONFIG_KEY_0=http.followRedirects",
+        "--setenv=GIT_CONFIG_VALUE_0=false",
     ]
     if npm_cache:
         command.append("--setenv=NPM_CONFIG_CACHE=/tmp/.npm-digitalafarin-takeover")

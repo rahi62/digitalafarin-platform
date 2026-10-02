@@ -27,6 +27,12 @@ def test_health_check_failure_is_bounded():
         )
 
 
+@pytest.mark.parametrize('url', ['http://127.0.0.1:80@evil.test/', 'http://127.0.0.1:0/', 'http://127.0.0.1:3000/#fragment'])
+def test_health_rejects_urls_that_only_look_like_loopback(url):
+    with pytest.raises(HealthCheckError):
+        check_http_health({'url': url}, request=lambda *_: pytest.fail('unsafe request'))
+
+
 def test_failed_post_activation_health_rolls_back_without_rebuild(monkeypatch):
     actions = []
     class Helper:

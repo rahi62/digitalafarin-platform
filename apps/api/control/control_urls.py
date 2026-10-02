@@ -1,4 +1,5 @@
 from django.urls import path
+from control.provisioning_views import ProvisionServiceView, RetryProvisionServiceView
 
 from control import (
     control_views,
@@ -14,6 +15,8 @@ from control import (
 )
 
 urlpatterns = [
+    path('services/<uuid:service_id>/provision/retry/', RetryProvisionServiceView.as_view()),
+    path('projects/<uuid:project_id>/services/provision/', ProvisionServiceView.as_view()),
     path(
         "services/<uuid:service_id>/takeovers/",
         takeover_views.ServiceTakeoverListCreateView.as_view(),

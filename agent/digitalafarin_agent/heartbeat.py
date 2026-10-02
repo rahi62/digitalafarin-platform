@@ -10,7 +10,7 @@ from digitalafarin_agent.systemd import list_services
 
 logger = logging.getLogger(__name__)
 
-CAPABILITIES = ["metrics", "systemd_inventory", "typed_operations", "server_bootstrap", "takeover_helper_v1"]
+CAPABILITIES = ["metrics", "systemd_inventory", "typed_operations", "server_bootstrap", "takeover_helper_v1", "service_provision_v1"]
 
 _METRIC_KEYS = (
     "cpu_percent",

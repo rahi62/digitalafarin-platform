@@ -86,13 +86,15 @@ class ServiceSerializer(StrictSerializer):
         return Service.objects.create(
             project=project,
             unit_name=f"{project.slug}-{name}.service",
-            lifecycle_state=Service.LIFECYCLE_MANAGED,
+            lifecycle_state='pending',
             **validated_data,
         )
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data["target_server_id"] = str(instance.target_server.public_id)
+        provisioning = instance.provisionings.select_related('operation').order_by('-created_at').first()
+        data['provisioning_operation_id'] = str(provisioning.operation.public_id) if provisioning else None
         snapshot = instance.target_server.services.filter(unit_name=instance.unit_name).first()
         data["protected"] = is_protected_unit(instance.unit_name)
         if snapshot is None:
