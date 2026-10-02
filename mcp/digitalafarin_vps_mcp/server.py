@@ -133,6 +133,35 @@ def create_mcp(control_plane: ControlPlaneClient | Any | None = None) -> MCPServ
         return await _safe(client.get_project(project_id))
 
     @mcp.tool()
+    async def vps_create_service(
+        project_id: str,
+        name: str,
+        repository: str,
+        branch: str,
+        root_directory: str,
+        runtime: Literal["node-nextjs", "python-django"],
+        service_port: int,
+        target_server_id: str,
+        install_configuration: dict[str, Any],
+        build_configuration: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Create one managed systemd service with validated deployment metadata."""
+        return await _safe(
+            client.create_service(
+                project_id,
+                name,
+                repository,
+                branch,
+                root_directory,
+                runtime,
+                service_port,
+                target_server_id,
+                install_configuration,
+                build_configuration,
+            )
+        )
+
+    @mcp.tool()
     async def vps_adopt_service(
         project_id: str,
         server_id: str,

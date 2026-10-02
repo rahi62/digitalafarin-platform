@@ -63,6 +63,17 @@ class FakeControlPlane:
     async def get_project(self, project_id):
         return {"id": project_id, "variables": [{"key": "SECRET", "has_value": True}]}
 
+    async def create_service(
+        self, project_id, name, repository, branch, root_directory, runtime,
+        service_port, target_server_id, install_configuration, build_configuration,
+    ):
+        return {
+            "id": "service-id",
+            "name": name,
+            "unit_name": f"oily-{name}.service",
+            "lifecycle_state": "managed",
+        }
+
     async def adopt_service(self, project_id, server_id, unit_name, name):
         return {"id": "service-id", "unit_name": unit_name, "name": name, "lifecycle_state": "adopted"}
 
@@ -124,6 +135,7 @@ async def test_server_discovers_only_inventory_and_typed_operation_tools():
         "vps_get_project",
         "vps_create_bootstrap_operation",
         "vps_create_project",
+        "vps_create_service",
         "vps_adopt_service",
         "vps_configure_service_deployment",
         "vps_prepare_service_takeover",
@@ -161,6 +173,29 @@ async def test_project_tool_returns_secret_metadata_only():
 
     assert result.structured_content["variables"] == [{"key": "SECRET", "has_value": True}]
     assert "sentinel-secret" not in str(result)
+
+
+@pytest.mark.asyncio
+async def test_create_service_tool_returns_managed_service_metadata():
+    server = create_mcp(FakeControlPlane())
+    async with Client(server, raise_exceptions=True) as client:
+        result = await client.call_tool(
+            "vps_create_service",
+            {
+                "project_id": "11111111-1111-1111-1111-111111111111",
+                "name": "backend",
+                "repository": "https://github.com/example/oily.git",
+                "branch": "main",
+                "root_directory": "backend",
+                "runtime": "python-django",
+                "service_port": 8000,
+                "target_server_id": "22222222-2222-2222-2222-222222222222",
+                "install_configuration": {"requirements_file": "requirements.txt"},
+                "build_configuration": {"migrate": True},
+            },
+        )
+    assert result.structured_content["lifecycle_state"] == "managed"
+    assert result.structured_content["unit_name"] == "oily-backend.service"
 
 
 @pytest.mark.asyncio

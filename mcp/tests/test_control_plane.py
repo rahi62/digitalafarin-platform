@@ -155,6 +155,46 @@ async def test_create_project_posts_only_name_and_slug():
 
 
 @pytest.mark.asyncio
+async def test_create_service_posts_typed_systemd_payload():
+    seen = []
+
+    async def handler(request: httpx.Request):
+        seen.append((request.url.path, request.read().decode()))
+        return httpx.Response(
+            201,
+            json={
+                "id": "service-id",
+                "name": "backend",
+                "unit_name": "oily-backend.service",
+                "lifecycle_state": "managed",
+            },
+        )
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = ControlPlaneClient("http://control", "service-secret", http=http)
+
+    result = await client.create_service(
+        "11111111-1111-1111-1111-111111111111",
+        "backend",
+        "https://github.com/example/oily.git",
+        "main",
+        "backend",
+        "python-django",
+        8000,
+        "22222222-2222-2222-2222-222222222222",
+        {"requirements_file": "requirements.txt"},
+        {"migrate": True, "collectstatic": True},
+    )
+
+    assert result["lifecycle_state"] == "managed"
+    assert seen == [(
+        "/api/control/v1/projects/11111111-1111-1111-1111-111111111111/services/",
+        '{"name":"backend","executor":"systemd","repository":"https://github.com/example/oily.git","branch":"main","root_directory":"backend","runtime":"python-django","install_configuration":{"requirements_file":"requirements.txt"},"build_configuration":{"migrate":true,"collectstatic":true},"service_port":8000,"target_server_id":"22222222-2222-2222-2222-222222222222"}',
+    )]
+    await http.aclose()
+
+
+@pytest.mark.asyncio
 async def test_adopt_service_posts_only_narrow_metadata_payload():
     seen = []
 
