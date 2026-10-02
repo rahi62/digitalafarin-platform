@@ -1,9 +1,13 @@
 import Link from "next/link";
 import { getProject } from "@/lib/control-plane";
+import { lifecycleLabel } from '@/lib/provisioning';
+import { newServicePath } from '@/lib/provisioning';
+import { OperationRefresh } from '@/components/OperationRefresh';
 
 export const dynamic = "force-dynamic";
 
 function displayState(service: NonNullable<Awaited<ReturnType<typeof getProject>>["services"]>[number]) {
+  if (['pending', 'provisioning', 'provision_failed'].includes(service.lifecycle_state)) return { label: lifecycleLabel(service.lifecycle_state), tone: service.lifecycle_state === 'provision_failed' ? 'bad' : 'warn' };
   if (service.inventory_status === "missing") return { label: "Missing", tone: "muted" };
   if (service.active_state === "active") return { label: "Running", tone: "good" };
   if (service.active_state === "failed") return { label: "Failed", tone: "bad" };
@@ -29,7 +33,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
           </div>
           <div className="railHeaderActions">
             <span className="railEnvironment"><i /> Production</span>
-            <Link className="railSecondaryButton" href={`/migration?project=${encodeURIComponent(project.id)}`}>
+            <Link className="railSecondaryButton" href={newServicePath(project.id)}>
               + Add Service
             </Link>
           </div>
@@ -37,7 +41,13 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
       </header>
 
       <section className="railCanvas">
+        <OperationRefresh active={services.some(service => ['pending', 'provisioning'].includes(service.lifecycle_state))} />
         <div className="railCanvasGrid" />
+        {services.length === 0 && <div className="railEmpty railEmptyCompact">
+          <h2>No services yet</h2>
+          <p>مخزن Git برنامه‌تان را دیپلوی کنید و نخستین سرویس این پروژه را بسازید.</p>
+          <Link className="railPrimaryButton" href={newServicePath(project.id)}>Add Service</Link>
+        </div>}
         <div className="railServiceGrid">
           {services.map((service) => {
             const state = displayState(service);
@@ -72,10 +82,10 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
             );
           })}
 
-          <Link className="railAddServiceCard" href={`/migration?project=${encodeURIComponent(project.id)}`}>
+          <Link className="railAddServiceCard" href={newServicePath(project.id)}>
             <span>＋</span>
             <strong>Add Service</strong>
-            <small>Repository or existing systemd service</small>
+            <small>دیپلوی برنامه از مخزن Git</small>
           </Link>
         </div>
       </section>

@@ -1,4 +1,5 @@
 import "server-only";
+import type { buildProvisionRequest } from './provisioning';
 import { buildServiceOperation, type ServiceAction } from "./operations";
 import { buildDeployRequest, projectPath } from "./deployments";
 import { buildBootstrapOperation, buildProjectCreate } from "./migration-actions";
@@ -78,6 +79,7 @@ export type Operation = {
 };
 
 export type ProjectService = {
+  provisioning_operation_id?: string | null;
   id: string;
   project_id: string;
   name: string;
@@ -281,6 +283,13 @@ export function createProject(name: string, slug: string): Promise<Project> {
   });
 }
 
+export function provisionService(projectId: string, data: ReturnType<typeof buildProvisionRequest>, idempotencyKey: string) {
+  return request<{ service_id: string; operation_id: string; deployment_id: string }>(
+    `/api/control/v1/projects/${encodeURIComponent(projectId)}/services/provision/`,
+    { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(data) },
+  );
+}
+
 export function getProject(projectId: string): Promise<Project> {
   return request(projectPath(projectId));
 }
@@ -380,4 +389,10 @@ export function redeployDeployment(deploymentId: string): Promise<Deployment> {
 
 export function rollbackDeployment(deploymentId: string): Promise<Deployment> {
   return request(`/api/control/v1/deployments/${encodeURIComponent(deploymentId)}/rollback/`, { method: "POST", body: "{}" });
+}
+
+export function retryProvisionService(serviceId: string, key: string): Promise<{ operation_id: string }> {
+  return request(`/api/control/v1/services/${encodeURIComponent(serviceId)}/provision/retry/`, {
+    method: 'POST', body: '{}', headers: { 'Idempotency-Key': key },
+  });
 }

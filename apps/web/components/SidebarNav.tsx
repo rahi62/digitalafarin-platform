@@ -14,6 +14,7 @@ const advanced: Item[] = [
   { href: "/servers", label: "Infrastructure", icon: "▤" },
   { href: "/operations", label: "Operations", icon: "↗" },
   { href: "/services", label: "All services", icon: "◎" },
+  { href: "/migration", label: "Migration", icon: "⇄" },
 ];
 
 function NavLink({ item, pathname }: { item: Item; pathname: string }) {

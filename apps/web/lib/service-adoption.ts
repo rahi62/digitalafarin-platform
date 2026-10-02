@@ -1,4 +1,4 @@
-export type ServiceLifecycle = "adopted" | "configured" | "managed";
+export type ServiceLifecycle = "adopted" | "configured" | "managed" | "pending" | "provisioning" | "provision_failed";
 export type ServiceRuntime = "node-nextjs" | "python-django";
 
 const unitPattern = /^[A-Za-z0-9_.@:-]+\.service$/;
@@ -49,6 +49,9 @@ export function serviceLifecycleLabel(state: ServiceLifecycle) {
     adopted: "Adopted · Unmanaged",
     configured: "Configured · Unmanaged",
     managed: "Managed",
+    pending: "در صف ساخت",
+    provisioning: "در حال ساخت",
+    provision_failed: "ساخت ناموفق",
   }[state];
 }
 

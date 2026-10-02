@@ -1,6 +1,10 @@
 import Link from "next/link";
+import { randomUUID } from 'node:crypto';
+import { RetryProvision } from '../new/RetryProvision';
 import { deployAction } from "@/app/deployments/actions";
-import { getProject, listDeployments } from "@/lib/control-plane";
+import { getProject, getOperation, listDeployments } from "@/lib/control-plane";
+import { lifecycleLabel } from '@/lib/provisioning';
+import { OperationRefresh } from '@/components/OperationRefresh';
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +42,8 @@ export default async function ProjectServicePage({
 
   const tab = tabs.some(([key]) => key === query.tab) ? query.tab! : "deployments";
   const deployments = tab === "deployments" ? await listDeployments(service.id) : [];
+  const provisioning = service.provisioning_operation_id ? await getOperation(service.provisioning_operation_id) : null;
+  const activeProvision = ['pending', 'provisioning'].includes(service.lifecycle_state);
 
   return (
     <main className="railPage">
@@ -53,7 +59,7 @@ export default async function ProjectServicePage({
             <div className="railTitleWithStatus">
               <h1>{service.name}</h1>
               <span className={`railServiceStatus ${service.active_state === "active" ? "railTone-good" : "railTone-warn"}`}>
-                <i /> {service.active_state === "active" ? "Running" : service.lifecycle_state}
+                <i /> {service.active_state === "active" && !activeProvision ? "Running" : lifecycleLabel(service.lifecycle_state)}
               </span>
             </div>
             <p dir="ltr">{service.repository ?? service.unit_name}</p>
@@ -61,6 +67,15 @@ export default async function ProjectServicePage({
           <Link className="railSecondaryButton" href={`/services/${service.id}`}>Advanced</Link>
         </div>
       </header>
+
+      <OperationRefresh active={activeProvision} />
+      {provisioning && service.lifecycle_state !== 'managed' && <section className="provisionStatus" role={service.lifecycle_state === 'provision_failed' ? 'alert' : 'status'}>
+        <strong>{lifecycleLabel(service.lifecycle_state)}</strong>
+        <p>{service.lifecycle_state === 'provision_failed' ? 'راه‌اندازی سرویس کامل نشد. جزئیات عملیات را بررسی کنید.' : 'درخواست شما ثبت شده است. وضعیت از سرور دریافت و به‌صورت خودکار بروزرسانی می‌شود.'}</p>
+        <p>مرحله: <bdi>{provisioning.progress?.stage || provisioning.state}</bdi>{provisioning.error_code ? <> · <bdi>{provisioning.error_code}</bdi></> : null}</p>
+        <Link href={`/operations/${provisioning.id}`}>مشاهدهٔ جزئیات عملیات ←</Link>
+        {service.lifecycle_state === 'provision_failed' && <RetryProvision projectId={project.id} serviceId={service.id} requestId={randomUUID()} />}
+      </section>}
 
       <nav className="railTabs" aria-label="Service sections">
         {tabs.map(([key, label]) => (
@@ -89,6 +104,8 @@ export default async function ProjectServicePage({
                 />
                 <button type="submit">Deploy</button>
               </form>
+            ) : ['pending', 'provisioning', 'provision_failed'].includes(service.lifecycle_state) ? (
+              provisioning ? <Link className="railPrimaryButton" href={`/operations/${provisioning.id}`}>View provisioning</Link> : null
             ) : (
               <Link className="railPrimaryButton" href={`/services/${service.id}`}>Complete setup</Link>
             )}
