@@ -340,6 +340,45 @@ class ControlPlaneClient:
     async def get_project(self, project_id: str) -> dict:
         return await self._get(f"/api/control/v1/projects/{quote(project_id, safe='')}/")
 
+    async def create_service(
+        self,
+        project_id: str,
+        name: str,
+        repository: str,
+        branch: str,
+        root_directory: str,
+        runtime: str,
+        service_port: int,
+        target_server_id: str,
+        install_configuration: dict,
+        build_configuration: dict,
+    ) -> dict:
+        _validate_uuid(project_id, "project_id")
+        _validate_uuid(target_server_id, "target_server_id")
+        if not SLUG_RE.fullmatch(name):
+            raise MCPDomainError(
+                "invalid_request", "name must be a safe service slug."
+            )
+        if runtime not in {"node-nextjs", "python-django"}:
+            raise MCPDomainError("invalid_request", "runtime is unsupported.")
+        if not 1 <= service_port <= 65535:
+            raise MCPDomainError("invalid_request", "service_port is invalid.")
+        return await self._post(
+            f"/api/control/v1/projects/{quote(project_id, safe='')}/services/",
+            {
+                "name": name,
+                "executor": "systemd",
+                "repository": repository,
+                "branch": branch,
+                "root_directory": root_directory,
+                "runtime": runtime,
+                "install_configuration": install_configuration,
+                "build_configuration": build_configuration,
+                "service_port": service_port,
+                "target_server_id": target_server_id,
+            },
+        )
+
     async def adopt_service(
         self, project_id: str, server_id: str, unit_name: str, name: str
     ) -> dict:
