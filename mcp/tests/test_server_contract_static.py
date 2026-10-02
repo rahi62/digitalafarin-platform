@@ -17,6 +17,7 @@ EXPECTED = {
     "vps_get_project",
     "vps_create_bootstrap_operation",
     "vps_create_project",
+    "vps_create_service",
     "vps_adopt_service",
     "vps_configure_service_deployment",
     "vps_prepare_service_takeover",
