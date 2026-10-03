@@ -8,6 +8,7 @@ from .domains import DomainError, configure_domain, enable_ssl
 from .redaction import redact
 from .takeover import TakeoverExecutionError, activate_service_takeover, prepare_service_takeover
 from .volumes import VolumeError, create_volume
+from .source_artifacts import SourceArtifactError, remove_source_artifact, store_source_artifact
 
 
 UNIT_PATTERN = re.compile(r"^[A-Za-z0-9_.@:-]+\.service$")
@@ -176,9 +177,20 @@ class OperationRunner:
         claim_token = claimed["claim_token"]
         operation_id = operation["id"]
         await self.client.start_operation(agent_token, operation_id, claim_token)
+        source_id = None
         try:
+            execution = operation.get("execution", operation["payload"])
+            if operation["kind"] == "deployment.deploy":
+                data, commit = await self.client.download_operation_source(
+                    agent_token, operation_id, claim_token
+                )
+                if commit != execution.get("exact_commit"):
+                    raise OperationExecutionError("source_commit_mismatch", "source commit mismatch")
+                source_id = operation_id
+                store_source_artifact(source_id, data, commit)
+                execution = {**execution, "source_id": source_id}
             result = execute_operation(
-                operation["kind"], operation.get("execution", operation["payload"])
+                operation["kind"], execution
             )
             completion = {"succeeded": True, "result": result}
         except OperationExecutionError as exc:
@@ -193,7 +205,11 @@ class OperationRunner:
                 "error_code": "execution_failed",
                 "error_message": type(exc).__name__,
             }
-        await self.client.complete_operation(
-            agent_token, operation_id, claim_token, completion
-        )
+        try:
+            await self.client.complete_operation(
+                agent_token, operation_id, claim_token, completion
+            )
+        finally:
+            if source_id is not None:
+                remove_source_artifact(source_id)
         return True
