@@ -442,10 +442,10 @@ export function getGitHubIntegration(): Promise<GitHubIntegration> {
   return request("/api/control/v1/github/integration/");
 }
 
-export function registerGitHubInstallation(installationId: number): Promise<GitHubInstallation> {
+export function registerGitHubInstallation(installationId: number, state: string): Promise<GitHubInstallation> {
   return request("/api/control/v1/github/installations/", {
     method: "POST",
-    body: JSON.stringify({ installation_id: installationId }),
+    body: JSON.stringify({ installation_id: installationId, state }),
   });
 }
 
