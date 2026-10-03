@@ -483,6 +483,7 @@ def test_trusted_source_repository_requires_exact_production_head(tmp_path, monk
             "platform-web",
             "digitalafarin-platform-web.service",
             "a" * 40,
+            "https://github.com/rahi62/digitalafarin-platform.git",
             "deploy",
             "www-data",
             {
