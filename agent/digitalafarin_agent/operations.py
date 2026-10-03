@@ -9,6 +9,7 @@ from .redaction import redact
 from .takeover import TakeoverExecutionError, activate_service_takeover, prepare_service_takeover
 from .volumes import VolumeError, create_volume
 from .source_artifacts import SourceArtifactError, remove_source_artifact, store_source_artifact
+from .takeover_helper_client import TakeoverHelperClient, TakeoverHelperError
 
 
 UNIT_PATTERN = re.compile(r"^[A-Za-z0-9_.@:-]+\.service$")
@@ -69,6 +70,21 @@ def _bounded(text: str) -> tuple[str, bool]:
 
 
 def execute_operation(kind: str, payload: dict) -> dict:
+    if kind == "service.delete":
+        if set(payload) != {"service_id", "project_slug", "service_name", "unit_name", "root_directory"}:
+            raise OperationExecutionError("invalid_payload", "unsupported payload field")
+        unit = payload.get("unit_name", "")
+        if not UNIT_PATTERN.fullmatch(unit) or unit.startswith(PROTECTED_PREFIXES):
+            raise OperationExecutionError("protected_unit", "service unit is protected or invalid")
+        try:
+            return TakeoverHelperClient().delete_managed_service({
+                "project_slug": payload["project_slug"],
+                "service_name": payload["service_name"],
+                "unit_name": unit,
+                "root_directory": payload["root_directory"],
+            })
+        except TakeoverHelperError as exc:
+            raise OperationExecutionError(exc.code, str(exc)) from exc
     if kind == "service.takeover.prepare":
         try:
             return prepare_service_takeover(payload)
