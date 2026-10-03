@@ -444,3 +444,115 @@ class ProjectServiceAPITests(TestCase):
         self.assertIsNotNone(deployment.public_id)
         self.assertIsNotNone(event.public_id)
         self.assertEqual(deployment.state, "queued")
+
+
+    def test_project_settings_can_update_and_empty_project_can_be_deleted(self):
+        project = Project.objects.create(name="Old", slug="old")
+        updated = self.client.patch(
+            f"/api/control/v1/projects/{project.public_id}/",
+            {"name": "New", "slug": "new"},
+            format="json",
+        )
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.json()["slug"], "new")
+        self.assertTrue(AuditEvent.objects.filter(event_type="project.updated", target_id=str(project.public_id)).exists())
+
+        deleted = self.client.delete(f"/api/control/v1/projects/{project.public_id}/")
+        self.assertEqual(deleted.status_code, 204)
+        self.assertFalse(Project.objects.filter(public_id=project.public_id).exists())
+        self.assertTrue(AuditEvent.objects.filter(event_type="project.deleted", target_id=str(project.public_id)).exists())
+
+    def test_project_delete_is_blocked_when_resources_are_attached(self):
+        project = Project.objects.create(name="Oily", slug="oily")
+        Service.objects.create(
+            project=project,
+            name="web",
+            unit_name="oily-web.service",
+            lifecycle_state=Service.LIFECYCLE_ADOPTED,
+            target_server=self.server,
+        )
+        response = self.client.delete(f"/api/control/v1/projects/{project.public_id}/")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["error"], "project_not_empty")
+        self.assertEqual(response.json()["blockers"]["services"], 1)
+        self.assertTrue(Project.objects.filter(pk=project.pk).exists())
+
+    def test_service_settings_update_is_metadata_only_and_audited(self):
+        project = Project.objects.create(name="Oily", slug="oily")
+        service = Service.objects.create(
+            project=project,
+            name="web",
+            unit_name="oily-web.service",
+            lifecycle_state=Service.LIFECYCLE_MANAGED,
+            repository="https://github.com/example/oily.git",
+            branch="main",
+            root_directory=".",
+            runtime=Service.RUNTIME_NODE,
+            service_port=3000,
+            target_server=self.server,
+        )
+        before_operations = Operation.objects.count()
+        response = self.client.patch(
+            f"/api/control/v1/services/{service.public_id}/",
+            {
+                "repository": "https://github.com/example/oily.git",
+                "branch": "release",
+                "root_directory": ".",
+                "runtime": "node-nextjs",
+                "install_configuration": {"package_manager": "npm"},
+                "build_configuration": {"build_script": "build"},
+                "service_port": 3100,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        service.refresh_from_db()
+        self.assertEqual(service.branch, "release")
+        self.assertEqual(service.service_port, 3100)
+        self.assertEqual(Operation.objects.count(), before_operations)
+        self.assertTrue(AuditEvent.objects.filter(event_type="service.updated", target_id=str(service.public_id)).exists())
+
+    def test_service_remove_is_safe_and_protected_or_historical_services_are_blocked(self):
+        project = Project.objects.create(name="Oily", slug="oily")
+        removable = Service.objects.create(
+            project=project,
+            name="worker",
+            unit_name="oily-worker.service",
+            lifecycle_state=Service.LIFECYCLE_ADOPTED,
+            target_server=self.server,
+        )
+        before_operations = Operation.objects.count()
+        removed = self.client.delete(f"/api/control/v1/services/{removable.public_id}/")
+        self.assertEqual(removed.status_code, 204)
+        self.assertEqual(Operation.objects.count(), before_operations)
+        event = AuditEvent.objects.get(event_type="service.removed", target_id=str(removable.public_id))
+        self.assertFalse(event.metadata["host_mutated"])
+
+        protected = Service.objects.create(
+            project=project,
+            name="platform",
+            unit_name="digitalafarin-platform-web.service",
+            lifecycle_state=Service.LIFECYCLE_ADOPTED,
+            target_server=self.server,
+        )
+        protected_response = self.client.delete(f"/api/control/v1/services/{protected.public_id}/")
+        self.assertEqual(protected_response.status_code, 409)
+        self.assertEqual(protected_response.json()["error"], "protected_service")
+
+        historical = Service.objects.create(
+            project=project,
+            name="web",
+            unit_name="oily-web.service",
+            lifecycle_state=Service.LIFECYCLE_MANAGED,
+            repository="https://github.com/example/oily.git",
+            branch="main",
+            root_directory=".",
+            runtime=Service.RUNTIME_NODE,
+            service_port=3000,
+            target_server=self.server,
+        )
+        Deployment.objects.create(service=historical, requested_ref="main", requested_by="operator")
+        blocked = self.client.delete(f"/api/control/v1/services/{historical.public_id}/")
+        self.assertEqual(blocked.status_code, 409)
+        self.assertEqual(blocked.json()["error"], "service_has_dependencies")
+        self.assertEqual(blocked.json()["blockers"]["deployments"], 1)
