@@ -13,7 +13,7 @@ fail(){ printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 cd "$REPO"
 origin="$(git remote get-url origin)"
 case "$origin" in
-  git@github.com:rahi62/digitalafarin-platform.git|https://github.com/rahi62/digitalafarin-platform.git|https://github.com/rahi62/digitalafarin-platform) ;;
+  git@github.com:rahi62/digitalafarin-platform.git|ssh://github.com/rahi62/digitalafarin-platform|ssh://github.com/rahi62/digitalafarin-platform.git|https://github.com/rahi62/digitalafarin-platform.git|https://github.com/rahi62/digitalafarin-platform) ;;
   *) fail "unexpected production repository origin" ;;
 esac
 
