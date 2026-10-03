@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { deployAction } from "@/app/deployments/actions";
 import { getProject, listDeployments } from "@/lib/control-plane";
+import { ServiceSettingsForm } from "@/components/SettingsForms";
 
 export const dynamic = "force-dynamic";
 
@@ -149,21 +150,7 @@ export default async function ProjectServicePage({
       )}
 
       {tab === "settings" && (
-        <section className="railServiceSection">
-          <div className="railSectionHeader">
-            <div><h2>Settings</h2><p>تنظیمات اصلی deployment بدون نمایش جزئیات داخلی Control Plane</p></div>
-          </div>
-          <div className="railSettingsGrid">
-            <div><span>Repository</span><code dir="ltr">{service.repository ?? "—"}</code></div>
-            <div><span>Branch</span><code dir="ltr">{service.branch ?? "—"}</code></div>
-            <div><span>Runtime</span><strong>{service.runtime ?? "—"}</strong></div>
-            <div><span>Port</span><strong>{service.service_port ?? "—"}</strong></div>
-            <div><span>Root directory</span><code dir="ltr">{service.root_directory ?? "—"}</code></div>
-            <div><span>Lifecycle</span><strong>{service.lifecycle_state}</strong></div>
-            <div><span>Systemd unit</span><code dir="ltr">{service.unit_name}</code></div>
-            <div><span>Server</span><code dir="ltr">{service.target_server_id}</code></div>
-          </div>
-        </section>
+        <ServiceSettingsForm project={project} service={service} />
       )}
     </main>
   );
