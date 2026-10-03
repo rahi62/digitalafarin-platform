@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import {
   ControlPlaneError,
   deleteProject,
+  deleteManagedProjectService,
   getProject,
   removeProjectService,
   updateProject,
@@ -113,4 +114,27 @@ export async function removeServiceAction(
   }
   revalidatePath(`/projects/${projectId}`);
   redirect(`/projects/${projectId}`);
+}
+
+
+export async function deleteManagedServiceAction(
+  _state: SettingsActionState,
+  formData: FormData,
+): Promise<SettingsActionState> {
+  const projectId = String(formData.get("project_id") ?? "");
+  const serviceId = String(formData.get("service_id") ?? "");
+  try {
+    const project = await getProject(projectId);
+    const service = (project.services ?? []).find((item) => item.id === serviceId);
+    if (!service) return { error: "Service does not belong to this project." };
+    if (String(formData.get("confirmation") ?? "") !== service.unit_name) {
+      return { error: "Type the systemd unit name exactly to confirm deletion." };
+    }
+    const operation = await deleteManagedProjectService(serviceId);
+    revalidatePath("/operations");
+    revalidatePath(`/projects/${projectId}`);
+    return { success: `Deletion queued: ${operation.id}. The record is removed only after host cleanup succeeds.` };
+  } catch (error) {
+    return { error: messageFor(error) };
+  }
 }
