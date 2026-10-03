@@ -42,7 +42,7 @@ def test_trusted_source_syncs_exact_commit_before_build(tmp_path, monkeypatch):
         "source_sync",
         "source_verify",
     ]
-    assert calls[1][1][-5:] == ["fetch", "--no-tags", "origin", COMMIT]
+    assert calls[1][1][-4:] == ["fetch", "--no-tags", "origin", COMMIT]
     assert calls[2][1][-3:] == ["checkout", "--detach", COMMIT]
 
 
