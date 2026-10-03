@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { deployAction } from "@/app/deployments/actions";
-import { getProject, listDeployments } from "@/lib/control-plane";
+import { getGitHubIntegration, getProject, listDeployments, listGitHubRepositories } from "@/lib/control-plane";
 import { ServiceSettingsForm } from "@/components/SettingsForms";
 
 export const dynamic = "force-dynamic";
@@ -39,6 +39,10 @@ export default async function ProjectServicePage({
 
   const tab = tabs.some(([key]) => key === query.tab) ? query.tab! : "deployments";
   const deployments = tab === "deployments" ? await listDeployments(service.id) : [];
+  const github = tab === "settings" ? await getGitHubIntegration() : null;
+  const repositories = github
+    ? (await Promise.all(github.installations.filter((item) => !item.suspended).map((item) => listGitHubRepositories(item.installation_id).catch(() => [])))).flat()
+    : [];
 
   return (
     <main className="railPage">
@@ -150,7 +154,7 @@ export default async function ProjectServicePage({
       )}
 
       {tab === "settings" && (
-        <ServiceSettingsForm project={project} service={service} />
+        <ServiceSettingsForm project={project} service={service} githubRepositories={repositories} />
       )}
     </main>
   );

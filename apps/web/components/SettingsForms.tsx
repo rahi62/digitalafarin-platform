@@ -9,7 +9,7 @@ import {
   updateServiceSettingsAction,
   type SettingsActionState,
 } from "@/app/projects/settings-actions";
-import type { Project, ProjectService } from "@/lib/control-plane";
+import type { GitHubRepository, Project, ProjectService } from "@/lib/control-plane";
 
 const initialState: SettingsActionState = {};
 
@@ -58,7 +58,7 @@ export function ProjectSettingsForm({ project }: { project: Project }) {
   );
 }
 
-export function ServiceSettingsForm({ project, service }: { project: Project; service: ProjectService }) {
+export function ServiceSettingsForm({ project, service, githubRepositories = [] }: { project: Project; service: ProjectService; githubRepositories?: GitHubRepository[] }) {
   const [updateState, updateAction, updatePending] = useActionState(updateServiceSettingsAction, initialState);
   const [removeState, removeAction, removePending] = useActionState(removeServiceAction, initialState);
   const [deleteState, deleteAction, deletePending] = useActionState(deleteManagedServiceAction, initialState);
@@ -72,7 +72,20 @@ export function ServiceSettingsForm({ project, service }: { project: Project; se
         <form action={updateAction} className="railSettingsForm">
           <input type="hidden" name="project_id" value={project.id} />
           <input type="hidden" name="service_id" value={service.id} />
-          <label className="railFieldWide"><span>Repository</span><input name="repository" defaultValue={service.repository ?? ""} required dir="ltr" /></label>
+          <label className="railFieldWide"><span>Repository</span>
+            {githubRepositories.length > 0 ? (
+              <select name="repository" defaultValue={(service.repository ?? "").replace(/\.git$/, "")} required dir="ltr">
+                {!githubRepositories.some((item) => item.html_url === (service.repository ?? "").replace(/\.git$/, "")) && service.repository && (
+                  <option value={service.repository}>{service.repository} (current)</option>
+                )}
+                {githubRepositories.map((repository) => (
+                  <option key={repository.id} value={repository.html_url}>{repository.full_name}{repository.private ? " · private" : ""}</option>
+                ))}
+              </select>
+            ) : (
+              <input name="repository" defaultValue={service.repository ?? ""} required dir="ltr" />
+            )}
+          </label>
           <label><span>Branch</span><input name="branch" defaultValue={service.branch ?? ""} required dir="ltr" /></label>
           <label><span>Auto Deploy</span><span><input name="auto_deploy" type="checkbox" defaultChecked={service.auto_deploy} /> Deploy automatically after signed GitHub pushes to this branch</span></label>
           <label><span>Root directory</span><input name="root_directory" defaultValue={service.root_directory ?? "."} required dir="ltr" /></label>
