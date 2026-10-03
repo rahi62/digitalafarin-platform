@@ -28,17 +28,17 @@ class OperationSourceTests(TestCase):
         )
         self.url = f"/api/agent/v1/operations/{self.operation.public_id}/source"
 
-    @patch("control.agent_views.download_bundle", return_value=b"archive")
+    @patch("control.agent_views.download_bundle", return_value=b"bundle")
     def test_running_claimed_operation_can_download_bound_source(self, download):
         response = self.client.get(
             self.url, HTTP_AUTHORIZATION=f"Bearer {self.token}", HTTP_X_DIGITALAFARIN_CLAIM="claim"
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.content, b"archive")
+        self.assertEqual(response.content, b"bundle")
         self.assertEqual(response["X-DigitalAfarin-Commit"], "a" * 40)
         download.assert_called_once_with("https://github.com/example/repo.git", "a" * 40)
 
-    @patch("control.agent_views.download_archive")
+    @patch("control.agent_views.download_bundle")
     def test_wrong_claim_is_rejected_before_github(self, download):
         response = self.client.get(
             self.url, HTTP_AUTHORIZATION=f"Bearer {self.token}", HTTP_X_DIGITALAFARIN_CLAIM="wrong"
@@ -46,7 +46,7 @@ class OperationSourceTests(TestCase):
         self.assertEqual(response.status_code, 403)
         download.assert_not_called()
 
-    @patch("control.agent_views.download_archive")
+    @patch("control.agent_views.download_bundle")
     def test_completed_operation_cannot_download_source(self, download):
         self.operation.state = Operation.STATE_SUCCEEDED
         self.operation.save(update_fields=["state"])
