@@ -598,6 +598,19 @@ class DatabaseResource(models.Model):
         ]
 
 
+class GitHubInstallation(models.Model):
+    installation_id = models.PositiveBigIntegerField(unique=True)
+    account_login = models.CharField(max_length=255)
+    account_type = models.CharField(max_length=32, blank=True)
+    repository_selection = models.CharField(max_length=32, blank=True)
+    suspended = models.BooleanField(default=False)
+    installed_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["account_login"]
+
+
 class GitHubDelivery(models.Model):
     delivery_id = models.CharField(max_length=100)
     service = models.ForeignKey(
