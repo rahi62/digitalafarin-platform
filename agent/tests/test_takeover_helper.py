@@ -525,6 +525,7 @@ def test_trusted_source_repository_rejects_missing_binding():
             "platform-web",
             "digitalafarin-platform-web.service",
             "a" * 40,
+            "https://github.com/rahi62/digitalafarin-platform.git",
             "deploy",
             "www-data",
             {},
