@@ -365,7 +365,6 @@ class ServiceManagedDeleteView(APIView):
             kind=Operation.KIND_SERVICE_DELETE,
             payload={"service_id": str(service.public_id)},
             actor=request.user.name,
-            idempotency_key=f"service-delete:{service.public_id}",
         )
         AuditEvent.objects.create(
             event_type="service.delete_requested",
