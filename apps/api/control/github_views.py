@@ -4,6 +4,7 @@ import json
 import os
 
 from django.db import IntegrityError, transaction
+from django.core import signing
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -82,10 +83,11 @@ class GitHubIntegrationView(APIView):
             and os.getenv("GITHUB_APP_WEBHOOK_SECRET", "").strip()
             and slug
         )
+        state = signing.dumps({"purpose": "github-install"}, salt="github-install") if configured else ""
         return Response({
             "configured": configured,
             "app_slug": slug if configured else "",
-            "install_url": f"https://github.com/apps/{slug}/installations/new" if configured else "",
+            "install_url": f"https://github.com/apps/{slug}/installations/new?state={state}" if configured else "",
             "installations": [
                 {
                     "installation_id": item.installation_id,
@@ -104,14 +106,17 @@ class GitHubInstallationView(APIView):
     permission_classes = [require_scope("operations:create")]
 
     def post(self, request):
-        if set(request.data) != {"installation_id"}:
+        if set(request.data) != {"installation_id", "state"}:
             return Response({"error": "invalid_request"}, status=status.HTTP_400_BAD_REQUEST)
         try:
+            state = signing.loads(str(request.data["state"]), salt="github-install", max_age=600)
+            if state != {"purpose": "github-install"}:
+                raise signing.BadSignature
             installation_id = int(request.data["installation_id"])
             if installation_id <= 0:
                 raise ValueError
             details = installation_details(installation_id)
-        except (TypeError, ValueError, GitHubSourceError):
+        except (TypeError, ValueError, signing.BadSignature, signing.SignatureExpired, GitHubSourceError):
             return Response(
                 {"error": "github_installation_unavailable"},
                 status=status.HTTP_409_CONFLICT,
