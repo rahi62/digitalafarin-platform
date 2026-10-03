@@ -598,3 +598,44 @@ class ProjectServiceAPITests(TestCase):
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()["blockers"]["health_check"], 1)
         self.assertTrue(Service.objects.filter(pk=service.pk).exists())
+
+
+    def test_managed_delete_queues_typed_operation_without_deleting_record_early(self):
+        project = Project.objects.create(name="Oily", slug="oily")
+        service = Service.objects.create(
+            project=project,
+            name="web",
+            unit_name="oily-web.service",
+            lifecycle_state=Service.LIFECYCLE_MANAGED,
+            root_directory=".",
+            target_server=self.server,
+        )
+        response = self.client.post(
+            f"/api/control/v1/services/{service.public_id}/delete/",
+            {},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 202)
+        operation = Operation.objects.get(public_id=response.json()["id"])
+        self.assertEqual(operation.kind, Operation.KIND_SERVICE_DELETE)
+        self.assertEqual(operation.payload, {"service_id": str(service.public_id)})
+        self.assertTrue(Service.objects.filter(pk=service.pk).exists())
+
+    def test_managed_delete_rejects_protected_service(self):
+        project = Project.objects.create(name="Platform", slug="platform")
+        service = Service.objects.create(
+            project=project,
+            name="web",
+            unit_name="digitalafarin-platform-web.service",
+            lifecycle_state=Service.LIFECYCLE_MANAGED,
+            root_directory="apps/web",
+            target_server=self.server,
+        )
+        response = self.client.post(
+            f"/api/control/v1/services/{service.public_id}/delete/",
+            {},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["error"], "protected_service")
+        self.assertFalse(Operation.objects.filter(kind=Operation.KIND_SERVICE_DELETE).exists())
