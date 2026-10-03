@@ -72,6 +72,14 @@ do
   systemctl is-active --quiet "$unit" || fail "$unit is not active"
 done
 
-curl --fail --silent --show-error http://127.0.0.1:9750/health/ >/dev/null
+api_healthy=false
+for _attempt in {1..20}; do
+  if curl --fail --silent --show-error --max-time 2 http://127.0.0.1:9750/health/ >/dev/null 2>&1; then
+    api_healthy=true
+    break
+  fi
+  sleep 1
+done
+[[ "$api_healthy" == true ]] || fail "Platform API health check did not become ready within 20 seconds"
 [[ "$(git rev-parse HEAD)" == "$COMMIT" ]] || fail "production HEAD changed unexpectedly"
 printf 'Platform bootstrap upgrade succeeded at %s\n' "$COMMIT"
