@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import {
   deleteProjectAction,
+  deleteManagedServiceAction,
   removeServiceAction,
   updateProjectSettingsAction,
   updateServiceSettingsAction,
@@ -60,6 +61,7 @@ export function ProjectSettingsForm({ project }: { project: Project }) {
 export function ServiceSettingsForm({ project, service }: { project: Project; service: ProjectService }) {
   const [updateState, updateAction, updatePending] = useActionState(updateServiceSettingsAction, initialState);
   const [removeState, removeAction, removePending] = useActionState(removeServiceAction, initialState);
+  const [deleteState, deleteAction, deletePending] = useActionState(deleteManagedServiceAction, initialState);
 
   return (
     <>
@@ -93,6 +95,15 @@ export function ServiceSettingsForm({ project, service }: { project: Project; se
           <span>Lifecycle: {service.lifecycle_state} · Inventory: {service.inventory_status} · Server: {service.target_server_id}</span>
           {service.protected && <span className="railFormError">This service is protected and cannot be removed.</span>}
         </div>
+        {!service.protected && service.lifecycle_state === "managed" && (
+          <form action={deleteAction} className="railSettingsForm">
+            <input type="hidden" name="project_id" value={project.id} />
+            <input type="hidden" name="service_id" value={service.id} />
+            <label><span>برای حذف managed deployment و بازگرداندن unit اصلی، نام unit را وارد کنید: <code dir="ltr">{service.unit_name}</code></span><input name="confirmation" required autoComplete="off" dir="ltr" /></label>
+            <Feedback state={deleteState} />
+            <button className="railDangerButton" type="submit" disabled={deletePending}>{deletePending ? "Queueing…" : "Delete managed service"}</button>
+          </form>
+        )}
         {!service.protected && (
           <form action={removeAction} className="railSettingsForm">
             <input type="hidden" name="project_id" value={project.id} />
