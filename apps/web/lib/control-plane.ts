@@ -283,6 +283,33 @@ export function getProject(projectId: string): Promise<Project> {
   return request(projectPath(projectId));
 }
 
+export function updateProject(projectId: string, input: { name: string; slug: string }): Promise<Project> {
+  return request(projectPath(projectId), {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteProject(projectId: string): Promise<Record<string, never>> {
+  return request(projectPath(projectId), { method: "DELETE" });
+}
+
+export function updateProjectService(
+  serviceId: string,
+  input: Parameters<typeof buildDeploymentConfigurationRequest>[0],
+): Promise<ProjectService> {
+  return request(`/api/control/v1/services/${encodeURIComponent(serviceId)}/`, {
+    method: "PATCH",
+    body: JSON.stringify(buildDeploymentConfigurationRequest(input)),
+  });
+}
+
+export function removeProjectService(serviceId: string): Promise<Record<string, never>> {
+  return request(`/api/control/v1/services/${encodeURIComponent(serviceId)}/`, {
+    method: "DELETE",
+  });
+}
+
 export function adoptService(
   projectId: string,
   serverId: string,
