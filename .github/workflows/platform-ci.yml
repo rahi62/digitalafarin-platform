@@ -6,6 +6,7 @@ on:
       - "apps/api/**"
       - "apps/web/**"
       - "agent/**"
+      - "infra/bootstrap-platform-upgrade.sh"
       - ".github/workflows/platform-ci.yml"
   push:
     branches: [main]
@@ -13,6 +14,7 @@ on:
       - "apps/api/**"
       - "apps/web/**"
       - "agent/**"
+      - "infra/bootstrap-platform-upgrade.sh"
       - ".github/workflows/platform-ci.yml"
 
 permissions:
@@ -68,3 +70,9 @@ jobs:
         env:
           PLATFORM_API_URL: http://127.0.0.1:9750
           PLATFORM_API_TOKEN: ci-placeholder
+
+  bootstrap-script:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n infra/bootstrap-platform-upgrade.sh
