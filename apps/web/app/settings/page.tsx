@@ -1,10 +1,10 @@
 import Link from "next/link";
-import { listProjects } from "@/lib/control-plane";
+import { getGitHubIntegration, listProjects } from "@/lib/control-plane";
 
 export const dynamic = "force-dynamic";
 
 export default async function PlatformSettingsPage() {
-  const projects = await listProjects();
+  const [projects, github] = await Promise.all([listProjects(), getGitHubIntegration()]);
 
   return (
     <main className="railPage">
@@ -46,9 +46,31 @@ export default async function PlatformSettingsPage() {
         <div className="railSectionHeader">
           <div>
             <h2>GitHub</h2>
-            <p>GitHub App connection و repository authorization در مرحله Integration تکمیل می‌شود. Auto Deploy برای هر سرویس از Service Settings کنترل می‌شود.</p>
+            <p>GitHub App دسترسی repository را با installation token کوتاه‌عمر فراهم می‌کند؛ هیچ GitHub token دائمی روی VPS ذخیره نمی‌شود.</p>
           </div>
+          {github.configured && <a className="railPrimaryButton" href={github.install_url}>Connect GitHub</a>}
         </div>
+        {!github.configured ? (
+          <div className="railEmpty railEmptyCompact">
+            <h3>GitHub App configuration required</h3>
+            <p>GITHUB_APP_ID، GITHUB_APP_PRIVATE_KEY، GITHUB_APP_WEBHOOK_SECRET و GITHUB_APP_SLUG باید در API production تنظیم شوند.</p>
+          </div>
+        ) : github.installations.length === 0 ? (
+          <div className="railEmpty railEmptyCompact"><h3>Not connected</h3><p>برای انتخاب repository ابتدا GitHub App را نصب کنید.</p></div>
+        ) : (
+          <div className="railDeploymentList">
+            {github.installations.map((installation) => (
+              <div className="railDeploymentRow" key={installation.installation_id}>
+                <div>
+                  <strong>{installation.account_login}</strong>
+                  <small>{installation.account_type} · {installation.repository_selection}</small>
+                </div>
+                <span className={installation.suspended ? "railFormError" : "railFormSuccess"}>{installation.suspended ? "Suspended" : "Connected"}</span>
+                <Link className="railSecondaryButton" href={`/settings/github/${installation.installation_id}`}>Repositories</Link>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
     </main>
   );
