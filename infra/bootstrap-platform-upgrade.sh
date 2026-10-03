@@ -2,6 +2,7 @@
 set -euo pipefail
 
 REPO=/opt/digitalafarin-platform
+API_ENV=/etc/digitalafarin-platform/api.env
 EXPECTED_REPOSITORY=git@github.com:rahi62/digitalafarin-platform.git
 COMMIT="${1:-}"
 
@@ -9,6 +10,7 @@ fail(){ printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 [[ ${EUID} -eq 0 ]] || fail "run as root"
 [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || fail "exact lowercase 40-character commit required"
 [[ -d "$REPO/.git" ]] || fail "production repository is missing"
+[[ -r "$API_ENV" ]] || fail "production API environment is missing or unreadable"
 
 cd "$REPO"
 origin="$(git remote get-url origin)"
@@ -35,9 +37,15 @@ apps/api/.venv/bin/pip install -r apps/api/requirements.txt
 agent/.venv/bin/pip install -e ./agent
 mcp/.venv/bin/pip install -e ./mcp
 
-# Validate schema before touching the running API.
+# Validate and migrate the same database/configuration used by the production API.
+# systemd loads API_ENV for Gunicorn; management commands must do the same or
+# Django silently falls back to the local SQLite development database.
 (
   cd apps/api
+  set -a
+  # shellcheck disable=SC1090
+  source "$API_ENV"
+  set +a
   .venv/bin/python manage.py check
   .venv/bin/python manage.py makemigrations --check --dry-run
   .venv/bin/python manage.py migrate --noinput
