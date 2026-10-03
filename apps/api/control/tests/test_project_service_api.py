@@ -556,3 +556,43 @@ class ProjectServiceAPITests(TestCase):
         self.assertEqual(blocked.status_code, 409)
         self.assertEqual(blocked.json()["error"], "service_has_dependencies")
         self.assertEqual(blocked.json()["blockers"]["deployments"], 1)
+
+
+    def test_project_slug_is_locked_while_services_are_attached(self):
+        project = Project.objects.create(name="Oily", slug="oily")
+        Service.objects.create(
+            project=project,
+            name="web",
+            unit_name="oily-web.service",
+            lifecycle_state=Service.LIFECYCLE_ADOPTED,
+            target_server=self.server,
+        )
+        response = self.client.patch(
+            f"/api/control/v1/projects/{project.public_id}/",
+            {"name": "Oily Renamed", "slug": "renamed"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["error"], "project_slug_locked")
+        project.refresh_from_db()
+        self.assertEqual(project.slug, "oily")
+
+    def test_service_remove_is_blocked_when_health_check_exists(self):
+        project = Project.objects.create(name="Oily", slug="oily")
+        service = Service.objects.create(
+            project=project,
+            name="web",
+            unit_name="oily-web.service",
+            lifecycle_state=Service.LIFECYCLE_MANAGED,
+            repository="https://github.com/example/oily.git",
+            branch="main",
+            root_directory=".",
+            runtime=Service.RUNTIME_NODE,
+            service_port=3000,
+            target_server=self.server,
+        )
+        HealthCheck.objects.create(service=service)
+        response = self.client.delete(f"/api/control/v1/services/{service.public_id}/")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["blockers"]["health_check"], 1)
+        self.assertTrue(Service.objects.filter(pk=service.pk).exists())
