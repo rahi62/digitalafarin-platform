@@ -72,6 +72,7 @@ export function ServiceSettingsForm({ project, service }: { project: Project; se
           <input type="hidden" name="service_id" value={service.id} />
           <label className="railFieldWide"><span>Repository</span><input name="repository" defaultValue={service.repository ?? ""} required dir="ltr" /></label>
           <label><span>Branch</span><input name="branch" defaultValue={service.branch ?? ""} required dir="ltr" /></label>
+          <label><span>Auto Deploy</span><span><input name="auto_deploy" type="checkbox" defaultChecked={service.auto_deploy} /> Deploy automatically after signed GitHub pushes to this branch</span></label>
           <label><span>Root directory</span><input name="root_directory" defaultValue={service.root_directory ?? "."} required dir="ltr" /></label>
           <label><span>Runtime</span><select name="runtime" defaultValue={service.runtime ?? "node-nextjs"}><option value="node-nextjs">Node / Next.js</option><option value="python-django">Python / Django</option></select></label>
           <label><span>Port</span><input name="service_port" type="number" min={1} max={65535} defaultValue={service.service_port ?? ""} required dir="ltr" /></label>

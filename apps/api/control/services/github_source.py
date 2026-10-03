@@ -2,6 +2,9 @@ import base64
 import json
 import os
 import time
+import tempfile
+import subprocess
+from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
@@ -71,22 +74,36 @@ def installation_token(repository: str) -> str:
     return token
 
 
-def download_archive(repository: str, exact_commit: str, *, max_bytes: int = 100 * 1024 * 1024) -> bytes:
+def download_bundle(repository: str, exact_commit: str, *, max_bytes: int = 100 * 1024 * 1024) -> bytes:
     if len(exact_commit) != 40 or any(ch not in "0123456789abcdef" for ch in exact_commit):
         raise GitHubSourceError("exact commit is required")
     owner, name = repository_name(repository)
-    headers = {
-        "Authorization": f"Bearer {installation_token(repository)}",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-    try:
-        with httpx.Client(timeout=60.0, follow_redirects=True) as client:
-            response = client.get(f"https://api.github.com/repos/{owner}/{name}/tarball/{exact_commit}", headers=headers)
-            response.raise_for_status()
-            data = response.content
-    except httpx.HTTPError as exc:
-        raise GitHubSourceError("unable to download GitHub source") from exc
+    token = installation_token(repository)
+    with tempfile.TemporaryDirectory(prefix="digitalafarin-source-") as temporary:
+        root = Path(temporary)
+        bare = root / "repo.git"
+        bundle = root / "source.bundle"
+        authenticated = f"https://x-access-token:{token}@github.com/{owner}/{name}.git"
+        env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+        try:
+            subprocess.run(["git", "init", "--bare", str(bare)], check=True, capture_output=True, timeout=30, env=env)
+            subprocess.run(
+                ["git", "-C", str(bare), "fetch", "--no-tags", "--depth=1", authenticated, exact_commit],
+                check=True, capture_output=True, timeout=120, env=env,
+            )
+            resolved = subprocess.run(
+                ["git", "-C", str(bare), "rev-parse", "FETCH_HEAD"],
+                check=True, capture_output=True, text=True, timeout=30, env=env,
+            ).stdout.strip()
+            if resolved != exact_commit:
+                raise GitHubSourceError("GitHub returned a different commit")
+            subprocess.run(
+                ["git", "-C", str(bare), "bundle", "create", str(bundle), "FETCH_HEAD"],
+                check=True, capture_output=True, timeout=120, env=env,
+            )
+            data = bundle.read_bytes()
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise GitHubSourceError("unable to prepare GitHub source bundle") from exc
     if len(data) > max_bytes:
-        raise GitHubSourceError("GitHub source archive exceeds size limit")
+        raise GitHubSourceError("GitHub source bundle exceeds size limit")
     return data

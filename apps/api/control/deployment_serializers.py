@@ -67,6 +67,7 @@ class ServiceSerializer(StrictSerializer):
     )
     repository = serializers.URLField(max_length=500)
     branch = serializers.RegexField(SAFE_REF.pattern, max_length=255)
+    auto_deploy = serializers.BooleanField(default=False)
     root_directory = serializers.RegexField(
         SAFE_PATH.pattern, max_length=255, default="."
     )

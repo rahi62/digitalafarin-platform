@@ -22,7 +22,7 @@ from control.services.operations import (
 from control.services.execution import build_execution_context
 from control.models import Operation
 from control.services.deployments import apply_deployment_result
-from control.services.github_source import GitHubSourceError, download_archive
+from control.services.github_source import GitHubSourceError, download_bundle
 from control.services.takeovers import (
     TakeoverError,
     apply_takeover_result,
@@ -187,10 +187,10 @@ class OperationSourceView(AgentOperationView):
             if deployment is None:
                 return Response(status=status.HTTP_404_NOT_FOUND)
             record = deployment.deployments.get(public_id=operation.payload["deployment_id"])
-            data = download_archive(deployment.repository, record.resolved_commit)
+            data = download_bundle(deployment.repository, record.resolved_commit)
         except (GitHubSourceError, KeyError):
             return Response({"error": "source_unavailable"}, status=status.HTTP_502_BAD_GATEWAY)
-        response = HttpResponse(data, content_type="application/gzip")
-        response["Content-Disposition"] = 'attachment; filename="source.tar.gz"'
+        response = HttpResponse(data, content_type="application/octet-stream")
+        response["Content-Disposition"] = 'attachment; filename="source.bundle"'
         response["X-DigitalAfarin-Commit"] = record.resolved_commit
         return response

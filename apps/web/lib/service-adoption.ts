@@ -19,6 +19,7 @@ export function buildDeploymentConfigurationRequest(input: {
   servicePort: number;
   installConfiguration: Record<string, unknown>;
   buildConfiguration: Record<string, unknown>;
+  autoDeploy?: boolean;
 }) {
   if (
     !input.repository ||
@@ -37,6 +38,7 @@ export function buildDeploymentConfigurationRequest(input: {
     service_port: input.servicePort,
     install_configuration: input.installConfiguration,
     build_configuration: input.buildConfiguration,
+    ...(input.autoDeploy === undefined ? {} : { auto_deploy: input.autoDeploy }),
   };
 }
 

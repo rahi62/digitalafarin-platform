@@ -314,6 +314,21 @@ def _trusted_local_source_repository(
     return source
 
 
+def _artifact_source(source_id: Any) -> Path:
+    value = str(source_id or "")
+    if not re.fullmatch(r"[0-9a-f-]{36}", value):
+        raise TakeoverHelperDomainError("source_artifact_invalid", "Invalid source artifact identity.")
+    path = Path("/var/lib/digitalafarin-agent/sources") / f"{value}.bundle"
+    try:
+        resolved = path.resolve(strict=True)
+    except OSError as exc:
+        raise TakeoverHelperDomainError("source_artifact_missing", "Source artifact is unavailable.") from exc
+    expected_parent = Path("/var/lib/digitalafarin-agent/sources").resolve(strict=True)
+    if resolved.parent != expected_parent or resolved.is_symlink() or not resolved.is_file():
+        raise TakeoverHelperDomainError("source_artifact_invalid", "Invalid source artifact path.")
+    return resolved
+
+
 def _run_as_worker(
     user: str,
     group: str,
@@ -651,7 +666,11 @@ def prepare_node_nextjs_release(
     source_repositories: dict[tuple[str, str, str], Path] | None = None,
     apps_root: Path = APPS_ROOT,
 ) -> dict[str, Any]:
-    _require_exact_keys(params, _PREPARE_KEYS)
+    keys = set(params)
+    if keys not in (_PREPARE_KEYS, _PREPARE_KEYS | {"source_id"}):
+        raise TakeoverHelperDomainError(
+            "helper_invalid_request", "Invalid privileged helper parameters."
+        )
     project_slug, service_name = _validate_identity(
         params["project_slug"], params["service_name"]
     )
@@ -697,21 +716,25 @@ def prepare_node_nextjs_release(
         if source_repositories is not None
         else trusted_source_repositories_from_env()
     )
-    provider = LocalSourceProvider(_trusted_local_source_repository, sources)
-    try:
-        trusted_source = provider.resolve(
-            SourceRequest(
-                project_slug=project_slug,
-                service_name=service_name,
-                unit_name=unit_name,
-                repository=params["repository"],
-                exact_commit=exact_commit,
-                user=user,
-                group=group,
+    source_id = params.get("source_id")
+    if source_id:
+        trusted_source = _artifact_source(source_id)
+    else:
+        provider = LocalSourceProvider(_trusted_local_source_repository, sources)
+        try:
+            trusted_source = provider.resolve(
+                SourceRequest(
+                    project_slug=project_slug,
+                    service_name=service_name,
+                    unit_name=unit_name,
+                    repository=params["repository"],
+                    exact_commit=exact_commit,
+                    user=user,
+                    group=group,
+                )
             )
-        )
-    except SourceProviderError as exc:
-        raise TakeoverHelperDomainError(exc.code, str(exc)) from exc
+        except SourceProviderError as exc:
+            raise TakeoverHelperDomainError(exc.code, str(exc)) from exc
     service_root = _ensure_release_directories(
         apps_root,
         project_slug,
