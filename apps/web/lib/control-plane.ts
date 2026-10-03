@@ -301,7 +301,7 @@ export function updateProjectService(
 ): Promise<ProjectService> {
   return request(`/api/control/v1/services/${encodeURIComponent(serviceId)}/`, {
     method: "PATCH",
-    body: JSON.stringify({ ...buildDeploymentConfigurationRequest(input), auto_deploy: (input as { autoDeploy?: boolean }).autoDeploy ?? false }),
+    body: JSON.stringify(buildDeploymentConfigurationRequest(input)),
   });
 }
 
