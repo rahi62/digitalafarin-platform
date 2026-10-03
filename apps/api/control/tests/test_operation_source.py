@@ -28,7 +28,7 @@ class OperationSourceTests(TestCase):
         )
         self.url = f"/api/agent/v1/operations/{self.operation.public_id}/source"
 
-    @patch("control.agent_views.download_archive", return_value=b"archive")
+    @patch("control.agent_views.download_bundle", return_value=b"archive")
     def test_running_claimed_operation_can_download_bound_source(self, download):
         response = self.client.get(
             self.url, HTTP_AUTHORIZATION=f"Bearer {self.token}", HTTP_X_DIGITALAFARIN_CLAIM="claim"
