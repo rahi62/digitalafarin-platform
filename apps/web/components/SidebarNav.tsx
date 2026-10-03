@@ -8,6 +8,7 @@ type Item = { href: string; label: string; icon: string };
 const primary: Item[] = [
   { href: "/projects", label: "Projects", icon: "◫" },
   { href: "/activity", label: "Observability", icon: "⌁" },
+  { href: "/settings", label: "Settings", icon: "⚙" },
 ];
 
 const advanced: Item[] = [
