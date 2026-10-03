@@ -31,6 +31,9 @@ urlpatterns = [
         takeover_views.TakeoverCancelView.as_view(),
     ),
     path("github/webhook/", github_views.GitHubWebhookView.as_view()),
+    path("github/integration/", github_views.GitHubIntegrationView.as_view()),
+    path("github/installations/", github_views.GitHubInstallationView.as_view()),
+    path("github/installations/<int:installation_id>/repositories/", github_views.GitHubRepositoryListView.as_view()),
     path("projects/<uuid:project_id>/", deployment_views.ProjectDetailView.as_view()),
     path(
         "servers/<uuid:server_id>/bootstrap/",

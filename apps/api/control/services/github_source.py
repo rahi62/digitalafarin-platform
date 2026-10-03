@@ -107,3 +107,84 @@ def download_bundle(repository: str, exact_commit: str, *, max_bytes: int = 100 
     if len(data) > max_bytes:
         raise GitHubSourceError("GitHub source bundle exceeds size limit")
     return data
+
+
+def app_headers() -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {_app_jwt()}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+
+def installation_details(installation_id: int) -> dict:
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get(
+                f"https://api.github.com/app/installations/{installation_id}",
+                headers=app_headers(),
+            )
+            response.raise_for_status()
+            data = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise GitHubSourceError("unable to verify GitHub installation") from exc
+    account = data.get("account") or {}
+    return {
+        "installation_id": int(data["id"]),
+        "account_login": str(account.get("login") or ""),
+        "account_type": str(account.get("type") or ""),
+        "repository_selection": str(data.get("repository_selection") or ""),
+        "suspended": data.get("suspended_at") is not None,
+    }
+
+
+def installation_access_token(installation_id: int) -> str:
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.post(
+                f"https://api.github.com/app/installations/{installation_id}/access_tokens",
+                headers=app_headers(),
+                json={"permissions": {"contents": "read"}},
+            )
+            response.raise_for_status()
+            token = response.json()["token"]
+    except (httpx.HTTPError, KeyError, ValueError) as exc:
+        raise GitHubSourceError("unable to authorize GitHub installation") from exc
+    if not isinstance(token, str) or not token:
+        raise GitHubSourceError("invalid GitHub installation token")
+    return token
+
+
+def installation_repositories(installation_id: int) -> list[dict]:
+    token = installation_access_token(installation_id)
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    repositories = []
+    page = 1
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            while page <= 10:
+                response = client.get(
+                    "https://api.github.com/installation/repositories",
+                    headers=headers,
+                    params={"per_page": 100, "page": page},
+                )
+                response.raise_for_status()
+                items = response.json().get("repositories", [])
+                for item in items:
+                    repositories.append({
+                        "id": int(item["id"]),
+                        "full_name": str(item["full_name"]),
+                        "html_url": str(item["html_url"]),
+                        "default_branch": str(item.get("default_branch") or "main"),
+                        "private": bool(item.get("private")),
+                    })
+                if len(items) < 100:
+                    break
+                page += 1
+    except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
+        raise GitHubSourceError("unable to list GitHub installation repositories") from exc
+    return repositories

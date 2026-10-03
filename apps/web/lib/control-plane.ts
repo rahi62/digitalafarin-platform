@@ -413,3 +413,45 @@ export function redeployDeployment(deploymentId: string): Promise<Deployment> {
 export function rollbackDeployment(deploymentId: string): Promise<Deployment> {
   return request(`/api/control/v1/deployments/${encodeURIComponent(deploymentId)}/rollback/`, { method: "POST", body: "{}" });
 }
+
+
+export type GitHubInstallation = {
+  installation_id: number;
+  account_login: string;
+  account_type: string;
+  repository_selection: string;
+  suspended: boolean;
+};
+
+export type GitHubIntegration = {
+  configured: boolean;
+  app_slug: string;
+  install_url: string;
+  installations: GitHubInstallation[];
+};
+
+export type GitHubRepository = {
+  id: number;
+  full_name: string;
+  html_url: string;
+  default_branch: string;
+  private: boolean;
+};
+
+export function getGitHubIntegration(): Promise<GitHubIntegration> {
+  return request("/api/control/v1/github/integration/");
+}
+
+export function registerGitHubInstallation(installationId: number, state: string): Promise<GitHubInstallation> {
+  return request("/api/control/v1/github/installations/", {
+    method: "POST",
+    body: JSON.stringify({ installation_id: installationId, state }),
+  });
+}
+
+export async function listGitHubRepositories(installationId: number): Promise<GitHubRepository[]> {
+  const result = await request<{ items: GitHubRepository[] }>(
+    `/api/control/v1/github/installations/${installationId}/repositories/`,
+  );
+  return result.items;
+}
