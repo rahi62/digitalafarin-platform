@@ -235,6 +235,7 @@ def _trusted_local_source_repository(
     service_name: str,
     unit_name: str,
     exact_commit: str,
+    expected_repository: str,
     user: str,
     group: str,
     source_repositories: dict[tuple[str, str, str], Path],
@@ -263,6 +264,34 @@ def _trusted_local_source_repository(
             "Trusted local source repository is not a directory.",
         )
     try:
+        remote = run_takeover_worker(
+            phase="source_verify",
+            user=user,
+            group=group,
+            argv=["git", "-C", str(source), "remote", "get-url", "origin"],
+            timeout=30,
+        )
+        if _validate_repository(remote) != _validate_repository(
+            expected_repository
+        ):
+            raise TakeoverHelperDomainError(
+                "managed_repository_not_allowed",
+                "Trusted local source origin does not match the managed repository.",
+            )
+        run_takeover_worker(
+            phase="source_sync",
+            user=user,
+            group=group,
+            argv=["git", "-C", str(source), "fetch", "--no-tags", "origin", exact_commit],
+            timeout=120,
+        )
+        run_takeover_worker(
+            phase="source_sync",
+            user=user,
+            group=group,
+            argv=["git", "-C", str(source), "checkout", "--detach", exact_commit],
+            timeout=30,
+        )
         head = run_takeover_worker(
             phase="source_verify",
             user=user,
@@ -270,14 +299,16 @@ def _trusted_local_source_repository(
             argv=["git", "-C", str(source), "rev-parse", "HEAD"],
             timeout=30,
         )
+    except TakeoverHelperDomainError:
+        raise
     except TakeoverWorkerError as exc:
         raise TakeoverHelperDomainError(
-            "release_prepare_failed", "Unable to verify trusted takeover source."
+            "source_sync_failed", "Unable to sync trusted source to the requested commit."
         ) from exc
     if not COMMIT.fullmatch(head) or head != exact_commit:
         raise TakeoverHelperDomainError(
-            "service_configuration_changed",
-            "Trusted local source HEAD does not match the requested production commit.",
+            "source_sync_failed",
+            "Trusted local source HEAD does not match the requested production commit after sync.",
         )
     return source
 
@@ -670,6 +701,7 @@ def prepare_node_nextjs_release(
         service_name,
         unit_name,
         exact_commit,
+        params["repository"],
         user,
         group,
         sources,
@@ -1125,6 +1157,7 @@ def prepare_managed_node_nextjs_release(
         service,
         unit,
         commit,
+        params["repository"],
         user,
         group,
         sources,

@@ -410,9 +410,17 @@ def test_prepare_protocol_rejects_worker_control_fields_before_mutation(
 
 def test_source_verification_uses_systemd_worker_with_service_identity(tmp_path, monkeypatch):
     calls = []
+    def worker(**kwargs):
+        calls.append(kwargs)
+        argv = kwargs["argv"]
+        if argv[-3:] == ["remote", "get-url", "origin"]:
+            return "https://github.com/rahi62/digitalafarin-platform.git"
+        if argv[-2:] == ["rev-parse", "HEAD"]:
+            return "a" * 40
+        return ""
     monkeypatch.setattr(
         "digitalafarin_agent.takeover_helper.run_takeover_worker",
-        lambda **kwargs: calls.append(kwargs) or "a" * 40,
+        worker,
     )
     source = tmp_path / "trusted-source"
     source.mkdir()
@@ -422,21 +430,23 @@ def test_source_verification_uses_systemd_worker_with_service_identity(tmp_path,
         "platform-web",
         "digitalafarin-platform-web.service",
         "a" * 40,
+        "https://github.com/rahi62/digitalafarin-platform.git",
         "deploy",
         "www-data",
         {ALLOWED_BINDINGS.copy().pop(): source},
     )
 
     assert output == source
-    assert calls == [
-        {
-            "phase": "source_verify",
-            "user": "deploy",
-            "group": "www-data",
-            "argv": ["git", "-C", str(source), "rev-parse", "HEAD"],
-            "timeout": 30,
-        }
+    assert [call["phase"] for call in calls] == [
+        "source_verify",
+        "source_sync",
+        "source_sync",
+        "source_verify",
     ]
+    assert calls[0]["argv"] == ["git", "-C", str(source), "remote", "get-url", "origin"]
+    assert calls[1]["argv"] == ["git", "-C", str(source), "fetch", "--no-tags", "origin", "a" * 40]
+    assert calls[2]["argv"] == ["git", "-C", str(source), "checkout", "--detach", "a" * 40]
+    assert calls[3]["argv"] == ["git", "-C", str(source), "rev-parse", "HEAD"]
 
 
 def test_trusted_source_repository_configuration_parses_exact_binding(monkeypatch):
@@ -456,9 +466,16 @@ def test_trusted_source_repository_configuration_parses_exact_binding(monkeypatc
 def test_trusted_source_repository_requires_exact_production_head(tmp_path, monkeypatch):
     source = tmp_path / "source"
     source.mkdir()
+    def worker(**kwargs):
+        argv = kwargs["argv"]
+        if argv[-3:] == ["remote", "get-url", "origin"]:
+            return "https://github.com/rahi62/digitalafarin-platform.git"
+        if argv[-2:] == ["rev-parse", "HEAD"]:
+            return "b" * 40
+        return ""
     monkeypatch.setattr(
         "digitalafarin_agent.takeover_helper.run_takeover_worker",
-        lambda **_kwargs: "b" * 40,
+        worker,
     )
     with pytest.raises(TakeoverHelperDomainError) as exc:
         _trusted_local_source_repository(
@@ -466,6 +483,7 @@ def test_trusted_source_repository_requires_exact_production_head(tmp_path, monk
             "platform-web",
             "digitalafarin-platform-web.service",
             "a" * 40,
+            "https://github.com/rahi62/digitalafarin-platform.git",
             "deploy",
             "www-data",
             {
@@ -476,7 +494,7 @@ def test_trusted_source_repository_requires_exact_production_head(tmp_path, monk
                 ): source
             },
         )
-    assert exc.value.code == "service_configuration_changed"
+    assert exc.value.code == "source_sync_failed"
 
 
 def test_worker_command_failure_maps_to_stable_helper_error(monkeypatch):
@@ -507,6 +525,7 @@ def test_trusted_source_repository_rejects_missing_binding():
             "platform-web",
             "digitalafarin-platform-web.service",
             "a" * 40,
+            "https://github.com/rahi62/digitalafarin-platform.git",
             "deploy",
             "www-data",
             {},
