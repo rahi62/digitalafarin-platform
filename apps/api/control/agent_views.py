@@ -23,6 +23,7 @@ from control.services.execution import build_execution_context
 from control.models import Operation
 from control.services.deployments import apply_deployment_result
 from control.services.github_source import GitHubSourceError, download_bundle
+from control.services.service_deletion import finalize_service_deletion
 from control.services.takeovers import (
     TakeoverError,
     apply_takeover_result,
@@ -158,6 +159,14 @@ class OperationCompleteView(AgentOperationView):
                     server=request.user.server,
                     **serializer.validated_data,
                 )
+                if (
+                    operation_record.kind == Operation.KIND_SERVICE_DELETE
+                    and serializer.validated_data["succeeded"]
+                ):
+                    finalize_service_deletion(
+                        operation_record.payload["service_id"],
+                        actor=operation_record.actor,
+                    )
         except (OperationTransitionError, TakeoverError) as exc:
             return Response(
                 {"error": "operation_transition_rejected", "message": str(exc)},
