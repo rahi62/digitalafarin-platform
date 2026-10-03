@@ -1157,6 +1157,7 @@ def prepare_managed_node_nextjs_release(
         service,
         unit,
         commit,
+        params["repository"],
         user,
         group,
         sources,
