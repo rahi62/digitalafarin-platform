@@ -16,4 +16,4 @@ def provision_service(payload, *, helper=None, action='provision_service'):
     report('building')
     if action == 'rollback_service':
         data['release_name'] = payload['release_name']
-    return getattr(helper or TakeoverHelperClient(), action)(data)
+    return getattr(helper or TakeoverHelperClient(), action)(data, on_progress=report)

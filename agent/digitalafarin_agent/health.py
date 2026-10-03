@@ -40,6 +40,7 @@ def _validated(spec: dict) -> tuple[str, int, int, int, int]:
 
 def check_http_health(spec: dict, *, request=_request, sleep=time.sleep) -> dict:
     url, expected, attempts, timeout, interval = _validated(spec)
+    status = None
     for attempt in range(1, attempts + 1):
         try:
             status = request(url, timeout)
@@ -49,7 +50,8 @@ def check_http_health(spec: dict, *, request=_request, sleep=time.sleep) -> dict
             return {"attempts": attempt, "status": status}
         if attempt < attempts:
             sleep(interval)
-    raise HealthCheckError("health check failed")
+    observed = f'HTTP {status}' if isinstance(status, int) else 'no HTTP response'
+    raise HealthCheckError(f'Health check failed: expected HTTP {expected}, last result {observed} after {attempts} attempts.')
 
 
 def check_http_health_stable(

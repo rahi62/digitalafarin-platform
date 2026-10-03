@@ -2,7 +2,7 @@ import json
 import os
 import socket
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 DEFAULT_SOCKET_PATH = Path(
@@ -12,6 +12,7 @@ DEFAULT_SOCKET_PATH = Path(
     )
 )
 MAX_RESPONSE_BYTES = 256 * 1024
+PROGRESS_STAGES = frozenset({'preparing', 'cloning', 'building', 'releasing', 'activating', 'health_check', 'verifying', 'rolling_back'})
 
 
 class TakeoverHelperError(RuntimeError):
@@ -36,6 +37,7 @@ class TakeoverHelperClient:
         params: dict[str, Any],
         *,
         timeout: float | None = None,
+        on_progress: Callable[[str], None] | None = None,
     ) -> dict[str, Any]:
         if not isinstance(operation, str) or not operation:
             raise TakeoverHelperError("helper_invalid_request", "Invalid helper operation.")
@@ -56,8 +58,9 @@ class TakeoverHelperClient:
                 client.connect(str(self.socket_path))
                 client.sendall(raw)
                 client.shutdown(socket.SHUT_WR)
-                chunks: list[bytes] = []
+                pending = b''
                 total = 0
+                response = None
                 while True:
                     chunk = client.recv(65536)
                     if not chunk:
@@ -67,8 +70,23 @@ class TakeoverHelperClient:
                         raise TakeoverHelperError(
                             "helper_protocol_error", "Helper response exceeded limit."
                         )
-                    chunks.append(chunk)
-                    if b"\n" in chunk:
+                    pending += chunk
+                    while b'\n' in pending:
+                        line, pending = pending.split(b'\n', 1)
+                        try:
+                            frame = json.loads(line.decode('utf-8'))
+                        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                            raise TakeoverHelperError('helper_protocol_error', 'Invalid response from takeover helper.') from exc
+                        if isinstance(frame, dict) and set(frame) == {'progress'}:
+                            progress = frame['progress']
+                            if not isinstance(progress, dict) or set(progress) != {'stage'} or not isinstance(progress['stage'], str) or progress['stage'] not in PROGRESS_STAGES:
+                                raise TakeoverHelperError('helper_protocol_error', 'Invalid helper progress response.')
+                            if on_progress:
+                                on_progress(progress['stage'])
+                            continue
+                        response = frame
+                        break
+                    if response is not None:
                         break
         except TakeoverHelperError:
             raise
@@ -77,13 +95,6 @@ class TakeoverHelperClient:
                 "helper_unavailable", "Privileged takeover helper is unavailable."
             ) from exc
 
-        payload = b"".join(chunks).split(b"\n", 1)[0]
-        try:
-            response = json.loads(payload.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise TakeoverHelperError(
-                "helper_protocol_error", "Invalid response from takeover helper."
-            ) from exc
         if not isinstance(response, dict) or set(response) not in (
             {"ok", "result"},
             {"ok", "error"},
@@ -114,14 +125,14 @@ class TakeoverHelperClient:
     def prepare_node_nextjs_release(self, params: dict[str, Any]) -> dict[str, Any]:
         return self.call("prepare_node_nextjs_release", params, timeout=1200)
 
-    def provision_service(self, params: dict[str, Any]) -> dict[str, Any]:
-        return self.call('provision_service', params, timeout=3000)
+    def provision_service(self, params: dict[str, Any], *, on_progress=None) -> dict[str, Any]:
+        return self.call('provision_service', params, timeout=3000, on_progress=on_progress)
 
-    def deploy_service(self, params: dict[str, Any]) -> dict[str, Any]:
-        return self.call('deploy_service', params, timeout=3000)
+    def deploy_service(self, params: dict[str, Any], *, on_progress=None) -> dict[str, Any]:
+        return self.call('deploy_service', params, timeout=3000, on_progress=on_progress)
 
-    def rollback_service(self, params: dict[str, Any]) -> dict[str, Any]:
-        return self.call('rollback_service', params, timeout=300)
+    def rollback_service(self, params: dict[str, Any], *, on_progress=None) -> dict[str, Any]:
+        return self.call('rollback_service', params, timeout=300, on_progress=on_progress)
 
     def activate_release(self, params: dict[str, Any]) -> dict[str, Any]:
         return self.call("activate_release", params)

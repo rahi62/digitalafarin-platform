@@ -173,6 +173,35 @@ async def test_blocking_execution_does_not_block_event_loop(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_runner_delivers_stage_changes_without_waiting_for_heartbeat(monkeypatch):
+    import asyncio
+    import threading
+    from digitalafarin_agent.progress import report
+    released = threading.Event()
+    initial_progress = threading.Event()
+    class ProgressClient(FakeClient):
+        async def progress_operation(self, _token, _operation_id, _claim_token, sequence, stage):
+            self.calls.append(('progress', sequence, stage))
+            if stage == 'running':
+                initial_progress.set()
+    def work(_kind, _payload):
+        assert initial_progress.wait(2)
+        report('cloning')
+        assert released.wait(2)
+        return {'message': 'done'}
+    monkeypatch.setattr('digitalafarin_agent.operations.execute_operation', work)
+    client = ProgressClient()
+    runner = asyncio.create_task(OperationRunner(client).run_once('token'))
+    for _ in range(40):
+        if any(call[0] == 'progress' and call[2] == 'cloning' for call in client.calls if isinstance(call, tuple)):
+            break
+        await asyncio.sleep(.025)
+    released.set()
+    assert await runner
+    assert any(call[0] == 'progress' and call[2] == 'cloning' for call in client.calls if isinstance(call, tuple))
+
+
+@pytest.mark.asyncio
 async def test_completion_survives_runner_restart_without_execution(monkeypatch, tmp_path):
     from digitalafarin_agent.operation_journal import OperationJournal
     journal = OperationJournal(tmp_path / 'operation.json')

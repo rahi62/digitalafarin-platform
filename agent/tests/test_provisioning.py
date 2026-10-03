@@ -26,7 +26,7 @@ def test_typed_provisioning_dispatch_uses_helper_without_paths(monkeypatch):
     from digitalafarin_agent.operations import execute_operation
     from digitalafarin_agent.takeover_helper_client import TakeoverHelperClient
     data = configuration()
-    def provision(self, params):
+    def provision(self, params, *, on_progress=None):
         assert params == data
         return {'final_state': 'succeeded', 'exact_commit': 'a' * 40}
     monkeypatch.setattr(TakeoverHelperClient, 'provision_service', provision)
@@ -70,8 +70,10 @@ def test_success_is_idempotent_and_health_failure_removes_first_unit(tmp_path, m
     apps, units = tmp_path / 'apps', tmp_path / 'units'
     units.mkdir()
     config = configuration()
-    result = helper.provision_service(config, apps_root=apps, systemd_root=units)
+    stages = []
+    result = helper.provision_service(config, apps_root=apps, systemd_root=units, on_progress=stages.append)
     assert result['final_state'] == 'succeeded'
+    assert stages == ['preparing', 'cloning', 'building', 'releasing', 'activating', 'health_check', 'verifying']
     unit = units / f"digitalafarin-app-{uuid.UUID(config['service_id']).hex}.service"
     assert unit.is_file()
     assert helper.provision_service(config, apps_root=apps, systemd_root=units) == result
@@ -80,10 +82,13 @@ def test_success_is_idempotent_and_health_failure_removes_first_unit(tmp_path, m
 
     config2 = {**configuration(), 'service_name': 'broken', 'service_port': 3001}
     def bad_health(_):
-        raise RuntimeError('unhealthy')
+        from digitalafarin_agent.health import HealthCheckError
+        raise HealthCheckError('Health check failed: expected HTTP 200, last result HTTP 500 after 12 attempts.')
     monkeypatch.setattr(helper, 'check_http_health', bad_health)
-    with pytest.raises(old.TakeoverHelperDomainError):
+    with pytest.raises(old.TakeoverHelperDomainError) as exc:
         helper.provision_service(config2, apps_root=apps, systemd_root=units)
+    assert exc.value.code == 'health_check_failed'
+    assert 'HTTP 500' in str(exc.value)
     assert not (apps / 'demo/broken/current').exists()
     assert len(list(units.glob('*.service'))) == 1
 
@@ -128,6 +133,7 @@ def test_redeploy_keeps_exact_unit_and_rolls_back_failed_health(tmp_path, monkey
     monkeypatch.setattr(helper, 'check_http_health', health)
     failed = helper.deploy_service({**config, 'deployment_id': str(uuid.uuid4()), 'exact_commit': 'c' * 40}, apps_root=apps, systemd_root=units)
     assert failed['final_state'] == 'rolled_back'
+    assert failed['failure_code'] == 'activation_failed'
     assert (apps / 'demo/web/current').resolve().name == second['release_name']
     assert (apps / 'demo/web/releases' / first['release_name']).exists()
 

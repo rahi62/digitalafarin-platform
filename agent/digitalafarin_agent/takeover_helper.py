@@ -1038,10 +1038,11 @@ def dispatch_helper_operation(
     *,
     allowed_bindings: set[tuple[str, str, str]] | None = None,
     source_repositories: dict[tuple[str, str, str], Path] | None = None,
+    on_progress=None,
 ) -> dict[str, Any]:
     if operation in {'provision_service', 'deploy_service', 'rollback_service'}:
         from . import provisioning_helper
-        return getattr(provisioning_helper, operation)(params)
+        return getattr(provisioning_helper, operation)(params, on_progress=on_progress)
     managed_operations = {
         "prepare_managed_node_nextjs_release": prepare_managed_node_nextjs_release,
         "activate_managed_release": activate_managed_release,

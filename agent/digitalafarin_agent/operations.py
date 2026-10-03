@@ -236,7 +236,13 @@ class OperationRunner:
         self._save(record)
         await self.client.start_operation(agent_token, operation_id, claim_token)
         stage = ['running']
-        context = reporter.set(lambda value: stage.__setitem__(0, value))
+        loop = asyncio.get_running_loop()
+        changed = asyncio.Event()
+        def set_stage(value):
+            if value != stage[0]:
+                stage[0] = value
+                loop.call_soon_threadsafe(changed.set)
+        context = reporter.set(set_stage)
         async def renew():
             sequence = 0
             while True:
@@ -245,7 +251,11 @@ class OperationRunner:
                     await self.client.progress_operation(agent_token, operation_id, claim_token, sequence, stage[0])
                 except Exception as exc:
                     logging.getLogger(__name__).warning('progress delivery failed: %s', type(exc).__name__)
-                await asyncio.sleep(15)
+                try:
+                    await asyncio.wait_for(changed.wait(), timeout=15)
+                except asyncio.TimeoutError:
+                    pass
+                changed.clear()
         renewal = asyncio.create_task(renew()) if hasattr(self.client, 'progress_operation') else None
         try:
             result = await asyncio.to_thread(execute_operation,

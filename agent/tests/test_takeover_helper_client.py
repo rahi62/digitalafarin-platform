@@ -81,3 +81,30 @@ def test_client_preserves_stable_helper_domain_error(tmp_path):
         client.activate_release({"unit_name": "oily.service"})
     thread.join(2)
     assert exc.value.code == "helper_unit_not_allowed"
+
+
+def test_client_streams_bounded_progress_before_terminal_result(tmp_path):
+    socket_path = tmp_path / "helper.sock"
+    ready = threading.Event()
+
+    def server():
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.bind(str(socket_path))
+            sock.listen(1)
+            ready.set()
+            conn, _ = sock.accept()
+            with conn:
+                while conn.recv(65536):
+                    pass
+                conn.sendall(b'{"progress":{"stage":"cloning"}}\n')
+                conn.sendall(b'{"progress":{"stage":"health_check"}}\n')
+                conn.sendall(b'{"ok":true,"result":{"done":true}}\n')
+
+    thread = threading.Thread(target=server, daemon=True)
+    thread.start()
+    assert ready.wait(2)
+    stages = []
+    result = TakeoverHelperClient(socket_path, timeout=2).provision_service({}, on_progress=stages.append)
+    thread.join(2)
+    assert result == {"done": True}
+    assert stages == ["cloning", "health_check"]

@@ -61,6 +61,13 @@ class _HelperHandler(socketserver.StreamRequestHandler):
         self.wfile.write(encoded)
         self.wfile.flush()
 
+    def _write_progress(self, stage: str) -> None:
+        # A disconnected observer must never abort or roll back a host mutation.
+        try:
+            self._write({'progress': {'stage': stage}})
+        except OSError:
+            pass
+
     def handle(self) -> None:
         try:
             peer_uid = self._peer_uid()
@@ -135,6 +142,7 @@ class _HelperHandler(socketserver.StreamRequestHandler):
                 request["params"],
                 allowed_bindings=self.server.allowed_bindings,
                 source_repositories=self.server.source_repositories,
+                on_progress=self._write_progress,
             )
         except TakeoverHelperDomainError as exc:
             self._write(

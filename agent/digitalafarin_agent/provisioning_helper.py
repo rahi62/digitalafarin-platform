@@ -15,7 +15,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import takeover_helper as legacy
-from .health import check_http_health
+from .health import HealthCheckError, check_http_health
 from .releases import atomic_activate
 from .takeover_worker import run_takeover_worker
 
@@ -129,7 +129,9 @@ def _write(path, text, mode=0o600):
         Path(name).unlink(missing_ok=True)
 
 
-def provision_service(params, *, apps_root=Path('/srv/digitalafarin/apps'), systemd_root=Path('/etc/systemd/system'), _mode='provision', _release_name=None):
+def provision_service(params, *, apps_root=Path('/srv/digitalafarin/apps'), systemd_root=Path('/etc/systemd/system'), _mode='provision', _release_name=None, on_progress=None):
+    progress = on_progress or (lambda _stage: None)
+    progress('preparing')
     data = validate_configuration(params)
     root = legacy._service_root(apps_root, data['project_slug'], data['service_name'])
     for child in ('releases', 'shared', '.platform'):
@@ -148,13 +150,13 @@ def provision_service(params, *, apps_root=Path('/srv/digitalafarin/apps'), syst
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
         if _mode == 'provision':
-            return _provision_locked(data, root, metadata, apps_root, systemd_root)
-        return _deploy_locked(data, root, metadata, apps_root, systemd_root, _release_name)
+            return _provision_locked(data, root, metadata, apps_root, systemd_root, progress)
+        return _deploy_locked(data, root, metadata, apps_root, systemd_root, _release_name, progress)
     finally:
         os.close(fd)
 
 
-def _provision_locked(data, root, metadata, apps_root, systemd_root):
+def _provision_locked(data, root, metadata, apps_root, systemd_root, progress):
     journal = metadata / f"{data['deployment_id']}.json"
     fingerprint = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
     unit_name = f"digitalafarin-app-{uuid.UUID(data['service_id']).hex}.service"
@@ -176,12 +178,15 @@ def _provision_locked(data, root, metadata, apps_root, systemd_root):
     created_unit = False
     release = None
     try:
+        progress('cloning')
         commit = resolve_commit(data)
+        progress('building')
         built = legacy._build_node_release(root, apps_root, data['project_slug'], data['service_name'],
                                            data['repository'], commit, data['root_directory'], data['install_configuration'],
                                            data['build_configuration'], RUNTIME_USER, RUNTIME_USER, {})
         release = legacy._release_path(root, built['release_name'])
         _write(journal, json.dumps({'fingerprint': fingerprint, 'state': 'prepared', 'release_name': release.name}))
+        progress('releasing')
         # O_EXCL prevents overwrite even if a foreign unit appears after preflight.
         unit_fd = os.open(unit, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
         created_unit = True
@@ -190,10 +195,16 @@ def _provision_locked(data, root, metadata, apps_root, systemd_root):
             stream.flush()
             os.fsync(stream.fileno())
         atomic_activate(root, release)
+        progress('activating')
         systemctl('daemon-reload')
         systemctl('enable', '--now', unit_name)
         systemctl('is-active', '--quiet', unit_name)
-        check_http_health({'url': f"http://127.0.0.1:{data['service_port']}{data['health_path']}", 'attempts': 12, 'timeout_seconds': 5, 'interval_seconds': 2})
+        progress('health_check')
+        try:
+            check_http_health({'url': f"http://127.0.0.1:{data['service_port']}{data['health_path']}", 'attempts': 12, 'timeout_seconds': 5, 'interval_seconds': 2})
+        except HealthCheckError as exc:
+            raise legacy.TakeoverHelperDomainError('health_check_failed', str(exc)) from exc
+        progress('verifying')
         result = {'final_state': 'succeeded', 'deployment_id': data['deployment_id'], 'release_name': release.name,
                   'exact_commit': commit, 'unit_name': unit_name, 'events': [
                       {'state': stage, 'message': ''} for stage in
@@ -249,7 +260,7 @@ def _deployment_result(data, release, commit, final_state):
                        ['preparing', 'cloning', 'building', 'releasing', 'health_check', 'activating', 'verifying', final_state]]}
 
 
-def _deploy_locked(data, root, metadata, apps_root, systemd_root, rollback_name):
+def _deploy_locked(data, root, metadata, apps_root, systemd_root, rollback_name, progress):
     owned = _read_metadata(metadata / 'service.json')
     original = owned['configuration']
     for key in ('service_id', 'project_slug', 'service_name', 'repository', 'runtime', 'root_directory', 'service_port'):
@@ -281,33 +292,43 @@ def _deploy_locked(data, root, metadata, apps_root, systemd_root, rollback_name)
     activated = False
     try:
         if rollback_name:
+            progress('releasing')
             release = legacy._release_path(root, rollback_name)
             legacy._validate_retained_release(release, root, data['root_directory'])
             commit = (release / '.git/HEAD').read_text().strip()
             if commit != data['exact_commit']:
                 fail('commit_mismatch', 'Rollback commit does not match retained release.')
         else:
+            progress('cloning')
             commit = resolve_commit(data)
+            progress('building')
             built = legacy._build_node_release(root, apps_root, data['project_slug'], data['service_name'], data['repository'], commit,
                                                data['root_directory'], data['install_configuration'], data['build_configuration'], RUNTIME_USER, RUNTIME_USER, {})
             release = legacy._release_path(root, built['release_name'])
         _write(journal, json.dumps({'fingerprint': fingerprint, 'state': 'activating', 'release_name': release.name, 'previous_release_name': previous.name}))
+        progress('releasing')
         if legacy._validate_previous_current(root) != previous:
             fail('managed_current_changed', 'Current release changed during build.')
         atomic_activate(root, release)
         activated = True
+        progress('activating')
         systemctl('restart', unit_name)
         systemctl('is-active', '--quiet', unit_name)
+        progress('health_check')
         check_http_health({'url': f"http://127.0.0.1:{data['service_port']}{data['health_path']}"})
+        progress('verifying')
         result = _deployment_result(data, release, commit, 'succeeded')
         _write(metadata / 'service.json', json.dumps({**owned, 'release_name': release.name}))
         _write(journal, json.dumps({'fingerprint': fingerprint, 'state': 'succeeded', 'result': result}))
-    except Exception:
+    except Exception as exc:
         if activated:
+            progress('rolling_back')
             atomic_activate(root, previous)
             systemctl('restart', unit_name)
             check_http_health({'url': f"http://127.0.0.1:{data['service_port']}{data['health_path']}"})
             result = _deployment_result(data, release, commit, 'rolled_back')
+            result['failure_code'] = 'health_check_failed' if isinstance(exc, HealthCheckError) else 'activation_failed'
+            result['failure_message'] = str(exc) if isinstance(exc, HealthCheckError) else 'New release did not pass activation; previous release was restored.'
             _write(journal, json.dumps({'fingerprint': fingerprint, 'state': 'rolled_back', 'result': result}))
         else:
             _write(journal, json.dumps({'fingerprint': fingerprint, 'state': 'failed'}))

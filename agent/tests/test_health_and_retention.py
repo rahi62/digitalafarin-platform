@@ -19,7 +19,7 @@ def test_health_check_retries_bounded_attempts():
 
 
 def test_health_check_failure_is_bounded():
-    with pytest.raises(HealthCheckError):
+    with pytest.raises(HealthCheckError, match='HTTP 503'):
         check_http_health(
             {"url": "http://127.0.0.1:8000/health", "expected_status": 200, "attempts": 2, "timeout_seconds": 1, "interval_seconds": 0},
             request=lambda url, timeout: 503,
