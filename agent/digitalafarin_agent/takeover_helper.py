@@ -45,7 +45,6 @@ _PREPARE_KEYS = {
     "service_name",
     "repository",
     "exact_commit",
-    "source_id",
     "root_directory",
     "install_configuration",
     "build_configuration",
