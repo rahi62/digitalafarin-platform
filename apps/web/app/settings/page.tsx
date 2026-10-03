@@ -1,10 +1,26 @@
 import Link from "next/link";
-import { getGitHubIntegration, listProjects } from "@/lib/control-plane";
+import { ProjectSettingsForm, ServiceSettingsForm } from "@/components/SettingsForms";
+import {
+  getGitHubIntegration,
+  getProject,
+  listGitHubRepositories,
+  listProjects,
+} from "@/lib/control-plane";
 
 export const dynamic = "force-dynamic";
 
 export default async function PlatformSettingsPage() {
-  const [projects, github] = await Promise.all([listProjects(), getGitHubIntegration()]);
+  const [summaries, github] = await Promise.all([listProjects(), getGitHubIntegration()]);
+  const projects = await Promise.all(summaries.map((project) => getProject(project.id)));
+  const repositories = (
+    await Promise.all(
+      github.installations
+        .filter((installation) => !installation.suspended)
+        .map((installation) =>
+          listGitHubRepositories(installation.installation_id).catch(() => []),
+        ),
+    )
+  ).flat();
 
   return (
     <main className="railPage">
@@ -12,7 +28,7 @@ export default async function PlatformSettingsPage() {
         <div>
           <p className="railEyebrow">PLATFORM SETTINGS</p>
           <h1>Settings</h1>
-          <p>مدیریت پروژه‌ها، تنظیمات سرویس‌ها و Integrationهای پلتفرم</p>
+          <p>ویرایش مستقیم پروژه‌ها، سرویس‌ها، deployment configuration و Integrationهای پلتفرم</p>
         </div>
       </header>
 
@@ -20,26 +36,49 @@ export default async function PlatformSettingsPage() {
         <div className="railSectionHeader">
           <div>
             <h2>Projects & Services</h2>
-            <p>برای ویرایش یا حذف، پروژه را باز کنید. حذف پروژه فقط بعد از حذف منابع وابسته مجاز است.</p>
+            <p>تنظیمات این بخش مستقیماً قابل ویرایش هستند؛ برای Edit نیازی به خروج از Settings نیست.</p>
           </div>
         </div>
-        <div className="railDeploymentList">
-          {projects.length === 0 ? (
-            <div className="railEmpty railEmptyCompact">
-              <h3>No projects</h3>
-              <p>هنوز پروژه‌ای در Control Plane ثبت نشده است.</p>
-            </div>
-          ) : projects.map((project) => (
-            <div className="railDeploymentRow" key={project.id}>
+        {projects.length === 0 ? (
+          <div className="railEmpty railEmptyCompact">
+            <h3>No projects</h3>
+            <p>هنوز پروژه‌ای در Control Plane ثبت نشده است.</p>
+          </div>
+        ) : projects.map((project) => (
+          <div key={project.id}>
+            <div className="railSectionHeader">
               <div>
-                <strong>{project.name}</strong>
-                <small dir="ltr">{project.slug}</small>
+                <h2>{project.name}</h2>
+                <p dir="ltr">{project.slug}</p>
               </div>
-              <Link className="railSecondaryButton" href={`/projects/${project.id}/settings`}>Project settings</Link>
-              <Link className="railSecondaryButton" href={`/projects/${project.id}`}>Services</Link>
+              <Link className="railSecondaryButton" href={`/projects/${project.id}`}>Open project</Link>
             </div>
-          ))}
-        </div>
+
+            <ProjectSettingsForm project={project} />
+
+            {(project.services ?? []).map((service) => (
+              <div key={service.id}>
+                <div className="railSectionHeader">
+                  <div>
+                    <h2>Service · {service.name}</h2>
+                    <p dir="ltr">{service.unit_name}</p>
+                  </div>
+                  <Link
+                    className="railSecondaryButton"
+                    href={`/projects/${project.id}/services/${service.id}?tab=settings`}
+                  >
+                    Open service
+                  </Link>
+                </div>
+                <ServiceSettingsForm
+                  project={project}
+                  service={service}
+                  githubRepositories={repositories}
+                />
+              </div>
+            ))}
+          </div>
+        ))}
       </section>
 
       <section className="railServiceSection">
