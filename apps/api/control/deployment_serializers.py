@@ -49,6 +49,12 @@ class ProjectSerializer(StrictSerializer):
     def create(self, validated_data):
         return Project.objects.create(**validated_data)
 
+    def update(self, instance, validated_data):
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        instance.save(update_fields=[*validated_data.keys(), "updated_at"])
+        return instance
+
 
 class ServiceSerializer(StrictSerializer):
     id = serializers.UUIDField(source="public_id", read_only=True)
