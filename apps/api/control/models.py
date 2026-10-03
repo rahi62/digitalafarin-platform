@@ -256,6 +256,7 @@ class Service(models.Model):
     )
     repository = models.URLField(max_length=500, null=True, blank=True)
     branch = models.CharField(max_length=255, null=True, blank=True)
+    auto_deploy = models.BooleanField(default=False)
     root_directory = models.CharField(max_length=255, null=True, blank=True)
     runtime = models.CharField(
         max_length=32,
@@ -596,13 +597,18 @@ class DatabaseResource(models.Model):
 
 
 class GitHubDelivery(models.Model):
-    delivery_id = models.CharField(max_length=100, unique=True)
+    delivery_id = models.CharField(max_length=100)
     service = models.ForeignKey(
         Service, related_name="github_deliveries", on_delete=models.CASCADE
     )
     event = models.CharField(max_length=50)
     commit = models.CharField(max_length=40)
     received_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["delivery_id", "service"], name="uniq_github_delivery_service")
+        ]
 
 
 class Domain(models.Model):
