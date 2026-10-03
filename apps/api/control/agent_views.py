@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.http import HttpResponse
 
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -21,6 +22,7 @@ from control.services.operations import (
 from control.services.execution import build_execution_context
 from control.models import Operation
 from control.services.deployments import apply_deployment_result
+from control.services.github_source import GitHubSourceError, download_archive
 from control.services.takeovers import (
     TakeoverError,
     apply_takeover_result,
@@ -162,3 +164,33 @@ class OperationCompleteView(AgentOperationView):
                 status=status.HTTP_409_CONFLICT,
             )
         return Response(serialize_operation(operation, include_result=False))
+
+
+class OperationSourceView(AgentOperationView):
+    def get(self, request, operation_id):
+        claim_token = request.headers.get("X-DigitalAfarin-Claim", "")
+        try:
+            operation = Operation.objects.select_related("server").get(
+                public_id=operation_id,
+                server=request.user.server,
+                kind=Operation.KIND_DEPLOYMENT_DEPLOY,
+                state=Operation.STATE_RUNNING,
+            )
+        except Operation.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        if not operation.claim_token or not claim_token or not __import__("secrets").compare_digest(operation.claim_token, claim_token):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        try:
+            deployment = operation.server.managed_services.filter(
+                deployments__public_id=operation.payload.get("deployment_id")
+            ).select_related("project").prefetch_related("deployments").first()
+            if deployment is None:
+                return Response(status=status.HTTP_404_NOT_FOUND)
+            record = deployment.deployments.get(public_id=operation.payload["deployment_id"])
+            data = download_archive(deployment.repository, record.resolved_commit)
+        except (GitHubSourceError, KeyError):
+            return Response({"error": "source_unavailable"}, status=status.HTTP_502_BAD_GATEWAY)
+        response = HttpResponse(data, content_type="application/gzip")
+        response["Content-Disposition"] = 'attachment; filename="source.tar.gz"'
+        response["X-DigitalAfarin-Commit"] = record.resolved_commit
+        return response
