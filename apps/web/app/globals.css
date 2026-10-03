@@ -300,3 +300,21 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 .railMuted{color:#747d88;font-size:11px}.railEmptyCompact{min-height:150px;margin-top:0}
 @media(max-width:980px){.railProjectGrid,.railServiceGrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:760px){.railShell{display:block}.railSidebar{display:none}.railMobileHeader{display:flex;height:58px;align-items:center;padding:0 16px;border-bottom:1px solid #20252d;background:#0d1014}.railMobileNav{display:block;overflow:auto;border-bottom:1px solid #20252d;background:#0d1014}.railMobileNav .railNav{display:flex;flex-direction:row;padding:7px 10px;direction:ltr}.railMobileNav .railNavGroup{display:flex}.railMobileNav .railAdvanced{display:none}.railNavItem{white-space:nowrap}.railPage{padding:28px 16px 50px}.railPageHeader,.railProjectTitleRow{flex-direction:column}.railProjectGrid,.railServiceGrid,.railSettingsGrid{grid-template-columns:1fr}.railCanvas{padding:16px}.railResourceStrip{overflow:auto}.railSectionHeader{align-items:flex-start;flex-direction:column}.railDeployForm{width:100%}.railDeployForm input{min-width:0;width:100%;flex:1}}
+
+.railSettingsForm{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;direction:ltr}
+.railSettingsForm label{display:grid;gap:7px;min-width:0;color:#8f98a4;font-size:10px}
+.railSettingsForm input,.railSettingsForm select,.railSettingsForm textarea{width:100%;box-sizing:border-box;border:1px solid #2a3039;background:#0d1014;color:#f1f3f5;border-radius:7px;padding:9px 10px;outline:none;font:11px/1.5 inherit}
+.railSettingsForm textarea{resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.railSettingsForm input:focus,.railSettingsForm select:focus,.railSettingsForm textarea:focus{border-color:#565f6d}
+.railSettingsForm button{justify-self:start}
+.railFieldWide,.railSettingsForm .railFormError,.railSettingsForm .railFormSuccess{grid-column:1/-1}
+.railFormError{color:#ff848f;font-size:10px;margin:0}
+.railFormSuccess{color:#74dda7;font-size:10px;margin:0}
+.railDangerZone{border-color:rgba(255,89,105,.28)}
+.railDangerZone .railSectionHeader{border-bottom:1px solid rgba(255,89,105,.12);padding-bottom:14px}
+.railDangerZone h2{color:#ff9aa3}
+.railDangerSummary{display:grid;gap:7px;padding:13px;margin-bottom:16px;border:1px solid rgba(255,89,105,.14);border-radius:8px;background:rgba(255,89,105,.035)}
+.railDangerSummary strong{font-size:12px}.railDangerSummary code{font-size:10px}.railDangerSummary span{font-size:10px;color:#8c949f;overflow-wrap:anywhere}
+.railDangerButton{min-height:38px;padding:0 13px;border:1px solid rgba(255,89,105,.35);border-radius:7px;background:rgba(255,89,105,.08);color:#ff9aa3;font-weight:800;cursor:pointer}
+.railDangerButton:hover{background:rgba(255,89,105,.14)}.railDangerButton:disabled,.railPrimaryButton:disabled{opacity:.55;cursor:not-allowed}
+@media(max-width:680px){.railSettingsForm{grid-template-columns:1fr}.railFieldWide,.railSettingsForm .railFormError,.railSettingsForm .railFormSuccess{grid-column:auto}}

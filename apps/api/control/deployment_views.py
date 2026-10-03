@@ -1,3 +1,4 @@
+from django.db import transaction
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -8,9 +9,11 @@ from control.deployment_serializers import (
     DeploymentConfigurationSerializer,
     ProjectSerializer,
     ServiceSerializer,
+    ServiceSettingsSerializer,
 )
 from control.models import AuditEvent, Deployment, Operation, Project, Server, Service
 from control.permissions import require_scope
+from control.operation_serializers import is_protected_unit
 from control.services.operations import create_operation
 from control.services.service_adoption import (
     ServiceAdoptionError,
@@ -151,12 +154,20 @@ class ServiceDeploymentConfigurationView(APIView):
 
 class ProjectDetailView(APIView):
     authentication_classes = [ServicePrincipalAuthentication]
-    permission_classes = [require_scope("operations:read")]
+
+    def get_permissions(self):
+        scope = "operations:read" if self.request.method == "GET" else "operations:create"
+        return [require_scope(scope)()]
+
+    def _project(self, project_id):
+        try:
+            return Project.objects.get(public_id=project_id)
+        except Project.DoesNotExist:
+            return None
 
     def get(self, request, project_id):
-        try:
-            project = Project.objects.get(public_id=project_id)
-        except Project.DoesNotExist:
+        project = self._project(project_id)
+        if project is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
         data = ProjectSerializer(project).data
         data.update(
@@ -167,6 +178,142 @@ class ProjectDetailView(APIView):
             domains=[serialize_domain(item) for item in project.domains.all()],
         )
         return Response(data)
+
+    def patch(self, request, project_id):
+        project = self._project(project_id)
+        if project is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        serializer = ProjectSerializer(project, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        requested_slug = serializer.validated_data.get("slug", project.slug)
+        if requested_slug != project.slug and project.services.exists():
+            return Response(
+                {
+                    "error": "project_slug_locked",
+                    "message": "Project slug cannot change while services are attached.",
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        project = serializer.save()
+        AuditEvent.objects.create(
+            event_type="project.updated",
+            target_type="project",
+            target_id=str(project.public_id),
+            actor=request.user.name,
+            metadata={"slug": project.slug},
+        )
+        return Response(ProjectSerializer(project).data)
+
+    def delete(self, request, project_id):
+        project = self._project(project_id)
+        if project is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        blockers = {
+            "services": project.services.count(),
+            "variables": project.environment_variables.count(),
+            "volumes": project.volumes.count(),
+            "databases": project.databases.count(),
+            "domains": project.domains.count(),
+        }
+        blockers = {key: value for key, value in blockers.items() if value}
+        if blockers:
+            return Response(
+                {
+                    "error": "project_not_empty",
+                    "message": "Project cannot be deleted while managed resources are attached.",
+                    "blockers": blockers,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        project_id_value = str(project.public_id)
+        project_slug = project.slug
+        with transaction.atomic():
+            project.delete()
+            AuditEvent.objects.create(
+                event_type="project.deleted",
+                target_type="project",
+                target_id=project_id_value,
+                actor=request.user.name,
+                metadata={"slug": project_slug},
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ServiceSettingsDetailView(APIView):
+    authentication_classes = [ServicePrincipalAuthentication]
+    permission_classes = [require_scope("operations:create")]
+
+    def _service(self, service_id):
+        try:
+            return Service.objects.select_related("project", "target_server").get(
+                public_id=service_id
+            )
+        except Service.DoesNotExist:
+            return None
+
+    def patch(self, request, service_id):
+        service = self._service(service_id)
+        if service is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        serializer = ServiceSettingsSerializer(service, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        service = serializer.save()
+        AuditEvent.objects.create(
+            event_type="service.updated",
+            target_type="service",
+            target_id=str(service.public_id),
+            actor=request.user.name,
+            metadata={"project_id": str(service.project.public_id), "unit_name": service.unit_name},
+        )
+        return Response(ServiceSerializer(service).data)
+
+    def delete(self, request, service_id):
+        service = self._service(service_id)
+        if service is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        if is_protected_unit(service.unit_name):
+            return Response(
+                {"error": "protected_service", "message": "Protected services cannot be removed from Platform management."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        blockers = {
+            "health_check": int(hasattr(service, "health_check")),
+            "deployments": service.deployments.count(),
+            "releases": service.releases.count(),
+            "takeovers": service.takeovers.count(),
+            "variables": service.environment_variables.count(),
+            "volumes": service.volumes.count(),
+            "databases": service.databases.count(),
+            "domains": service.domains.count(),
+            "github_deliveries": service.github_deliveries.count(),
+        }
+        blockers = {key: value for key, value in blockers.items() if value}
+        if blockers:
+            return Response(
+                {
+                    "error": "service_has_dependencies",
+                    "message": "Service cannot be removed while Platform resources or history are attached.",
+                    "blockers": blockers,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        service_id_value = str(service.public_id)
+        project_id_value = str(service.project.public_id)
+        unit_name = service.unit_name
+        with transaction.atomic():
+            service.delete()
+            AuditEvent.objects.create(
+                event_type="service.removed",
+                target_type="service",
+                target_id=service_id_value,
+                actor=request.user.name,
+                metadata={
+                    "project_id": project_id_value,
+                    "unit_name": unit_name,
+                    "host_mutated": False,
+                },
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class ServerBootstrapView(APIView):

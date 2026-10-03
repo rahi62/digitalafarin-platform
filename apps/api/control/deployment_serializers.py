@@ -39,12 +39,21 @@ class ProjectSerializer(StrictSerializer):
     slug = serializers.SlugField(max_length=80)
 
     def validate_slug(self, value):
-        if Project.objects.filter(slug=value).exists():
+        queryset = Project.objects.filter(slug=value)
+        if self.instance is not None:
+            queryset = queryset.exclude(pk=self.instance.pk)
+        if queryset.exists():
             raise serializers.ValidationError("A project with this slug already exists.")
         return value
 
     def create(self, validated_data):
         return Project.objects.create(**validated_data)
+
+    def update(self, instance, validated_data):
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        instance.save(update_fields=[*validated_data.keys(), "updated_at"])
+        return instance
 
 
 class ServiceSerializer(StrictSerializer):
@@ -131,3 +140,22 @@ class DeploymentConfigurationSerializer(StrictSerializer):
 
     def validate(self, attrs):
         return validate_deployment_configuration(attrs)
+
+
+class ServiceSettingsSerializer(StrictSerializer):
+    repository = serializers.URLField(max_length=500)
+    branch = serializers.RegexField(SAFE_REF.pattern, max_length=255)
+    root_directory = serializers.RegexField(SAFE_PATH.pattern, max_length=255, default=".")
+    runtime = serializers.ChoiceField(choices=[Service.RUNTIME_NODE, Service.RUNTIME_DJANGO])
+    install_configuration = serializers.DictField(default=dict)
+    build_configuration = serializers.DictField(default=dict)
+    service_port = serializers.IntegerField(min_value=1, max_value=65535)
+
+    def validate(self, attrs):
+        return validate_deployment_configuration(attrs)
+
+    def update(self, instance, validated_data):
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        instance.save(update_fields=[*validated_data.keys(), "updated_at"])
+        return instance
