@@ -235,6 +235,7 @@ def _trusted_local_source_repository(
     service_name: str,
     unit_name: str,
     exact_commit: str,
+    expected_repository: str,
     user: str,
     group: str,
     source_repositories: dict[tuple[str, str, str], Path],
@@ -271,7 +272,7 @@ def _trusted_local_source_repository(
             timeout=30,
         )
         if _validate_repository(remote) != _validate_repository(
-            managed_repositories_from_env()[(project_slug, service_name, unit_name)]
+            expected_repository
         ):
             raise TakeoverHelperDomainError(
                 "managed_repository_not_allowed",
@@ -700,6 +701,7 @@ def prepare_node_nextjs_release(
         service_name,
         unit_name,
         exact_commit,
+        params["repository"],
         user,
         group,
         sources,
