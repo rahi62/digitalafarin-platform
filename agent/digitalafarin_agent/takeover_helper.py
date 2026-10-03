@@ -22,6 +22,7 @@ from .takeover_systemd import (
     write_managed_dropin,
 )
 from .takeover_worker import TakeoverWorkerError, run_takeover_worker
+from .source_providers import LocalSourceProvider, SourceProviderError, SourceRequest
 
 
 APPS_ROOT = Path("/srv/digitalafarin/apps")
@@ -696,16 +697,21 @@ def prepare_node_nextjs_release(
         if source_repositories is not None
         else trusted_source_repositories_from_env()
     )
-    trusted_source = _trusted_local_source_repository(
-        project_slug,
-        service_name,
-        unit_name,
-        exact_commit,
-        params["repository"],
-        user,
-        group,
-        sources,
-    )
+    provider = LocalSourceProvider(_trusted_local_source_repository, sources)
+    try:
+        trusted_source = provider.resolve(
+            SourceRequest(
+                project_slug=project_slug,
+                service_name=service_name,
+                unit_name=unit_name,
+                repository=params["repository"],
+                exact_commit=exact_commit,
+                user=user,
+                group=group,
+            )
+        )
+    except SourceProviderError as exc:
+        raise TakeoverHelperDomainError(exc.code, str(exc)) from exc
     service_root = _ensure_release_directories(
         apps_root,
         project_slug,
