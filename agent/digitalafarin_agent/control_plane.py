@@ -63,6 +63,22 @@ class AgentControlPlaneClient:
         except (httpx.HTTPError, ValueError) as exc:
             raise ControlPlaneError("operation claim failed") from exc
 
+    async def download_operation_source(
+        self, agent_token: str, operation_id: str, claim_token: str
+    ) -> tuple[bytes, str]:
+        try:
+            response = await self.http.get(
+                f"{self.base_url}/api/agent/v1/operations/{operation_id}/source",
+                headers={**self._agent_headers(agent_token), "X-DigitalAfarin-Claim": claim_token},
+            )
+            response.raise_for_status()
+            commit = response.headers.get("X-DigitalAfarin-Commit", "")
+            if len(response.content) > 100 * 1024 * 1024:
+                raise ControlPlaneError("operation source exceeds size limit")
+            return response.content, commit
+        except httpx.HTTPError as exc:
+            raise ControlPlaneError("operation source download failed") from exc
+
     async def start_operation(
         self, agent_token: str, operation_id: str, claim_token: str
     ) -> None:
