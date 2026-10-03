@@ -668,10 +668,10 @@ def prepare_node_nextjs_release(
     apps_root: Path = APPS_ROOT,
 ) -> dict[str, Any]:
     keys = set(params)
-    if keys == _PREPARE_KEYS | {"source_id"}:
-        pass
-    else:
-        _require_exact_keys(params, _PREPARE_KEYS)
+    if keys not in (_PREPARE_KEYS, _PREPARE_KEYS | {"source_id"}):
+        raise TakeoverHelperDomainError(
+            "helper_invalid_request", "Invalid privileged helper parameters."
+        )
     project_slug, service_name = _validate_identity(
         params["project_slug"], params["service_name"]
     )
