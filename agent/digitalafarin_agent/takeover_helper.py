@@ -667,7 +667,11 @@ def prepare_node_nextjs_release(
     source_repositories: dict[tuple[str, str, str], Path] | None = None,
     apps_root: Path = APPS_ROOT,
 ) -> dict[str, Any]:
-    _require_exact_keys(params, _PREPARE_KEYS)
+    keys = set(params)
+    if keys == _PREPARE_KEYS | {"source_id"}:
+        pass
+    else:
+        _require_exact_keys(params, _PREPARE_KEYS)
     project_slug, service_name = _validate_identity(
         params["project_slug"], params["service_name"]
     )
