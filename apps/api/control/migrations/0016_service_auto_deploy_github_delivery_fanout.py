@@ -10,10 +10,7 @@ class Migration(migrations.Migration):
             name="auto_deploy",
             field=models.BooleanField(default=False),
         ),
-        migrations.RemoveConstraint(
-            model_name="githubdelivery",
-            name="control_githubdelivery_delivery_id_uniq",
-        ) if False else migrations.AlterField(
+        migrations.AlterField(
             model_name="githubdelivery",
             name="delivery_id",
             field=models.CharField(max_length=100),
