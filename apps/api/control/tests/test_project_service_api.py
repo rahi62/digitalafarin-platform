@@ -497,6 +497,7 @@ class ProjectServiceAPITests(TestCase):
             {
                 "repository": "https://github.com/example/oily.git",
                 "branch": "release",
+                "auto_deploy": True,
                 "root_directory": ".",
                 "runtime": "node-nextjs",
                 "install_configuration": {"package_manager": "npm"},
@@ -508,6 +509,7 @@ class ProjectServiceAPITests(TestCase):
         self.assertEqual(response.status_code, 200)
         service.refresh_from_db()
         self.assertEqual(service.branch, "release")
+        self.assertTrue(service.auto_deploy)
         self.assertEqual(service.service_port, 3100)
         self.assertEqual(Operation.objects.count(), before_operations)
         self.assertTrue(AuditEvent.objects.filter(event_type="service.updated", target_id=str(service.public_id)).exists())
