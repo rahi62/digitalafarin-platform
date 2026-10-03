@@ -83,6 +83,7 @@ export async function updateServiceSettingsAction(
       servicePort: Number(formData.get("service_port")),
       installConfiguration: parseObject(formData.get("install_configuration"), "Install configuration"),
       buildConfiguration: parseObject(formData.get("build_configuration"), "Build configuration"),
+      autoDeploy: formData.get("auto_deploy") === "on",
     });
     revalidatePath(`/projects/${projectId}`);
     revalidatePath(`/projects/${projectId}/services/${serviceId}`);
