@@ -50,6 +50,7 @@ def deploy_managed_release(payload: dict, *, helper=None) -> dict:
         _event(events, "building")
         prepared = helper.prepare_managed_node_nextjs_release({
             **identity, "repository": payload["repository"], "exact_commit": exact_commit,
+            "source_id": payload.get("source_id"),
             "runtime": payload["runtime"], "root_directory": root,
             "install_configuration": payload.get("install_configuration", {}),
             "build_configuration": payload.get("build_configuration", {}),
