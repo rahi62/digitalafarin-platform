@@ -137,3 +137,6 @@ class TakeoverHelperClient:
 
     def prune_managed_releases(self, params: dict[str, Any]) -> dict[str, Any]:
         return self.call("prune_managed_releases", params, timeout=300)
+
+    def delete_managed_service(self, params: dict[str, Any]) -> dict[str, Any]:
+        return self.call("delete_managed_service", params, timeout=120)
