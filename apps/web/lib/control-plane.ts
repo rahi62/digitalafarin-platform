@@ -84,6 +84,7 @@ export type ProjectService = {
   lifecycle_state: ServiceLifecycle;
   repository: string | null;
   branch: string | null;
+  auto_deploy: boolean;
   root_directory: string | null;
   runtime: ServiceRuntime | null;
   install_configuration: Record<string, unknown>;
@@ -300,7 +301,7 @@ export function updateProjectService(
 ): Promise<ProjectService> {
   return request(`/api/control/v1/services/${encodeURIComponent(serviceId)}/`, {
     method: "PATCH",
-    body: JSON.stringify(buildDeploymentConfigurationRequest(input)),
+    body: JSON.stringify({ ...buildDeploymentConfigurationRequest(input), auto_deploy: (input as { autoDeploy?: boolean }).autoDeploy ?? false }),
   });
 }
 
