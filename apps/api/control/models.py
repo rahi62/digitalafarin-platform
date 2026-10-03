@@ -141,6 +141,7 @@ class Operation(models.Model):
     KIND_SERVICE_STOP = "service.stop"
     KIND_SERVICE_RESTART = "service.restart"
     KIND_SERVICE_LOGS = "service.logs"
+    KIND_SERVICE_DELETE = "service.delete"
     KIND_VOLUME_CREATE = "volume.create"
     KIND_SERVER_BOOTSTRAP = "server.bootstrap"
     KIND_DATABASE_CREATE = "database.create"
@@ -156,6 +157,7 @@ class Operation(models.Model):
         (KIND_SERVICE_STOP, "Stop service"),
         (KIND_SERVICE_RESTART, "Restart service"),
         (KIND_SERVICE_LOGS, "Read service logs"),
+        (KIND_SERVICE_DELETE, "Delete managed service"),
         (KIND_VOLUME_CREATE, "Create managed volume"),
         (KIND_SERVER_BOOTSTRAP, "Bootstrap server"),
         (KIND_DATABASE_CREATE, "Create database"),

@@ -1084,6 +1084,56 @@ def cleanup_release(
     return {"removed": not release.exists()}
 
 
+_MANAGED_DELETE_KEYS = {"project_slug", "service_name", "unit_name", "root_directory"}
+
+def delete_managed_service(
+    params, *, allowed_bindings=None, apps_root=APPS_ROOT, systemd_root=SYSTEMD_ROOT,
+):
+    _require_exact_keys(params, _MANAGED_DELETE_KEYS)
+    project, service = _validate_identity(params["project_slug"], params["service_name"])
+    allowed = allowed_bindings if allowed_bindings is not None else allowed_bindings_from_env()
+    unit = _validate_binding(project, service, params["unit_name"], allowed)
+    _validate_root_directory(params["root_directory"])
+    service_root = _service_root(apps_root, project, service)
+    if not service_root.exists() or service_root.is_symlink():
+        raise TakeoverHelperDomainError("managed_service_missing", "Managed service root is unavailable.")
+    info = service_root.stat()
+    if info.st_uid != 0 or info.st_mode & 0o022:
+        raise TakeoverHelperDomainError("release_validation_failed", "Unsafe managed service root.")
+
+    dropin = managed_dropin_path(unit, systemd_root=systemd_root)
+    if dropin.is_symlink() or not dropin.is_file():
+        raise TakeoverHelperDomainError("managed_dropin_missing", "Managed deployment drop-in is unavailable.")
+
+    current = service_root / "current"
+    if current.exists() and not current.is_symlink():
+        raise TakeoverHelperDomainError("release_validation_failed", "Managed current pointer is not a symlink.")
+    if current.is_symlink():
+        target = current.resolve(strict=True)
+        releases = (service_root / "releases").resolve(strict=True)
+        if target.parent != releases or not RELEASE_NAME.fullmatch(target.name):
+            raise TakeoverHelperDomainError("release_validation_failed", "Managed current pointer is unsafe.")
+
+    # Restore the pre-Platform systemd configuration before deleting Platform-owned releases.
+    remove_managed_dropin(unit, systemd_root=systemd_root)
+    daemon_reload()
+    restart_takeover_unit(unit)
+
+    if current.is_symlink():
+        current.unlink()
+    releases_path = service_root / "releases"
+    if releases_path.exists():
+        if releases_path.is_symlink() or releases_path.resolve().parent != service_root.resolve():
+            raise TakeoverHelperDomainError("release_validation_failed", "Managed releases root is unsafe.")
+        shutil.rmtree(releases_path)
+    shared = service_root / "shared"
+    if shared.exists() and not shared.is_symlink() and not any(shared.iterdir()):
+        shared.rmdir()
+    if service_root.exists() and not any(service_root.iterdir()):
+        service_root.rmdir()
+    return {"unit_name": unit, "managed_artifacts_removed": True, "unit_deleted": False}
+
+
 def dispatch_helper_operation(
     operation: str,
     params: dict[str, Any],
@@ -1097,6 +1147,7 @@ def dispatch_helper_operation(
         "rollback_managed_activation": rollback_managed_activation,
         "rollback_managed_release": rollback_managed_release,
         "prune_managed_releases": prune_managed_releases,
+        "delete_managed_service": delete_managed_service,
     }
     if operation in managed_operations:
         return managed_operations[operation](params, allowed_bindings=allowed_bindings)

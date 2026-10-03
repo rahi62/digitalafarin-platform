@@ -41,6 +41,18 @@ def _deployment_environment(service) -> dict[str, str]:
 
 
 def build_execution_context(operation: Operation) -> dict | None:
+    if operation.kind == Operation.KIND_SERVICE_DELETE:
+        from control.models import Service
+        service = Service.objects.select_related("project").get(
+            public_id=operation.payload["service_id"], target_server=operation.server
+        )
+        return {
+            "service_id": str(service.public_id),
+            "project_slug": service.project.slug,
+            "service_name": service.name,
+            "unit_name": service.unit_name,
+            "root_directory": service.root_directory or ".",
+        }
     if operation.kind in {Operation.KIND_DOMAIN_CONFIGURE, Operation.KIND_DOMAIN_SSL}:
         domain = Domain.objects.select_related("service").get(
             public_id=operation.payload["domain_id"], server=operation.server

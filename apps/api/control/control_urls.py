@@ -49,6 +49,7 @@ urlpatterns = [
         "services/<uuid:service_id>/",
         deployment_views.ServiceSettingsDetailView.as_view(),
     ),
+    path("services/<uuid:service_id>/delete/", deployment_views.ServiceManagedDeleteView.as_view()),
     path(
         "services/<uuid:service_id>/deployment-configuration/",
         deployment_views.ServiceDeploymentConfigurationView.as_view(),

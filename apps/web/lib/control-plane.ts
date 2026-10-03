@@ -305,6 +305,12 @@ export function updateProjectService(
   });
 }
 
+export function deleteManagedProjectService(serviceId: string): Promise<Operation> {
+  return request(`/api/control/v1/services/${encodeURIComponent(serviceId)}/delete/`, {
+    method: "POST", body: "{}",
+  });
+}
+
 export function removeProjectService(serviceId: string): Promise<Record<string, never>> {
   return request(`/api/control/v1/services/${encodeURIComponent(serviceId)}/`, {
     method: "DELETE",

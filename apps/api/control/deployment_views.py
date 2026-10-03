@@ -316,6 +316,69 @@ class ServiceSettingsDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class ServiceManagedDeleteView(APIView):
+    authentication_classes = [ServicePrincipalAuthentication]
+    permission_classes = [require_scope("operations:create")]
+
+    def post(self, request, service_id):
+        if request.data:
+            return Response({"error": "invalid_request"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            service = Service.objects.select_related("project", "target_server").get(public_id=service_id)
+        except Service.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        if is_protected_unit(service.unit_name):
+            return Response(
+                {"error": "protected_service", "message": "Protected services cannot be deleted."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        if service.lifecycle_state != Service.LIFECYCLE_MANAGED:
+            return Response(
+                {"error": "service_not_managed", "message": "Only managed services can use host cleanup."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        blockers = {
+            "volumes": service.volumes.count(),
+            "databases": service.databases.count(),
+            "domains": service.domains.count(),
+        }
+        blockers = {key: value for key, value in blockers.items() if value}
+        if blockers:
+            return Response(
+                {"error": "persistent_resources_attached", "message": "Remove persistent resources before deleting this service.", "blockers": blockers},
+                status=status.HTTP_409_CONFLICT,
+            )
+        if service.target_server.status != "online":
+            return Response({"error": "server_offline"}, status=status.HTTP_409_CONFLICT)
+        active = service.target_server.operations.filter(
+            kind=Operation.KIND_SERVICE_DELETE,
+            state__in=[Operation.STATE_QUEUED, Operation.STATE_CLAIMED, Operation.STATE_RUNNING],
+            payload__service_id=str(service.public_id),
+        ).first()
+        if active:
+            return Response(
+                {"id": str(active.public_id), "kind": active.kind, "state": active.state},
+                status=status.HTTP_200_OK,
+            )
+        operation = create_operation(
+            server=service.target_server,
+            kind=Operation.KIND_SERVICE_DELETE,
+            payload={"service_id": str(service.public_id)},
+            actor=request.user.name,
+        )
+        AuditEvent.objects.create(
+            event_type="service.delete_requested",
+            target_type="service",
+            target_id=str(service.public_id),
+            actor=request.user.name,
+            metadata={"unit_name": service.unit_name},
+        )
+        return Response(
+            {"id": str(operation.public_id), "kind": operation.kind, "state": operation.state},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
 class ServerBootstrapView(APIView):
     authentication_classes = [ServicePrincipalAuthentication]
     permission_classes = [require_scope("operations:create")]

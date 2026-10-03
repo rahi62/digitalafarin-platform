@@ -153,3 +153,42 @@ def test_takeover_prepare_uses_dedicated_executor_and_generic_protection_remains
             {"unit_name": "digitalafarin-platform-web.service"},
         )
     assert exc.value.code == "protected_unit"
+
+
+def test_service_delete_uses_privileged_helper_with_fixed_identity(monkeypatch):
+    calls = []
+    class Helper:
+        def delete_managed_service(self, params):
+            calls.append(params)
+            return {"managed_artifacts_removed": True, "unit_deleted": False}
+    monkeypatch.setattr("digitalafarin_agent.operations.TakeoverHelperClient", lambda: Helper())
+    result = execute_operation("service.delete", {
+        "service_id": "11111111-1111-1111-1111-111111111111",
+        "project_slug": "oily",
+        "service_name": "web",
+        "unit_name": "oily-web.service",
+        "root_directory": ".",
+    })
+    assert result["managed_artifacts_removed"] is True
+    assert calls == [{
+        "project_slug": "oily",
+        "service_name": "web",
+        "unit_name": "oily-web.service",
+        "root_directory": ".",
+    }]
+
+
+def test_service_delete_rejects_protected_platform_unit_before_helper(monkeypatch):
+    monkeypatch.setattr(
+        "digitalafarin_agent.operations.TakeoverHelperClient",
+        lambda: (_ for _ in ()).throw(AssertionError("helper must not be called")),
+    )
+    with pytest.raises(OperationExecutionError) as exc:
+        execute_operation("service.delete", {
+            "service_id": "11111111-1111-1111-1111-111111111111",
+            "project_slug": "digitalafarin-platform",
+            "service_name": "web",
+            "unit_name": "digitalafarin-platform-web.service",
+            "root_directory": ".",
+        })
+    assert exc.value.code == "protected_unit"
