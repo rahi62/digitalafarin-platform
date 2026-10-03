@@ -98,6 +98,9 @@ class DeploymentActionTests(TestCase):
         self.assertEqual(list(deployment.events.values_list("state", flat=True)), ["queued"])
         operation = Operation.objects.get(payload__deployment_id=str(deployment.public_id))
         self.assertEqual(operation.kind, "deployment.deploy")
+        detail = self.client.get(f"/api/control/v1/deployments/{deployment.public_id}/")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()['operation_id'], str(operation.public_id))
 
     def test_deploy_latest_uses_configured_branch_and_disk_guardrail(self):
         response = self.client.post(

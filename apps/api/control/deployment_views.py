@@ -321,6 +321,9 @@ class DeploymentDetailView(APIView):
         except Deployment.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
         data = serialize_deployment(deployment)
+        operation = Operation.objects.filter(payload__deployment_id=str(deployment.public_id)).order_by('-created_at').first()
+        if operation:
+            data['operation_id'] = str(operation.public_id)
         data["active_release"] = deployment.active_release.name if deployment.active_release else None
         data["previous_release"] = deployment.previous_release.name if deployment.previous_release else None
         data["events"] = [
