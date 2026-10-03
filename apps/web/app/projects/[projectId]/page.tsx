@@ -29,6 +29,9 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
           </div>
           <div className="railHeaderActions">
             <span className="railEnvironment"><i /> Production</span>
+            <Link className="railSecondaryButton" href={`/projects/${project.id}/settings`}>
+              Settings
+            </Link>
             <Link className="railSecondaryButton" href={`/migration?project=${encodeURIComponent(project.id)}`}>
               + Add Service
             </Link>
