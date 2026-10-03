@@ -319,7 +319,7 @@ def _artifact_source(source_id: Any) -> Path:
     value = str(source_id or "")
     if not re.fullmatch(r"[0-9a-f-]{36}", value):
         raise TakeoverHelperDomainError("source_artifact_invalid", "Invalid source artifact identity.")
-    path = Path("/var/lib/digitalafarin-agent/sources") / f"{value}.tar.gz"
+    path = Path("/var/lib/digitalafarin-agent/sources") / f"{value}.bundle"
     try:
         resolved = path.resolve(strict=True)
     except OSError as exc:
