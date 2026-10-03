@@ -5,6 +5,8 @@ import { deployAction } from "@/app/deployments/actions";
 import { getProject, getOperation, listDeployments } from "@/lib/control-plane";
 import { lifecycleLabel } from '@/lib/provisioning';
 import { OperationRefresh } from '@/components/OperationRefresh';
+import { DeploymentProgress } from '@/components/DeploymentProgress';
+import { queueServiceOperation } from '@/app/operations/actions';
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +45,7 @@ export default async function ProjectServicePage({
   const tab = tabs.some(([key]) => key === query.tab) ? query.tab! : "deployments";
   const deployments = tab === "deployments" ? await listDeployments(service.id) : [];
   const provisioning = service.provisioning_operation_id ? await getOperation(service.provisioning_operation_id) : null;
-  const activeProvision = ['pending', 'provisioning'].includes(service.lifecycle_state);
+  const activeProvision = provisioning ? ['queued', 'claimed', 'running'].includes(provisioning.state) : ['pending', 'provisioning'].includes(service.lifecycle_state);
 
   return (
     <main className="railPage">
@@ -58,8 +60,8 @@ export default async function ProjectServicePage({
           <div>
             <div className="railTitleWithStatus">
               <h1>{service.name}</h1>
-              <span className={`railServiceStatus ${service.active_state === "active" ? "railTone-good" : "railTone-warn"}`}>
-                <i /> {service.active_state === "active" && !activeProvision ? "Running" : lifecycleLabel(service.lifecycle_state)}
+              <span className={`railServiceStatus ${service.lifecycle_state === 'provision_failed' ? 'railTone-bad' : service.active_state === "active" && service.lifecycle_state === 'managed' ? "railTone-good" : "railTone-warn"}`}>
+                <i /> {service.active_state === "active" && service.lifecycle_state === 'managed' ? "Running" : lifecycleLabel(service.lifecycle_state)}
               </span>
             </div>
             <p dir="ltr">{service.repository ?? service.unit_name}</p>
@@ -72,8 +74,14 @@ export default async function ProjectServicePage({
       {provisioning && service.lifecycle_state !== 'managed' && <section className="provisionStatus" role={service.lifecycle_state === 'provision_failed' ? 'alert' : 'status'}>
         <strong>{lifecycleLabel(service.lifecycle_state)}</strong>
         <p>{service.lifecycle_state === 'provision_failed' ? 'راه‌اندازی سرویس کامل نشد. جزئیات عملیات را بررسی کنید.' : 'درخواست شما ثبت شده است. وضعیت از سرور دریافت و به‌صورت خودکار بروزرسانی می‌شود.'}</p>
-        <p>مرحله: <bdi>{provisioning.progress?.stage || provisioning.state}</bdi>{provisioning.error_code ? <> · <bdi>{provisioning.error_code}</bdi></> : null}</p>
+        <DeploymentProgress operation={provisioning} />
         <Link href={`/operations/${provisioning.id}`}>مشاهدهٔ جزئیات عملیات ←</Link>
+        {service.lifecycle_state === 'provision_failed' && <form action={queueServiceOperation}>
+          <input type="hidden" name="server_id" value={service.target_server_id} />
+          <input type="hidden" name="unit_name" value={service.unit_name} />
+          <input type="hidden" name="action" value="logs" />
+          <button type="submit" className="railSecondaryButton">مشاهدهٔ لاگ خطا</button>
+        </form>}
         {service.lifecycle_state === 'provision_failed' && <RetryProvision projectId={project.id} serviceId={service.id} requestId={randomUUID()} />}
       </section>}
 
@@ -156,11 +164,16 @@ export default async function ProjectServicePage({
         <section className="railServiceSection">
           <div className="railSectionHeader">
             <div><h2>Logs</h2><p>لاگ‌های operational همچنان از مسیر امن typed operations خوانده می‌شوند.</p></div>
-            <Link className="railPrimaryButton" href={`/services/${service.id}`}>Open live operations</Link>
+            <form action={queueServiceOperation}>
+              <input type="hidden" name="server_id" value={service.target_server_id} />
+              <input type="hidden" name="unit_name" value={service.unit_name} />
+              <input type="hidden" name="action" value="logs" />
+              <button type="submit" className="railPrimaryButton">دریافت آخرین لاگ‌ها</button>
+            </form>
           </div>
           <div className="railTerminalPlaceholder" dir="ltr">
-            <span>$ DigitalAfarin typed log stream</span>
-            <small>Open live operations to request a bounded, redacted journal snapshot.</small>
+            <span>$ journalctl --unit {service.unit_name}</span>
+            <small>آخرین ۱۰۰ خط لاگ سرویس پس از پالایش اطلاعات حساس نمایش داده می‌شود.</small>
           </div>
         </section>
       )}

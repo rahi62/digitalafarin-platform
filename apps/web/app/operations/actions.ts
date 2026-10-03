@@ -10,7 +10,7 @@ export async function queueServiceOperation(formData: FormData) {
   const unitName = String(formData.get("unit_name") ?? "");
   const action = String(formData.get("action") ?? "") as ServiceAction | "logs";
   const operation = action === "logs"
-    ? await createServiceLogsOperation(serverId, unitName)
+    ? await createServiceLogsOperation(serverId, unitName, 100, 86400)
     : await createServiceOperation(serverId, action, unitName, crypto.randomUUID());
   revalidatePath("/operations");
   redirect(`/operations/${operation.id}`);

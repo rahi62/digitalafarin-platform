@@ -65,7 +65,7 @@ export type Operation = {
   lease_expires_at?: string | null;
   id: string;
   server_id: string;
-  kind: "service.start" | "service.stop" | "service.restart" | "service.logs" | "volume.create" | "server.bootstrap" | "database.create" | "database.restore" | "deployment.deploy" | "deployment.rollback" | "domain.configure" | "domain.ssl" | "service.takeover.prepare" | "service.takeover.activate";
+  kind: "service.provision" | "service.start" | "service.stop" | "service.restart" | "service.logs" | "volume.create" | "server.bootstrap" | "database.create" | "database.restore" | "deployment.deploy" | "deployment.rollback" | "domain.configure" | "domain.ssl" | "service.takeover.prepare" | "service.takeover.activate";
   state: "queued" | "claimed" | "running" | "succeeded" | "failed";
   payload: { unit_name?: string; lines?: number; since_seconds?: number; [key: string]: unknown };
   result?: { message?: string; logs?: string; truncated?: boolean; [key: string]: unknown };
@@ -112,7 +112,7 @@ export type Project = {
 };
 
 export type Deployment = {
-  id: string; service_id: string; requested_ref: string; resolved_commit: string;
+  id: string; service_id: string; operation_id?: string; requested_ref: string; resolved_commit: string;
   state: string; requested_by: string; queued_at: string; started_at: string | null;
   completed_at: string | null; active_release?: string | null; previous_release?: string | null;
   events?: Array<{ id: string; state: string; message: string; created_at: string }>;
