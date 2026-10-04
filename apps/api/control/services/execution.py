@@ -76,7 +76,7 @@ def build_execution_context(operation: Operation) -> dict | None:
             public_id=operation.payload["deployment_id"], service__target_server=operation.server
         )
         service = deployment.service
-        return {
+        context = {
             "deployment_id": str(deployment.public_id),
             "project_slug": service.project.slug,
             "service_name": service.name,
@@ -95,6 +95,15 @@ def build_execution_context(operation: Operation) -> dict | None:
             ],
             "health_check": build_health_check_context(service),
         }
+        if (
+            service.project.slug == "digitalafarin-platform"
+            and service.name == "platform-web"
+            and service.unit_name == "digitalafarin-platform-web.service"
+        ):
+            # The privileged helper binds this exact service to its trusted local repo.
+            # GitHub App source download is unnecessary for the Platform's own Web release.
+            context["source_transport"] = "trusted_local"
+        return context
     if operation.kind == Operation.KIND_TAKEOVER_PREPARE:
         takeover = ServiceTakeover.objects.select_related(
             "service__project", "service__target_server"

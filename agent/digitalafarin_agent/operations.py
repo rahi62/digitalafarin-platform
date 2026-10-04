@@ -196,7 +196,13 @@ class OperationRunner:
         source_id = None
         try:
             execution = operation.get("execution", operation["payload"])
-            if operation["kind"] == "deployment.deploy":
+            trusted_platform_source = (
+                execution.get("source_transport") == "trusted_local"
+                and execution.get("project_slug") == "digitalafarin-platform"
+                and execution.get("service_name") == "platform-web"
+                and execution.get("unit_name") == "digitalafarin-platform-web.service"
+            )
+            if operation["kind"] == "deployment.deploy" and not trusted_platform_source:
                 data, commit = await self.client.download_operation_source(
                     agent_token, operation_id, claim_token
                 )

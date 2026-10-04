@@ -132,6 +132,59 @@ async def test_runner_converts_unexpected_executor_error_to_safe_failed_completi
     assert "private-secret" not in str(completion)
 
 
+@pytest.mark.asyncio
+async def test_protected_managed_deploy_uses_trusted_local_source_without_github_download(monkeypatch):
+    class DeployClient(FakeClient):
+        async def claim_operation(self, token):
+            claimed = await super().claim_operation(token)
+            claimed["operation"].update({
+                "kind": "deployment.deploy",
+                "execution": {
+                    "project_slug": "digitalafarin-platform",
+                    "service_name": "platform-web",
+                    "unit_name": "digitalafarin-platform-web.service",
+                    "source_transport": "trusted_local",
+                },
+            })
+            return claimed
+
+        async def download_operation_source(self, *args):
+            raise AssertionError("GitHub source must not be requested for trusted local deployment")
+
+    monkeypatch.setattr(
+        "digitalafarin_agent.operations.execute_operation",
+        lambda kind, payload: {"final_state": "succeeded"},
+    )
+    client = DeployClient()
+    assert await OperationRunner(client).run_once("agent-token") is True
+    assert client.calls[-1][1]["succeeded"] is True
+
+
+@pytest.mark.asyncio
+async def test_regular_managed_deploy_still_downloads_bound_source(monkeypatch):
+    class DeployClient(FakeClient):
+        async def claim_operation(self, token):
+            claimed = await super().claim_operation(token)
+            claimed["operation"].update({
+                "kind": "deployment.deploy",
+                "execution": {"unit_name": "project-web.service", "exact_commit": "a" * 40},
+            })
+            return claimed
+
+        async def download_operation_source(self, *args):
+            self.calls.append("download")
+            return b"bundle", "a" * 40
+
+    stored = []
+    monkeypatch.setattr("digitalafarin_agent.operations.store_source_artifact", lambda *args: stored.append(args))
+    monkeypatch.setattr("digitalafarin_agent.operations.remove_source_artifact", lambda *args: None)
+    monkeypatch.setattr("digitalafarin_agent.operations.execute_operation", lambda kind, payload: {"final_state": "succeeded"})
+    client = DeployClient()
+    assert await OperationRunner(client).run_once("agent-token") is True
+    assert "download" in client.calls
+    assert stored[0][1:] == (b"bundle", "a" * 40)
+
+
 def test_takeover_prepare_uses_dedicated_executor_and_generic_protection_remains(monkeypatch):
     monkeypatch.setattr(
         "digitalafarin_agent.operations.prepare_service_takeover",

@@ -5,6 +5,7 @@ from rest_framework.test import APIClient
 
 from control.models import AgentCredential, Deployment, Operation, Project, Server, Service
 from control.security import issue_secret
+from control.services.execution import build_execution_context
 
 
 class OperationSourceTests(TestCase):
@@ -55,3 +56,12 @@ class OperationSourceTests(TestCase):
         )
         self.assertEqual(response.status_code, 404)
         download.assert_not_called()
+
+    def test_only_protected_platform_service_uses_trusted_local_source(self):
+        self.assertNotIn("source_transport", build_execution_context(self.operation))
+        self.service.project.slug = "digitalafarin-platform"
+        self.service.project.save(update_fields=["slug"])
+        self.service.name = "platform-web"
+        self.service.unit_name = "digitalafarin-platform-web.service"
+        self.service.save(update_fields=["name", "unit_name"])
+        self.assertEqual(build_execution_context(self.operation)["source_transport"], "trusted_local")
