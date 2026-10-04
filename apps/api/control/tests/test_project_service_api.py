@@ -477,6 +477,18 @@ class ProjectServiceAPITests(TestCase):
         self.assertEqual(response.json()["blockers"]["services"], 1)
         self.assertTrue(Project.objects.filter(pk=project.pk).exists())
 
+    def test_project_settings_reject_invalid_duplicate_and_missing_projects(self):
+        project = Project.objects.create(name="Original", slug="original")
+        Project.objects.create(name="Taken", slug="taken")
+        path = f"/api/control/v1/projects/{project.public_id}/"
+        self.assertEqual(self.client.patch(path, {"name": ""}, format="json").status_code, 400)
+        self.assertEqual(self.client.patch(path, {"slug": "not valid"}, format="json").status_code, 400)
+        self.assertEqual(self.client.patch(path, {"slug": "taken"}, format="json").status_code, 400)
+        project.refresh_from_db()
+        self.assertEqual((project.name, project.slug), ("Original", "original"))
+        missing = "/api/control/v1/projects/00000000-0000-0000-0000-000000000000/"
+        self.assertEqual(self.client.patch(missing, {"name": "New"}, format="json").status_code, 404)
+
     def test_service_settings_update_is_metadata_only_and_audited(self):
         project = Project.objects.create(name="Oily", slug="oily")
         service = Service.objects.create(
@@ -513,6 +525,32 @@ class ProjectServiceAPITests(TestCase):
         self.assertEqual(service.service_port, 3100)
         self.assertEqual(Operation.objects.count(), before_operations)
         self.assertTrue(AuditEvent.objects.filter(event_type="service.updated", target_id=str(service.public_id)).exists())
+
+    def test_service_settings_reject_invalid_configuration_and_protected_service(self):
+        project = Project.objects.create(name="Platform", slug="platform")
+        service = Service.objects.create(
+            project=project, name="web", unit_name="platform-web.service",
+            lifecycle_state=Service.LIFECYCLE_MANAGED, repository="https://github.com/example/repo.git",
+            branch="main", root_directory=".", runtime=Service.RUNTIME_NODE,
+            service_port=3000, target_server=self.server,
+        )
+        payload = {
+            "repository": service.repository, "branch": "changed", "auto_deploy": False,
+            "root_directory": ".", "runtime": Service.RUNTIME_NODE,
+            "install_configuration": {"unknown": "value"},
+            "build_configuration": {}, "service_port": 3000,
+        }
+        path = f"/api/control/v1/services/{service.public_id}/"
+        self.assertEqual(self.client.patch(path, payload, format="json").status_code, 400)
+        service.refresh_from_db()
+        self.assertEqual(service.branch, "main")
+        self.assertFalse(AuditEvent.objects.filter(event_type="service.updated", target_id=str(service.public_id)).exists())
+        service.unit_name = "digitalafarin-platform-web.service"
+        service.save(update_fields=["unit_name"])
+        payload["install_configuration"] = {}
+        response = self.client.patch(path, payload, format="json")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["error"], "protected_service")
 
     def test_service_remove_is_safe_and_protected_or_historical_services_are_blocked(self):
         project = Project.objects.create(name="Oily", slug="oily")

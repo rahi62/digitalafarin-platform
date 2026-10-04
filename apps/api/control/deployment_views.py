@@ -255,6 +255,11 @@ class ServiceSettingsDetailView(APIView):
         service = self._service(service_id)
         if service is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
+        if is_protected_unit(service.unit_name):
+            return Response(
+                {"error": "protected_service", "message": "Protected services cannot be edited through generic settings."},
+                status=status.HTTP_409_CONFLICT,
+            )
         serializer = ServiceSettingsSerializer(service, data=request.data)
         serializer.is_valid(raise_exception=True)
         service = serializer.save()
