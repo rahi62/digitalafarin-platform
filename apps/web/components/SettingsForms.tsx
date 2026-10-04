@@ -46,6 +46,7 @@ export function ProjectSettingsForm({ project }: { project: Project }) {
           <strong>{project.name}</strong>
           <code dir="ltr">{project.slug}</code>
           <span>{project.services?.length ?? 0} services · {project.variables?.length ?? 0} variables · {project.volumes?.length ?? 0} volumes · {project.databases?.length ?? 0} databases · {project.domains?.length ?? 0} domains</span>
+          <span>Deleting an empty project removes its Platform record and keeps VPS services, files, databases, and volumes untouched. A project with attached resources cannot be deleted.</span>
         </div>
         <form action={deleteAction} className="railSettingsForm">
           <input type="hidden" name="project_id" value={project.id} />
@@ -93,8 +94,9 @@ export function ServiceSettingsForm({ project, service, githubRepositories = [] 
           <label><span>Port</span><input name="service_port" type="number" min={1} max={65535} defaultValue={service.service_port ?? ""} required dir="ltr" /></label>
           <label className="railFieldWide"><span>Install configuration (JSON)</span><textarea name="install_configuration" defaultValue={JSON.stringify(service.install_configuration ?? {}, null, 2)} rows={5} dir="ltr" /></label>
           <label className="railFieldWide"><span>Build configuration (JSON)</span><textarea name="build_configuration" defaultValue={JSON.stringify(service.build_configuration ?? {}, null, 2)} rows={5} dir="ltr" /></label>
+          {service.protected && <p className="railFormError">Protected services cannot be edited in general settings.</p>}
           <Feedback state={updateState} />
-          <button className="railPrimaryButton" type="submit" disabled={updatePending}>{updatePending ? "Saving…" : "Save configuration"}</button>
+          <button className="railPrimaryButton" type="submit" disabled={service.protected || updatePending}>{updatePending ? "Saving…" : "Save configuration"}</button>
         </form>
       </section>
 
@@ -105,11 +107,13 @@ export function ServiceSettingsForm({ project, service, githubRepositories = [] 
         <div className="railDangerSummary">
           <strong>{service.name}</strong>
           <code dir="ltr">{service.unit_name}</code>
+          <span>Project: {project.name} · Protected: {service.protected ? "yes" : "no"}</span>
           <span>Lifecycle: {service.lifecycle_state} · Inventory: {service.inventory_status} · Server: {service.target_server_id}</span>
           {service.protected && <span className="railFormError">This service is protected and cannot be removed.</span>}
         </div>
         {!service.protected && service.lifecycle_state === "managed" && (
           <form action={deleteAction} className="railSettingsForm">
+            <p className="railFieldWide">This queues host cleanup for a managed deployment. The service record is removed only after the typed operation succeeds. Review attached persistent resources before proceeding.</p>
             <input type="hidden" name="project_id" value={project.id} />
             <input type="hidden" name="service_id" value={service.id} />
             <label><span>برای حذف managed deployment و بازگرداندن unit اصلی، نام unit را وارد کنید: <code dir="ltr">{service.unit_name}</code></span><input name="confirmation" required autoComplete="off" dir="ltr" /></label>
@@ -119,6 +123,7 @@ export function ServiceSettingsForm({ project, service, githubRepositories = [] 
         )}
         {!service.protected && (
           <form action={removeAction} className="railSettingsForm">
+            <p className="railFieldWide">Remove from Platform only removes this management record. It does not stop the systemd service or delete application files on the VPS. Services with attached resources or history cannot be detached.</p>
             <input type="hidden" name="project_id" value={project.id} />
             <input type="hidden" name="service_id" value={service.id} />
             <label><span>برای تأیید، نام unit را وارد کنید: <code dir="ltr">{service.unit_name}</code></span><input name="confirmation" required autoComplete="off" dir="ltr" /></label>

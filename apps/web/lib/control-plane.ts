@@ -1,4 +1,5 @@
 import "server-only";
+import { describeControlError } from "./control-errors";
 import { buildServiceOperation, type ServiceAction } from "./operations";
 import { buildDeployRequest, projectPath } from "./deployments";
 import { buildBootstrapOperation, buildProjectCreate } from "./migration-actions";
@@ -62,7 +63,7 @@ export type AuditEvent = {
 export type Operation = {
   id: string;
   server_id: string;
-  kind: "service.start" | "service.stop" | "service.restart" | "service.logs" | "volume.create" | "server.bootstrap" | "database.create" | "database.restore" | "deployment.deploy" | "deployment.rollback" | "domain.configure" | "domain.ssl" | "service.takeover.prepare" | "service.takeover.activate";
+  kind: "service.start" | "service.stop" | "service.restart" | "service.logs" | "service.delete" | "volume.create" | "server.bootstrap" | "database.create" | "database.restore" | "deployment.deploy" | "deployment.rollback" | "domain.configure" | "domain.ssl" | "service.takeover.prepare" | "service.takeover.activate";
   state: "queued" | "claimed" | "running" | "succeeded" | "failed";
   payload: { unit_name?: string; lines?: number; since_seconds?: number; [key: string]: unknown };
   result?: { message?: string; logs?: string; truncated?: boolean; [key: string]: unknown };
@@ -169,12 +170,15 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     cache: "no-store",
   });
 
-  const body = await response.json().catch(() => ({})) as Record<string, unknown>;
+  const parsed: unknown = await response.json().catch(() => ({}));
+  const body = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : {};
   if (!response.ok) {
     throw new ControlPlaneError(
       response.status,
       typeof body.error === "string" ? body.error : "control_plane_error",
-      typeof body.message === "string" ? body.message : `Control Plane returned HTTP ${response.status}`,
+      describeControlError(response.status, body),
     );
   }
   return body as T;
