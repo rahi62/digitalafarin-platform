@@ -33,6 +33,7 @@ def test_managed_deployment_uses_helper_only(monkeypatch):
     assert result['final_state'] == 'succeeded'
     assert [e['state'] for e in result['events']] == ['preparing', 'cloning', 'building', 'releasing', 'health_check', 'activating', 'verifying', 'succeeded']
     assert [c[0] for c in calls] == ['prepare', 'activate', 'prune']
+    assert 'source_id' not in calls[0][1]
 
 
 
