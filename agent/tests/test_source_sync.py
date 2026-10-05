@@ -46,6 +46,39 @@ def test_trusted_source_syncs_exact_commit_before_build(tmp_path, monkeypatch):
     assert calls[2][1][-3:] == ["checkout", "--detach", COMMIT]
 
 
+@pytest.mark.parametrize("remote", [
+    "ssh://git@github.com/example/repo.git",
+    "git@github.com:example/repo.git",
+])
+def test_trusted_source_accepts_matching_github_ssh_origin(tmp_path, monkeypatch, remote):
+    source = tmp_path / "source"
+    source.mkdir()
+
+    def worker(*, argv, **kwargs):
+        if argv[-3:] == ["remote", "get-url", "origin"]:
+            return remote
+        if argv[-2:] == ["rev-parse", "HEAD"]:
+            return COMMIT
+        return ""
+
+    monkeypatch.setattr(h, "run_takeover_worker", worker)
+    assert h._trusted_local_source_repository(
+        *IDENTITY, COMMIT, REPOSITORY, "deploy", "www-data", {IDENTITY: source}
+    ) == source.resolve()
+
+
+def test_trusted_source_rejects_ssh_origin_on_other_host(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    source.mkdir()
+    monkeypatch.setattr(
+        h, "run_takeover_worker", lambda **kwargs: "ssh://git@github.com.evil/example/repo.git"
+    )
+    with pytest.raises(h.TakeoverHelperDomainError):
+        h._trusted_local_source_repository(
+            *IDENTITY, COMMIT, REPOSITORY, "deploy", "www-data", {IDENTITY: source}
+        )
+
+
 def test_trusted_source_rejects_wrong_origin_before_fetch(tmp_path, monkeypatch):
     source = tmp_path / "source"
     source.mkdir()

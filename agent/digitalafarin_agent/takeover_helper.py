@@ -272,6 +272,10 @@ def _trusted_local_source_repository(
             argv=["git", "-C", str(source), "remote", "get-url", "origin"],
             timeout=30,
         )
+        if remote.startswith("ssh://git@github.com/"):
+            remote = "https://github.com/" + remote.removeprefix("ssh://git@github.com/")
+        elif remote.startswith("git@github.com:"):
+            remote = "https://github.com/" + remote.removeprefix("git@github.com:")
         if _validate_repository(remote) != _validate_repository(
             expected_repository
         ):
