@@ -100,6 +100,12 @@ class FakeControlPlane:
     async def cancel_service_takeover(self, takeover_id):
         return {"id": takeover_id, "state": "canceled"}
 
+    async def create_domain(self, project_id, service_id, hostname):
+        return {"id": "domain-id", "project_id": project_id, "service_id": service_id, "hostname": hostname, "status": "pending"}
+
+    async def enable_domain_ssl(self, domain_id):
+        return {"id": domain_id, "ssl_enabled": True}
+
     async def deploy_service(self, service_id, commit):
         return {"id": "deployment-id", "state": "queued"}
 
@@ -142,6 +148,8 @@ async def test_server_discovers_only_inventory_and_typed_operation_tools():
         "vps_get_service_takeover",
         "vps_activate_service_takeover",
         "vps_cancel_service_takeover",
+        "vps_create_domain",
+        "vps_enable_domain_ssl",
         "vps_deploy_service",
         "vps_get_deployment",
         "vps_redeploy_deployment",
@@ -232,6 +240,27 @@ async def test_configuration_tool_returns_configured_service_metadata():
             },
         )
     assert result.structured_content["lifecycle_state"] == "configured"
+
+
+@pytest.mark.asyncio
+async def test_domain_tools_expose_typed_hostname_and_domain_id():
+    server = create_mcp(FakeControlPlane())
+    async with Client(server, raise_exceptions=True) as client:
+        created = await client.call_tool(
+            "vps_create_domain",
+            {
+                "project_id": "11111111-1111-1111-1111-111111111111",
+                "service_id": "22222222-2222-2222-2222-222222222222",
+                "hostname": "cafeno.digitalafarin.ir",
+            },
+        )
+        enabled = await client.call_tool(
+            "vps_enable_domain_ssl",
+            {"domain_id": "33333333-3333-3333-3333-333333333333"},
+        )
+
+    assert created.structured_content["hostname"] == "cafeno.digitalafarin.ir"
+    assert enabled.structured_content["ssl_enabled"] is True
 
 
 @pytest.mark.asyncio

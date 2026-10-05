@@ -457,6 +457,26 @@ class ControlPlaneClient:
             {},
         )
 
+    async def create_domain(self, project_id: str, service_id: str, hostname: str) -> dict:
+        _validate_uuid(project_id, "project_id")
+        _validate_uuid(service_id, "service_id")
+        if not re.fullmatch(
+            r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}",
+            hostname,
+        ):
+            raise MCPDomainError("invalid_request", "hostname is invalid.")
+        return await self._post(
+            f"/api/control/v1/projects/{quote(project_id, safe='')}/domains/",
+            {"service_id": service_id, "hostname": hostname},
+        )
+
+    async def enable_domain_ssl(self, domain_id: str) -> dict:
+        _validate_uuid(domain_id, "domain_id")
+        return await self._post(
+            f"/api/control/v1/domains/{quote(domain_id, safe='')}/ssl/",
+            {},
+        )
+
     async def deploy_service(self, service_id: str, commit: str | None) -> dict:
         if commit and not re.fullmatch(r"[0-9a-f]{40}", commit):
             raise MCPDomainError("invalid_request", "commit must be an exact lowercase SHA-1.")

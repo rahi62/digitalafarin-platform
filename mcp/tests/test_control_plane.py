@@ -329,3 +329,59 @@ async def test_takeover_conflict_preserves_stable_domain_error_code():
     assert exc.value.code == "takeover_not_prepared"
     assert "prepared" in str(exc.value).lower()
     await http.aclose()
+
+
+@pytest.mark.asyncio
+async def test_create_domain_posts_typed_project_domain_payload():
+    seen = []
+
+    async def handler(request: httpx.Request):
+        seen.append((request.method, request.url.path, request.read().decode()))
+        return httpx.Response(201, json={"id": "domain-id", "hostname": "cafeno.digitalafarin.ir"})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = ControlPlaneClient("http://control", "service-secret", http=http)
+    project_id = "11111111-1111-1111-1111-111111111111"
+    service_id = "22222222-2222-2222-2222-222222222222"
+
+    result = await client.create_domain(project_id, service_id, "cafeno.digitalafarin.ir")
+
+    assert result["hostname"] == "cafeno.digitalafarin.ir"
+    assert seen == [(
+        "POST",
+        f"/api/control/v1/projects/{project_id}/domains/",
+        '{"service_id":"' + service_id + '","hostname":"cafeno.digitalafarin.ir"}',
+    )]
+    await http.aclose()
+
+
+@pytest.mark.asyncio
+async def test_domain_client_rejects_invalid_hostname_locally():
+    client = ControlPlaneClient("http://control", "service-secret")
+    with pytest.raises(MCPDomainError) as exc:
+        await client.create_domain(
+            "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222",
+            "bad;host",
+        )
+    assert exc.value.code == "invalid_request"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_enable_domain_ssl_posts_empty_body():
+    seen = []
+
+    async def handler(request: httpx.Request):
+        seen.append((request.method, request.url.path, request.read().decode()))
+        return httpx.Response(201, json={"id": "domain-id", "ssl_enabled": True})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = ControlPlaneClient("http://control", "service-secret", http=http)
+    domain_id = "33333333-3333-3333-3333-333333333333"
+
+    result = await client.enable_domain_ssl(domain_id)
+
+    assert result["ssl_enabled"] is True
+    assert seen == [("POST", f"/api/control/v1/domains/{domain_id}/ssl/", "{}")]
+    await http.aclose()

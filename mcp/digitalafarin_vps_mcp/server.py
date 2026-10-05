@@ -228,6 +228,20 @@ def create_mcp(control_plane: ControlPlaneClient | Any | None = None) -> MCPServ
         return await _safe(client.cancel_service_takeover(takeover_id))
 
     @mcp.tool()
+    async def vps_create_domain(
+        project_id: str,
+        service_id: str,
+        hostname: str,
+    ) -> dict[str, Any]:
+        """Register one validated hostname for a project service and queue Nginx configuration."""
+        return await _safe(client.create_domain(project_id, service_id, hostname))
+
+    @mcp.tool()
+    async def vps_enable_domain_ssl(domain_id: str) -> dict[str, Any]:
+        """Queue TLS enablement for one registered project domain."""
+        return await _safe(client.enable_domain_ssl(domain_id))
+
+    @mcp.tool()
     async def vps_deploy_service(
         service_id: str, commit: str | None = None
     ) -> dict[str, Any]:
