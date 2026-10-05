@@ -37,7 +37,12 @@ if ! grep -q "PRIVATE KEY" "$PRIVATE_KEY_FILE"; then
   exit 2
 fi
 
-install -o root -g www-data -m 0640 "$PRIVATE_KEY_FILE" "$INSTALLED_KEY"
+if [[ "$(readlink -f "$PRIVATE_KEY_FILE")" != "$(readlink -f "$INSTALLED_KEY")" ]]; then
+  install -o root -g www-data -m 0640 "$PRIVATE_KEY_FILE" "$INSTALLED_KEY"
+else
+  chown root:www-data "$INSTALLED_KEY"
+  chmod 0640 "$INSTALLED_KEY"
+fi
 
 python3 - "$API_ENV" "$APP_ID" "$APP_SLUG" "$INSTALLED_KEY" "$CLIENT_ID" <<'PY'
 from pathlib import Path
