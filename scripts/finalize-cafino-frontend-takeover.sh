@@ -198,6 +198,11 @@ echo "Frontend port: $FRONTEND_PORT"
 echo "Service user/group: $SERVICE_USER:$SERVICE_GROUP"
 echo "Target commit: $TARGET_COMMIT"
 
+if [[ -x "/opt/digitalafarin-platform/scripts/diagnose-github-source.sh" ]]; then
+  echo "Checking DigitalAfarin GitHub App access to Cafino..."
+  /opt/digitalafarin-platform/scripts/diagnose-github-source.sh "$MANAGED_REMOTE"
+fi
+
 CONFIG_BODY="$(printf '{"repository":"%s","branch":"main","root_directory":"frontend","runtime":"node-nextjs","service_port":%s,"install_configuration":{"package_manager":"npm","lockfile":"package-lock.json"},"build_configuration":{"build_script":"build"}}' "$MANAGED_REMOTE" "$FRONTEND_PORT")"
 api_put "/api/control/v1/services/$SERVICE_ID/deployment-configuration/" "$CONFIG_BODY" >/dev/null
 
