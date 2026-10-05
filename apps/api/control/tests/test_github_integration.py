@@ -79,3 +79,16 @@ class GitHubIntegrationTests(TestCase):
         response = self.client.get("/api/control/v1/github/installations/42/repositories/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["items"][0]["full_name"], "rahi62/app")
+
+
+    @patch.dict("os.environ", {
+        "GITHUB_APP_ID": "123",
+        "GITHUB_APP_PRIVATE_KEY": "",
+        "GITHUB_APP_PRIVATE_KEY_FILE": "/etc/digitalafarin-platform/github-app-private-key.pem",
+        "GITHUB_APP_WEBHOOK_SECRET": "secret",
+        "GITHUB_APP_SLUG": "digitalafarin",
+    }, clear=False)
+    def test_integration_accepts_private_key_file_configuration(self):
+        response = self.client.get("/api/control/v1/github/integration/")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["configured"])

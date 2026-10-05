@@ -25,9 +25,13 @@ from control.services.github_source import app_headers, repository_name, GitHubS
 
 repository = sys.argv[1]
 owner, name = repository_name(repository)
+key_file = os.getenv("GITHUB_APP_PRIVATE_KEY_FILE", "").strip()
 configured = {
     "GITHUB_APP_ID": bool(os.getenv("GITHUB_APP_ID", "").strip()),
-    "GITHUB_APP_PRIVATE_KEY": bool(os.getenv("GITHUB_APP_PRIVATE_KEY", "").strip()),
+    "GITHUB_APP_PRIVATE_KEY": bool(
+        os.getenv("GITHUB_APP_PRIVATE_KEY", "").strip()
+        or (key_file and __import__("pathlib").Path(key_file).is_file())
+    ),
     "GITHUB_APP_SLUG": bool(os.getenv("GITHUB_APP_SLUG", "").strip()),
 }
 print("GitHub App config:", ", ".join(f"{k}={'yes' if v else 'no'}" for k, v in configured.items()))

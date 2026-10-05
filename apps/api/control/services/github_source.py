@@ -23,6 +23,12 @@ def _b64url(value: bytes) -> str:
 def _app_jwt() -> str:
     app_id = os.getenv("GITHUB_APP_ID", "").strip()
     raw_key = os.getenv("GITHUB_APP_PRIVATE_KEY", "").replace("\\n", "\n").strip()
+    key_file = os.getenv("GITHUB_APP_PRIVATE_KEY_FILE", "").strip()
+    if not raw_key and key_file:
+        try:
+            raw_key = Path(key_file).read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            raise GitHubSourceError("GitHub App key file is unavailable") from exc
     if not app_id or not raw_key:
         raise GitHubSourceError("GitHub App is not configured")
     now = int(time.time())

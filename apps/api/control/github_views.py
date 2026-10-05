@@ -79,7 +79,10 @@ class GitHubIntegrationView(APIView):
         slug = os.getenv("GITHUB_APP_SLUG", "").strip()
         configured = bool(
             os.getenv("GITHUB_APP_ID", "").strip()
-            and os.getenv("GITHUB_APP_PRIVATE_KEY", "").strip()
+            and (
+                os.getenv("GITHUB_APP_PRIVATE_KEY", "").strip()
+                or os.getenv("GITHUB_APP_PRIVATE_KEY_FILE", "").strip()
+            )
             and os.getenv("GITHUB_APP_WEBHOOK_SECRET", "").strip()
             and slug
         )
