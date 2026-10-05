@@ -134,6 +134,21 @@ port_from_env() {
   systemctl show "$UNIT_NAME" -p Environment --value     | tr ' ' '\n'     | sed -n 's/^PORT=\([0-9][0-9]*\)$/\1/p'     | head -1
 }
 
+port_from_env_files() {
+  local raw path
+  raw="$(systemctl show "$UNIT_NAME" -p EnvironmentFiles --value)"
+  while read -r path; do
+    [[ -n "$path" && -r "$path" ]] || continue
+    sed -n 's/^PORT=\([0-9][0-9]*\)$/\1/p' "$path" | head -1
+  done < <(printf '%s\n' "$raw" | grep -oE '/[^ ]+' | sed 's/[[:space:]]*(ignore_errors=.*$//' | sort -u)
+}
+
+port_from_journal() {
+  journalctl --unit "$UNIT_NAME" --lines 120 --no-pager --output=cat 2>/dev/null \
+    | sed -n 's/.*http:\/\/127\.0\.0\.1:\([0-9][0-9]*\).*/\1/p' \
+    | tail -1
+}
+
 port_from_exec() {
   local raw
   raw="$(systemctl show "$UNIT_NAME" -p ExecStart --value)"
@@ -166,8 +181,10 @@ print("\\n".join(out))' "$DOMAIN" <<<"$conf")"
 }
 
 FRONTEND_PORT="$(port_from_env || true)"
+[[ -n "$FRONTEND_PORT" ]] || FRONTEND_PORT="$(port_from_env_files || true)"
 [[ -n "$FRONTEND_PORT" ]] || FRONTEND_PORT="$(port_from_exec || true)"
 [[ -n "$FRONTEND_PORT" ]] || FRONTEND_PORT="$(port_from_nginx || true)"
+[[ -n "$FRONTEND_PORT" ]] || FRONTEND_PORT="$(port_from_journal || true)"
 [[ "$FRONTEND_PORT" =~ ^[0-9]+$ ]] || { echo "Could not derive frontend port."; exit 1; }
 
 echo "Runtime working directory: $WORKDIR"
