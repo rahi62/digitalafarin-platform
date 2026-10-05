@@ -245,3 +245,47 @@ def test_service_delete_rejects_protected_platform_unit_before_helper(monkeypatc
             "root_directory": ".",
         })
     assert exc.value.code == "protected_unit"
+
+
+@pytest.mark.asyncio
+async def test_takeover_prepare_downloads_bound_private_source_artifact(monkeypatch):
+    class TakeoverClient(FakeClient):
+        async def claim_operation(self, token):
+            claimed = await super().claim_operation(token)
+            claimed["operation"].update({
+                "kind": "service.takeover.prepare",
+                "execution": {
+                    "takeover_id": "22222222-2222-2222-2222-222222222222",
+                    "unit_name": "cafino-frontend.service",
+                    "exact_commit": "b" * 40,
+                },
+            })
+            return claimed
+
+        async def download_operation_source(self, *args):
+            self.calls.append("download")
+            return b"private-bundle", "b" * 40
+
+    stored = []
+    removed = []
+    seen = {}
+    monkeypatch.setattr(
+        "digitalafarin_agent.operations.store_source_artifact",
+        lambda *args: stored.append(args),
+    )
+    monkeypatch.setattr(
+        "digitalafarin_agent.operations.remove_source_artifact",
+        lambda *args: removed.append(args),
+    )
+    monkeypatch.setattr(
+        "digitalafarin_agent.operations.execute_operation",
+        lambda kind, payload: seen.update({"kind": kind, "payload": payload})
+        or {"final_state": "prepared"},
+    )
+
+    client = TakeoverClient()
+    assert await OperationRunner(client).run_once("agent-token") is True
+    assert "download" in client.calls
+    assert stored[0][1:] == (b"private-bundle", "b" * 40)
+    assert seen["payload"]["source_id"] == "11111111-1111-1111-1111-111111111111"
+    assert removed == [("11111111-1111-1111-1111-111111111111",)]

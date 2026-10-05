@@ -79,7 +79,8 @@ def _account(user: str):
 
 
 def _validate_prepare_payload(payload: dict) -> None:
-    if set(payload) != _PREPARE_KEYS:
+    keys = set(payload)
+    if keys not in (_PREPARE_KEYS, _PREPARE_KEYS | {"source_id"}):
         raise TakeoverExecutionError("invalid_payload", "Invalid takeover prepare payload.")
     for field in ("takeover_id", "service_id"):
         try:
@@ -94,6 +95,11 @@ def _validate_prepare_payload(payload: dict) -> None:
         raise TakeoverExecutionError(
             "invalid_exact_commit", "Takeover requires an exact lowercase commit."
         )
+    if "source_id" in payload:
+        try:
+            uuid.UUID(str(payload["source_id"]))
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise TakeoverExecutionError("invalid_payload", "Invalid source_id.") from exc
     if payload.get("runtime") != "node-nextjs":
         raise TakeoverExecutionError(
             "unsupported_takeover_runtime", "Stage B3 supports node-nextjs only."
@@ -138,20 +144,21 @@ def prepare_service_takeover(
     )
     helper = helper_client or TakeoverHelperClient()
     try:
-        prepared = helper.prepare_node_nextjs_release(
-            {
-                "project_slug": payload["project_slug"],
-                "unit_name": payload["unit_name"],
-                "service_name": payload["service_name"],
-                "repository": payload["repository"],
-                "exact_commit": payload["exact_commit"],
-                "root_directory": payload["root_directory"],
-                "install_configuration": payload.get("install_configuration", {}),
-                "build_configuration": payload.get("build_configuration", {}),
-                "user": source_user,
-                "group": source_snapshot.get("group", ""),
-            }
-        )
+        helper_params = {
+            "project_slug": payload["project_slug"],
+            "unit_name": payload["unit_name"],
+            "service_name": payload["service_name"],
+            "repository": payload["repository"],
+            "exact_commit": payload["exact_commit"],
+            "root_directory": payload["root_directory"],
+            "install_configuration": payload.get("install_configuration", {}),
+            "build_configuration": payload.get("build_configuration", {}),
+            "user": source_user,
+            "group": source_snapshot.get("group", ""),
+        }
+        if payload.get("source_id"):
+            helper_params["source_id"] = payload["source_id"]
+        prepared = helper.prepare_node_nextjs_release(helper_params)
     except TakeoverHelperError as exc:
         raise TakeoverExecutionError(exc.code, str(exc)) from exc
 

@@ -437,3 +437,38 @@ def test_prepare_rejects_invalid_helper_metadata(tmp_path, monkeypatch, field, v
     with pytest.raises(TakeoverExecutionError) as exc:
         prepare_service_takeover(prepare_payload(), apps_root=tmp_path / "apps", helper_client=InvalidHelper(release=release))
     assert exc.value.code == "release_validation_failed"
+
+
+def test_prepare_passes_source_artifact_identity_to_helper(tmp_path, monkeypatch):
+    release = _make_prepared_release(tmp_path)
+    helper = FakeHelper(release=release)
+    payload = prepare_payload()
+    payload["source_id"] = "33333333-3333-3333-3333-333333333333"
+
+    monkeypatch.setattr(
+        "digitalafarin_agent.takeover.inspect_service",
+        lambda _unit: snapshot(),
+    )
+    monkeypatch.setattr(
+        "digitalafarin_agent.takeover.fingerprint_snapshot",
+        lambda _snapshot: "2" * 64,
+    )
+    monkeypatch.setattr(
+        "digitalafarin_agent.takeover._account",
+        lambda user: SimpleNamespace(
+            pw_uid=1000, pw_gid=1000, pw_dir="/home/deploy"
+        ),
+    )
+    monkeypatch.setattr(
+        "digitalafarin_agent.takeover.managed_dropin_path",
+        lambda _unit: tmp_path / "not-present.conf",
+    )
+
+    result = prepare_service_takeover(
+        payload,
+        apps_root=tmp_path / "apps",
+        helper_client=helper,
+    )
+
+    assert result["final_state"] == "prepared"
+    assert helper.calls[0][1]["source_id"] == payload["source_id"]

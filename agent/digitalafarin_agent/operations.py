@@ -202,7 +202,10 @@ class OperationRunner:
                 and execution.get("service_name") == "platform-web"
                 and execution.get("unit_name") == "digitalafarin-platform-web.service"
             )
-            if operation["kind"] == "deployment.deploy" and not trusted_platform_source:
+            if (
+                operation["kind"] in {"deployment.deploy", "service.takeover.prepare"}
+                and not trusted_platform_source
+            ):
                 data, commit = await self.client.download_operation_source(
                     agent_token, operation_id, claim_token
                 )

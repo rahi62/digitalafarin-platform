@@ -20,7 +20,7 @@ from control.services.operations import (
     start_operation,
 )
 from control.services.execution import build_execution_context
-from control.models import Operation
+from control.models import Operation, ServiceTakeover
 from control.services.deployments import apply_deployment_result
 from control.services.github_source import GitHubSourceError, download_bundle
 from control.services.service_deletion import finalize_service_deletion
@@ -182,24 +182,53 @@ class OperationSourceView(AgentOperationView):
             operation = Operation.objects.select_related("server").get(
                 public_id=operation_id,
                 server=request.user.server,
-                kind=Operation.KIND_DEPLOYMENT_DEPLOY,
+                kind__in=[
+                    Operation.KIND_DEPLOYMENT_DEPLOY,
+                    Operation.KIND_TAKEOVER_PREPARE,
+                ],
                 state=Operation.STATE_RUNNING,
             )
         except Operation.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
-        if not operation.claim_token or not claim_token or not __import__("secrets").compare_digest(operation.claim_token, claim_token):
+        if (
+            not operation.claim_token
+            or not claim_token
+            or not __import__("secrets").compare_digest(
+                operation.claim_token, claim_token
+            )
+        ):
             return Response(status=status.HTTP_403_FORBIDDEN)
+
         try:
-            deployment = operation.server.managed_services.filter(
-                deployments__public_id=operation.payload.get("deployment_id")
-            ).select_related("project").prefetch_related("deployments").first()
-            if deployment is None:
-                return Response(status=status.HTTP_404_NOT_FOUND)
-            record = deployment.deployments.get(public_id=operation.payload["deployment_id"])
-            data = download_bundle(deployment.repository, record.resolved_commit)
-        except (GitHubSourceError, KeyError):
-            return Response({"error": "source_unavailable"}, status=status.HTTP_502_BAD_GATEWAY)
+            if operation.kind == Operation.KIND_DEPLOYMENT_DEPLOY:
+                service = operation.server.managed_services.filter(
+                    deployments__public_id=operation.payload.get("deployment_id")
+                ).select_related("project").prefetch_related("deployments").first()
+                if service is None:
+                    return Response(status=status.HTTP_404_NOT_FOUND)
+                record = service.deployments.get(
+                    public_id=operation.payload["deployment_id"]
+                )
+                repository = service.repository
+                exact_commit = record.resolved_commit
+            else:
+                takeover = ServiceTakeover.objects.select_related(
+                    "service__project"
+                ).get(
+                    public_id=operation.payload["takeover_id"],
+                    service__target_server=request.user.server,
+                )
+                repository = takeover.service.repository
+                exact_commit = takeover.requested_commit
+
+            data = download_bundle(repository, exact_commit)
+        except (GitHubSourceError, KeyError, ServiceTakeover.DoesNotExist):
+            return Response(
+                {"error": "source_unavailable"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
         response = HttpResponse(data, content_type="application/octet-stream")
         response["Content-Disposition"] = 'attachment; filename="source.bundle"'
-        response["X-DigitalAfarin-Commit"] = record.resolved_commit
+        response["X-DigitalAfarin-Commit"] = exact_commit
         return response

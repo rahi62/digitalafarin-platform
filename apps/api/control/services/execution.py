@@ -112,7 +112,7 @@ def build_execution_context(operation: Operation) -> dict | None:
             service__target_server=operation.server,
         )
         service = takeover.service
-        return {
+        context = {
             "takeover_id": str(takeover.public_id),
             "service_id": str(service.public_id),
             "project_slug": service.project.slug,
@@ -127,6 +127,13 @@ def build_execution_context(operation: Operation) -> dict | None:
             "service_port": service.service_port,
             "health_check": takeover.health_check_snapshot,
         }
+        if (
+            service.project.slug == "digitalafarin-platform"
+            and service.name == "platform-web"
+            and service.unit_name == "digitalafarin-platform-web.service"
+        ):
+            context["source_transport"] = "trusted_local"
+        return context
     if operation.kind == Operation.KIND_TAKEOVER_ACTIVATE:
         takeover = ServiceTakeover.objects.select_related(
             "service__project", "service__target_server"

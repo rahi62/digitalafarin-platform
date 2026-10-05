@@ -3,7 +3,7 @@ from unittest.mock import patch
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from control.models import AgentCredential, Deployment, Operation, Project, Server, Service
+from control.models import AgentCredential, Deployment, Operation, Project, Server, Service, ServiceTakeover
 from control.security import issue_secret
 from control.services.execution import build_execution_context
 
@@ -65,3 +65,33 @@ class OperationSourceTests(TestCase):
         self.service.unit_name = "digitalafarin-platform-web.service"
         self.service.save(update_fields=["name", "unit_name"])
         self.assertEqual(build_execution_context(self.operation)["source_transport"], "trusted_local")
+
+
+    @patch("control.agent_views.download_bundle", return_value=b"takeover-bundle")
+    def test_running_takeover_prepare_can_download_bound_source(self, download):
+        takeover = ServiceTakeover.objects.create(
+            service=self.service,
+            requested_commit="b" * 40,
+            requested_by="test",
+            health_check_snapshot={},
+        )
+        operation = Operation.objects.create(
+            server=self.server,
+            kind=Operation.KIND_TAKEOVER_PREPARE,
+            state=Operation.STATE_RUNNING,
+            payload={"takeover_id": str(takeover.public_id)},
+            actor="test",
+            claim_token="takeover-claim",
+        )
+        response = self.client.get(
+            f"/api/agent/v1/operations/{operation.public_id}/source",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+            HTTP_X_DIGITALAFARIN_CLAIM="takeover-claim",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"takeover-bundle")
+        self.assertEqual(response["X-DigitalAfarin-Commit"], "b" * 40)
+        download.assert_called_once_with(
+            "https://github.com/example/repo.git",
+            "b" * 40,
+        )

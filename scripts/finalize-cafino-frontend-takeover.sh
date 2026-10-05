@@ -11,7 +11,6 @@ HELPER_DROPIN_DIR="/etc/systemd/system/digitalafarin-platform-takeover-helper.se
 HELPER_DROPIN="$HELPER_DROPIN_DIR/30-cafino.conf"
 SOURCE_PARENT="/srv/digitalafarin/apps/.sources"
 SOURCE_REPO="$SOURCE_PARENT/coffino"
-PRIVATE_REMOTE="ssh://git@github.com/rahi62/coffino.git"
 MANAGED_REMOTE="https://github.com/rahi62/coffino.git"
 COMPAT_DROPIN_DIR="/etc/systemd/system/${UNIT_NAME}.d"
 COMPAT_DROPIN="$COMPAT_DROPIN_DIR/20-cafino-relative-exec.conf"
@@ -119,42 +118,13 @@ if [[ "$EXEC_START" == *"$WORKDIR/"* ]]; then
   exit 1
 fi
 
-prepare_private_source() {
-  mkdir -p "$SOURCE_PARENT"
-  chmod 0755 "$SOURCE_PARENT"
-
-  if [[ ! -d "$SOURCE_REPO/.git" ]]; then
-    rm -rf "$SOURCE_REPO"
-    mkdir -p "$SOURCE_REPO"
-    git -C "$SOURCE_REPO" init
-    git -C "$SOURCE_REPO" remote add origin "$PRIVATE_REMOTE"
-  fi
-
-  local remote
-  remote="$(git -c safe.directory="$SOURCE_REPO" -C "$SOURCE_REPO" remote get-url origin 2>/dev/null || true)"
-  case "$remote" in
-    ssh://git@github.com/rahi62/coffino|ssh://git@github.com/rahi62/coffino.git|git@github.com:rahi62/coffino|git@github.com:rahi62/coffino.git|https://github.com/rahi62/coffino|https://github.com/rahi62/coffino.git) ;;
-    *) echo "Unexpected trusted source origin: $remote"; exit 1 ;;
-  esac
-
-  echo "Syncing private Cafino source to $TARGET_COMMIT..."
-  git -c safe.directory="$SOURCE_REPO" -C "$SOURCE_REPO" fetch --no-tags --depth=1 origin "$TARGET_COMMIT"
-  git -c safe.directory="$SOURCE_REPO" -C "$SOURCE_REPO" checkout --detach FETCH_HEAD
-  [[ "$(git -c safe.directory="$SOURCE_REPO" -C "$SOURCE_REPO" rev-parse HEAD)" == "$TARGET_COMMIT" ]] || {
-    echo "Trusted source commit mismatch."
-    exit 1
-  }
-
-  chown -R "$SERVICE_USER:$SERVICE_GROUP" "$SOURCE_REPO"
+prepare_source_binding() {
+  mkdir -p "$SOURCE_PARENT" "$SOURCE_REPO"
+  chown "$SERVICE_USER:$SERVICE_GROUP" "$SOURCE_REPO"
   chmod 0750 "$SOURCE_REPO"
-  runuser -u "$SERVICE_USER" -- git -C "$SOURCE_REPO" remote get-url origin >/dev/null
-  [[ "$(runuser -u "$SERVICE_USER" -- git -C "$SOURCE_REPO" rev-parse HEAD)" == "$TARGET_COMMIT" ]] || {
-    echo "Frontend service user cannot verify trusted source commit."
-    exit 1
-  }
 }
 
-prepare_private_source
+prepare_source_binding
 
 BACKEND_PORT="$(python3 -c 'import json,sys; print(next((str(x.get("service_port") or "") for x in json.load(sys.stdin).get("services",[]) if x["name"]=="backend"), ""))' <<<"$PROJECT")"
 
@@ -199,7 +169,8 @@ FRONTEND_PORT="$(port_from_env || true)"
 [[ "$FRONTEND_PORT" =~ ^[0-9]+$ ]] || { echo "Could not derive frontend port."; exit 1; }
 
 echo "Runtime working directory: $WORKDIR"
-echo "Trusted source repository: $SOURCE_REPO"
+echo "Takeover source transport: GitHub App bundle (private repo)"
+echo "Trusted local fallback binding: $SOURCE_REPO"
 echo "Frontend port: $FRONTEND_PORT"
 echo "Service user/group: $SERVICE_USER:$SERVICE_GROUP"
 echo "Target commit: $TARGET_COMMIT"
