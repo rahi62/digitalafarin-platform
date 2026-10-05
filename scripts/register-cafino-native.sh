@@ -82,14 +82,7 @@ if ! python3 -c 'import json,sys; raise SystemExit(0 if any(x["unit_name"]=="caf
 fi
 
 PROJECTS_JSON="$(api_get /api/control/v1/projects/)"
-PROJECT_ID="$(python3 - "$PROJECT_SLUG" <<'PY' <<<"$PROJECTS_JSON"
-import json,sys
-slug=sys.argv[1]
-for item in json.load(sys.stdin)["items"]:
-    if item["slug"]==slug:
-        print(item["id"]); break
-PY
-)"
+PROJECT_ID="$(python3 -c 'import json,sys; slug=sys.argv[1]; print(next((x["id"] for x in json.load(sys.stdin)["items"] if x["slug"]==slug), ""))' "$PROJECT_SLUG" <<<"$PROJECTS_JSON")"
 if [[ -z "$PROJECT_ID" ]]; then
   PROJECT_JSON="$(api_post /api/control/v1/projects/ "{\"name\":\"$PROJECT_NAME\",\"slug\":\"$PROJECT_SLUG\"}")"
   PROJECT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$PROJECT_JSON")"
@@ -102,14 +95,7 @@ adopt_if_missing() {
   local current
   current="$(project_json)"
   local existing
-  existing="$(python3 - "$name" "$unit" <<'PY' <<<"$current"
-import json,sys
-name,unit=sys.argv[1:3]
-for item in json.load(sys.stdin).get("services",[]):
-    if item.get("name")==name or item.get("unit_name")==unit:
-        print(item["id"]); break
-PY
-)"
+  existing="$(python3 -c 'import json,sys; name,unit=sys.argv[1:3]; print(next((x["id"] for x in json.load(sys.stdin).get("services",[]) if x.get("name")==name or x.get("unit_name")==unit), ""))' "$name" "$unit" <<<"$current")"
   if [[ -n "$existing" ]]; then
     printf '%s' "$existing"
     return
@@ -146,22 +132,9 @@ else
 fi
 
 CURRENT="$(project_json)"
-if ! python3 - "$DOMAIN" <<'PY' <<<"$CURRENT"
-import json,sys
-host=sys.argv[1]
-raise SystemExit(0 if any(x.get("hostname")==host for x in json.load(sys.stdin).get("domains",[])) else 1)
-PY
-then
+if ! python3 -c 'import json,sys; host=sys.argv[1]; raise SystemExit(0 if any(x.get("hostname")==host for x in json.load(sys.stdin).get("domains",[])) else 1)' "$DOMAIN" <<<"$CURRENT"; then
   api_post "/api/control/v1/projects/$PROJECT_ID/domains/" "$(printf '{"service_id":"%s","hostname":"%s","configure_nginx":false,"ssl_enabled":true}' "$FRONTEND_ID" "$DOMAIN")" >/dev/null
 fi
 
 echo "Cafino registration complete."
-project_json | python3 - <<'PY'
-import json,sys
-d=json.load(sys.stdin)
-print("Project:", d["name"], d["id"])
-for s in d.get("services",[]):
-    print("Service:", s["name"], s["unit_name"], s["lifecycle_state"], s.get("inventory_status"))
-for dom in d.get("domains",[]):
-    print("Domain:", dom["hostname"], dom["status"], dom.get("management_mode"))
-PY
+project_json | python3 -c 'import json,sys; d=json.load(sys.stdin); print("Project:", d["name"], d["id"]); [print("Service:", x["name"], x["unit_name"], x["lifecycle_state"], x.get("inventory_status")) for x in d.get("services",[])]; [print("Domain:", x["hostname"], x["status"], x.get("management_mode")) for x in d.get("domains",[])]'
