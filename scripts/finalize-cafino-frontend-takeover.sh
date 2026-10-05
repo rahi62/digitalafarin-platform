@@ -9,6 +9,10 @@ DOMAIN="cafeno.digitalafarin.ir"
 MCP_ENV="/etc/digitalafarin-platform/mcp.env"
 HELPER_DROPIN_DIR="/etc/systemd/system/digitalafarin-platform-takeover-helper.service.d"
 HELPER_DROPIN="$HELPER_DROPIN_DIR/30-cafino.conf"
+SOURCE_PARENT="/srv/digitalafarin/apps/.sources"
+SOURCE_REPO="$SOURCE_PARENT/coffino"
+PRIVATE_REMOTE="ssh://git@github.com/rahi62/coffino.git"
+MANAGED_REMOTE="https://github.com/rahi62/coffino.git"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Run as root."
@@ -20,7 +24,7 @@ if ! [[ "$TARGET_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
   exit 1
 fi
 
-for cmd in git curl python3 systemctl nginx sed awk grep; do
+for cmd in git curl python3 systemctl nginx sed awk grep runuser id; do
   command -v "$cmd" >/dev/null 2>&1 || { echo "Missing command: $cmd"; exit 1; }
 done
 
@@ -53,32 +57,59 @@ SERVICE_ID="$(python3 -c 'import json,sys; name=sys.argv[1]; print(next((x["id"]
 WORKDIR="$(systemctl show "$UNIT_NAME" -p WorkingDirectory --value)"
 [[ -d "$WORKDIR" ]] || { echo "Frontend WorkingDirectory is unavailable: $WORKDIR"; exit 1; }
 
-REPO_ROOT="$(git -C "$WORKDIR" rev-parse --show-toplevel 2>/dev/null || true)"
-[[ -d "$REPO_ROOT/.git" ]] || { echo "Frontend working directory is not inside a Git repository."; exit 1; }
-
-ORIGIN="$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || true)"
-NORMALIZED="$ORIGIN"
-NORMALIZED="${NORMALIZED#ssh://git@github.com/}"
-NORMALIZED="${NORMALIZED#git@github.com:}"
-NORMALIZED="https://github.com/${NORMALIZED#https://github.com/}"
-case "$NORMALIZED" in
-  https://github.com/rahi62/coffino|https://github.com/rahi62/coffino.git) ;;
-  *) echo "Unexpected Cafino origin: $ORIGIN"; exit 1 ;;
-esac
-
-if [[ -n "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=no)" ]]; then
-  echo "Refusing takeover: tracked working tree has local changes."
-  git -C "$REPO_ROOT" status --short
-  exit 1
-fi
-
 SERVICE_USER="$(systemctl show "$UNIT_NAME" -p User --value)"
-[[ -n "$SERVICE_USER" && "$SERVICE_USER" != "root" ]] || { echo "Unsafe frontend service user: $SERVICE_USER"; exit 1; }
+SERVICE_GROUP="$(systemctl show "$UNIT_NAME" -p Group --value)"
+[[ -n "$SERVICE_USER" && "$SERVICE_USER" != "root" ]] || {
+  echo "Unsafe frontend service user: ${SERVICE_USER:-root/default}"
+  echo "The frontend unit must run as a dedicated non-root user before controlled takeover."
+  exit 1
+}
+[[ -n "$SERVICE_GROUP" ]] || SERVICE_GROUP="$(id -gn "$SERVICE_USER")"
 
-if ! runuser -u "$SERVICE_USER" -- git -C "$REPO_ROOT" remote get-url origin >/dev/null 2>&1; then
-  echo "Frontend service user cannot access the Cafino repository: $REPO_ROOT"
+EXEC_START="$(systemctl show "$UNIT_NAME" -p ExecStart --value)"
+if [[ "$EXEC_START" == *"$WORKDIR/"* ]]; then
+  echo "Refusing takeover: ExecStart contains an absolute path inside the old runtime directory."
+  echo "ExecStart=$EXEC_START"
+  echo "Convert ExecStart to a working-directory-relative command (for example npm start) first."
   exit 1
 fi
+
+prepare_private_source() {
+  mkdir -p "$SOURCE_PARENT"
+  chmod 0755 "$SOURCE_PARENT"
+
+  if [[ ! -d "$SOURCE_REPO/.git" ]]; then
+    rm -rf "$SOURCE_REPO"
+    mkdir -p "$SOURCE_REPO"
+    git -C "$SOURCE_REPO" init
+    git -C "$SOURCE_REPO" remote add origin "$PRIVATE_REMOTE"
+  fi
+
+  local remote
+  remote="$(git -c safe.directory="$SOURCE_REPO" -C "$SOURCE_REPO" remote get-url origin 2>/dev/null || true)"
+  case "$remote" in
+    ssh://git@github.com/rahi62/coffino|ssh://git@github.com/rahi62/coffino.git|git@github.com:rahi62/coffino|git@github.com:rahi62/coffino.git|https://github.com/rahi62/coffino|https://github.com/rahi62/coffino.git) ;;
+    *) echo "Unexpected trusted source origin: $remote"; exit 1 ;;
+  esac
+
+  echo "Syncing private Cafino source to $TARGET_COMMIT..."
+  git -c safe.directory="$SOURCE_REPO" -C "$SOURCE_REPO" fetch --no-tags --depth=1 origin "$TARGET_COMMIT"
+  git -c safe.directory="$SOURCE_REPO" -C "$SOURCE_REPO" checkout --detach FETCH_HEAD
+  [[ "$(git -c safe.directory="$SOURCE_REPO" -C "$SOURCE_REPO" rev-parse HEAD)" == "$TARGET_COMMIT" ]] || {
+    echo "Trusted source commit mismatch."
+    exit 1
+  }
+
+  chown -R "$SERVICE_USER:$SERVICE_GROUP" "$SOURCE_REPO"
+  chmod 0750 "$SOURCE_REPO"
+  runuser -u "$SERVICE_USER" -- git -C "$SOURCE_REPO" remote get-url origin >/dev/null
+  [[ "$(runuser -u "$SERVICE_USER" -- git -C "$SOURCE_REPO" rev-parse HEAD)" == "$TARGET_COMMIT" ]] || {
+    echo "Frontend service user cannot verify trusted source commit."
+    exit 1
+  }
+}
+
+prepare_private_source
 
 BACKEND_PORT="$(python3 -c 'import json,sys; print(next((str(x.get("service_port") or "") for x in json.load(sys.stdin).get("services",[]) if x["name"]=="backend"), ""))' <<<"$PROJECT")"
 
@@ -95,16 +126,19 @@ port_from_exec() {
 port_from_nginx() {
   local conf ports
   conf="$(nginx -T 2>/dev/null || true)"
-  ports="$(python3 - "$DOMAIN" <<'PY' <<<"$conf"
-import re,sys
-domain=sys.argv[1]
-text=sys.stdin.read()
-for block in re.findall(r"server\s*\{.*?\n\}", text, flags=re.S):
-    if re.search(r"server_name\s+[^;]*\b"+re.escape(domain)+r"\b", block):
-        for port in re.findall(r"proxy_pass\s+http://127\.0\.0\.1:(\d+)", block):
-            print(port)
-PY
-)"
+  ports="$(python3 -c 'import re,sys; domain=sys.argv[1]; lines=sys.stdin.read().splitlines(); active=False; depth=0; seen=False; out=[]
+for line in lines:
+    if not active and re.search(r"\\bserver\\s*\\{", line):
+        active=True; depth=line.count("{")-line.count("}"); seen=False; block=[]; continue
+    if active:
+        block.append(line); depth += line.count("{")-line.count("}")
+        if re.search(r"server_name\\s+[^;]*\\b"+re.escape(domain)+r"\\b", line): seen=True
+        if depth<=0:
+            if seen:
+                text="\\n".join(block)
+                out.extend(re.findall(r"proxy_pass\\s+http://(?:127\\.0\\.0\\.1|localhost):(\\d+)", text))
+            active=False
+print("\\n".join(out))' "$DOMAIN" <<<"$conf")"
   while read -r p; do
     [[ -n "$p" ]] || continue
     if [[ -z "$BACKEND_PORT" || "$p" != "$BACKEND_PORT" ]]; then
@@ -119,16 +153,13 @@ FRONTEND_PORT="$(port_from_env || true)"
 [[ -n "$FRONTEND_PORT" ]] || FRONTEND_PORT="$(port_from_nginx || true)"
 [[ "$FRONTEND_PORT" =~ ^[0-9]+$ ]] || { echo "Could not derive frontend port."; exit 1; }
 
-echo "Frontend repo: $REPO_ROOT"
+echo "Runtime working directory: $WORKDIR"
+echo "Trusted source repository: $SOURCE_REPO"
 echo "Frontend port: $FRONTEND_PORT"
-echo "Service user: $SERVICE_USER"
+echo "Service user/group: $SERVICE_USER:$SERVICE_GROUP"
 echo "Target commit: $TARGET_COMMIT"
 
-git -C "$REPO_ROOT" fetch --no-tags origin "$TARGET_COMMIT"
-RESOLVED="$(git -C "$REPO_ROOT" rev-parse FETCH_HEAD)"
-[[ "$RESOLVED" == "$TARGET_COMMIT" ]] || { echo "Fetched commit mismatch."; exit 1; }
-
-CONFIG_BODY="$(printf '{"repository":"https://github.com/rahi62/coffino.git","branch":"main","root_directory":"frontend","runtime":"node-nextjs","service_port":%s,"install_configuration":{"package_manager":"npm","lockfile":"package-lock.json"},"build_configuration":{"build_script":"build"}}' "$FRONTEND_PORT")"
+CONFIG_BODY="$(printf '{"repository":"%s","branch":"main","root_directory":"frontend","runtime":"node-nextjs","service_port":%s,"install_configuration":{"package_manager":"npm","lockfile":"package-lock.json"},"build_configuration":{"build_script":"build"}}' "$MANAGED_REMOTE" "$FRONTEND_PORT")"
 api_put "/api/control/v1/services/$SERVICE_ID/deployment-configuration/" "$CONFIG_BODY" >/dev/null
 
 EFFECTIVE_ENV="$(systemctl show digitalafarin-platform-takeover-helper.service -p Environment --value)"
@@ -137,8 +168,8 @@ CURRENT_SOURCES="$(tr ' ' '\n' <<<"$EFFECTIVE_ENV" | sed -n 's/^DIGITALAFARIN_TA
 CURRENT_MANAGED="$(tr ' ' '\n' <<<"$EFFECTIVE_ENV" | sed -n 's/^DIGITALAFARIN_MANAGED_REPOSITORIES=//p' | head -1)"
 
 BINDING="cafino|frontend|cafino-frontend.service"
-SOURCE="$BINDING|$REPO_ROOT"
-MANAGED="$BINDING|https://github.com/rahi62/coffino.git"
+SOURCE="$BINDING|$SOURCE_REPO"
+MANAGED="$BINDING|$MANAGED_REMOTE"
 
 append_csv() {
   local current="$1" item="$2"
