@@ -93,8 +93,9 @@ def deploy_managed_release(payload: dict, *, helper=None) -> dict:
                 # an activation response was lost or rollback failed.
                 result["cleanup_error_code"] = "managed_cleanup_failed"
         code = exc.code if isinstance(exc, TakeoverHelperError) else "managed_deployment_failed"
+        message = str(exc) if isinstance(exc, TakeoverHelperError) else "Managed deployment failed."
         _event(events, "failed", code)
-        return {**result, "final_state": "failed", "error_code": code}
+        return {**result, "final_state": "failed", "error_code": code, "error_message": message[:500]}
 
 
 def rollback_managed_release(payload: dict, *, helper=None) -> dict:

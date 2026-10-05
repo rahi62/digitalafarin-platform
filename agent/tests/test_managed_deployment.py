@@ -9,6 +9,7 @@ from digitalafarin_agent import deployment, operations, releases
 from digitalafarin_agent.executors.systemd import SystemdExecutor
 from digitalafarin_agent import takeover_helper as h
 from digitalafarin_agent.health import HealthCheckError
+from digitalafarin_agent.takeover_helper_client import TakeoverHelperError
 
 
 def test_managed_deployment_uses_helper_only(monkeypatch):
@@ -185,11 +186,26 @@ def test_unsupported_payload_fails_explicitly(field, value, code):
     assert result['error_code'] == code
 
 
+def test_managed_helper_failure_keeps_bounded_diagnostic_message():
+    class Helper:
+        def prepare_managed_node_nextjs_release(self, params):
+            raise TakeoverHelperError('release_validation_failed', 'Invalid managed releases root.')
+
+    result = deployment.deploy_managed_release({
+        'deployment_id': '1', 'project_slug': 'project', 'service_name': 'web',
+        'unit_name': 'web.service', 'repository': 'https://example.com/repo.git',
+        'runtime': 'node-nextjs', 'exact_commit': 'a' * 40,
+    }, helper=Helper())
+    assert result['error_code'] == 'release_validation_failed'
+    assert result['error_message'] == 'Invalid managed releases root.'
+
+
 def test_operation_routes_managed_deploy_and_preserves_failure_code(monkeypatch):
-    monkeypatch.setattr(operations, 'deploy_managed_release', lambda payload: {'final_state': 'failed', 'error_code': 'managed_environment_unsupported', 'events': [{'state': 'failed'}]})
+    monkeypatch.setattr(operations, 'deploy_managed_release', lambda payload: {'final_state': 'failed', 'error_code': 'managed_environment_unsupported', 'error_message': 'Managed environment updates are not supported.', 'events': [{'state': 'failed'}]})
     with pytest.raises(operations.OperationExecutionError) as exc:
         operations.execute_operation('deployment.deploy', {})
     assert exc.value.code == 'managed_environment_unsupported'
+    assert str(exc.value) == 'Managed environment updates are not supported.'
 
 
 def test_managed_missing_dropin_rejected(managed):

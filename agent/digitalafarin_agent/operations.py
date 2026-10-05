@@ -110,7 +110,7 @@ def execute_operation(kind: str, payload: dict) -> dict:
             result = deploy_managed_release(payload)
             if result["final_state"] == "failed":
                 code = result["error_code"]
-                raise OperationExecutionError(code, code)
+                raise OperationExecutionError(code, redact(result.get("error_message") or code)[:500])
             return result
         except Exception as exc:
             if isinstance(exc, OperationExecutionError):
