@@ -97,7 +97,38 @@ curl -fsS --max-time 5 http://127.0.0.1:9750/health/ >/dev/null || {
   exit 3
 }
 
-bash /opt/digitalafarin-platform/scripts/diagnose-github-source.sh   https://github.com/rahi62/coffino.git || true
+bash /opt/digitalafarin-platform/scripts/diagnose-github-source.sh \
+  https://github.com/rahi62/coffino.git
+
+cd /opt/digitalafarin-platform/apps/api
+set -a
+source "$API_ENV"
+set +a
+"$PWD/.venv/bin/python" manage.py shell <<'PY'
+from control.models import GitHubInstallation
+from control.services.github_source import app_headers, installation_details
+import httpx
+
+with httpx.Client(timeout=15.0) as client:
+    response = client.get(
+        "https://api.github.com/repos/rahi62/coffino/installation",
+        headers=app_headers(),
+    )
+    response.raise_for_status()
+    installation_id = int(response.json()["id"])
+
+details = installation_details(installation_id)
+GitHubInstallation.objects.update_or_create(
+    installation_id=installation_id,
+    defaults={
+        "account_login": details["account_login"],
+        "account_type": details["account_type"],
+        "repository_selection": details["repository_selection"],
+        "suspended": details["suspended"],
+    },
+)
+print(f"Registered GitHub installation: {installation_id}")
+PY
 
 echo
 echo "GitHub App credentials installed without printing secret values."
