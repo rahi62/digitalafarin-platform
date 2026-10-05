@@ -28,6 +28,7 @@ owner, name = repository_name(repository)
 key_file = os.getenv("GITHUB_APP_PRIVATE_KEY_FILE", "").strip()
 configured = {
     "GITHUB_APP_ID": bool(os.getenv("GITHUB_APP_ID", "").strip()),
+    "GITHUB_APP_CLIENT_ID": bool(os.getenv("GITHUB_APP_CLIENT_ID", "").strip()),
     "GITHUB_APP_PRIVATE_KEY": bool(
         os.getenv("GITHUB_APP_PRIVATE_KEY", "").strip()
         or (key_file and __import__("pathlib").Path(key_file).is_file())
@@ -35,7 +36,7 @@ configured = {
     "GITHUB_APP_SLUG": bool(os.getenv("GITHUB_APP_SLUG", "").strip()),
 }
 print("GitHub App config:", ", ".join(f"{k}={'yes' if v else 'no'}" for k, v in configured.items()))
-if not configured["GITHUB_APP_ID"] or not configured["GITHUB_APP_PRIVATE_KEY"]:
+if not (configured["GITHUB_APP_CLIENT_ID"] or configured["GITHUB_APP_ID"]) or not configured["GITHUB_APP_PRIVATE_KEY"]:
     print("RESULT=app_not_configured")
     raise SystemExit(2)
 
@@ -46,6 +47,14 @@ except GitHubSourceError as exc:
     raise SystemExit(3)
 
 with httpx.Client(timeout=15.0) as client:
+    app = client.get("https://api.github.com/app", headers=headers)
+    print("App identity HTTP:", app.status_code)
+    if app.status_code != 200:
+        print("RESULT=app_jwt_rejected")
+        raise SystemExit(4)
+    app_data = app.json()
+    print("Authenticated app:", app_data.get("slug", ""), "id=", app_data.get("id", ""))
+
     installation = client.get(
         f"https://api.github.com/repos/{owner}/{name}/installation",
         headers=headers,
@@ -58,7 +67,7 @@ with httpx.Client(timeout=15.0) as client:
             print("RESULT=app_auth_or_permission_denied")
         else:
             print("RESULT=installation_lookup_failed")
-        raise SystemExit(4)
+        raise SystemExit(8)
 
     data = installation.json()
     installation_id = data.get("id")

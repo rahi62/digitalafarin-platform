@@ -4,11 +4,12 @@ set -euo pipefail
 APP_ID="${1:-}"
 APP_SLUG="${2:-}"
 PRIVATE_KEY_FILE="${3:-}"
+CLIENT_ID="${4:-}"
 API_ENV="/etc/digitalafarin-platform/api.env"
 INSTALLED_KEY="/etc/digitalafarin-platform/github-app-private-key.pem"
 
 usage() {
-  echo "Usage: sudo bash scripts/configure-github-app.sh <app-id> <app-slug> <private-key.pem>"
+  echo "Usage: sudo bash scripts/configure-github-app.sh <app-id> <app-slug> <private-key.pem> [client-id]"
 }
 
 if [[ "${EUID}" -ne 0 ]]; then
@@ -38,7 +39,7 @@ fi
 
 install -o root -g www-data -m 0640 "$PRIVATE_KEY_FILE" "$INSTALLED_KEY"
 
-python3 - "$API_ENV" "$APP_ID" "$APP_SLUG" "$INSTALLED_KEY" <<'PY'
+python3 - "$API_ENV" "$APP_ID" "$APP_SLUG" "$INSTALLED_KEY" "$CLIENT_ID" <<'PY'
 from pathlib import Path
 import secrets
 import sys
@@ -47,12 +48,15 @@ env_path = Path(sys.argv[1])
 app_id = sys.argv[2]
 slug = sys.argv[3]
 key_file = sys.argv[4]
+client_id = sys.argv[5]
 existing = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
 values = {
     "GITHUB_APP_ID": app_id,
     "GITHUB_APP_SLUG": slug,
     "GITHUB_APP_PRIVATE_KEY_FILE": key_file,
 }
+if client_id:
+    values["GITHUB_APP_CLIENT_ID"] = client_id
 current = {}
 for line in existing.splitlines():
     if "=" in line and not line.lstrip().startswith("#"):
