@@ -109,17 +109,33 @@ class GitHubInstallationView(APIView):
     permission_classes = [require_scope("operations:create")]
 
     def post(self, request):
-        if set(request.data) != {"installation_id", "state"}:
+        keys = set(request.data)
+        signed_flow = keys == {"installation_id", "state"}
+        verified_flow = keys == {"installation_id", "verify"} and request.data.get("verify") is True
+        if not signed_flow and not verified_flow:
             return Response({"error": "invalid_request"}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            state = signing.loads(str(request.data["state"]), salt="github-install", max_age=600)
-            if state != {"purpose": "github-install"}:
-                raise signing.BadSignature
             installation_id = int(request.data["installation_id"])
             if installation_id <= 0:
                 raise ValueError
+            if signed_flow:
+                state = signing.loads(
+                    str(request.data["state"]),
+                    salt="github-install",
+                    max_age=600,
+                )
+                if state != {"purpose": "github-install"}:
+                    raise signing.BadSignature
+            # Both flows are verified against GitHub using the server-side App
+            # credential before any installation row is persisted.
             details = installation_details(installation_id)
-        except (TypeError, ValueError, signing.BadSignature, signing.SignatureExpired, GitHubSourceError):
+        except (
+            TypeError,
+            ValueError,
+            signing.BadSignature,
+            signing.SignatureExpired,
+            GitHubSourceError,
+        ):
             return Response(
                 {"error": "github_installation_unavailable"},
                 status=status.HTTP_409_CONFLICT,

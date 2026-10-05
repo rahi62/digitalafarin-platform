@@ -92,3 +92,35 @@ class GitHubIntegrationTests(TestCase):
         response = self.client.get("/api/control/v1/github/integration/")
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["configured"])
+
+
+    @patch("control.github_views.installation_details")
+    def test_installation_direct_verify_requires_server_side_github_verification(self, details):
+        details.return_value = {
+            "installation_id": 168152964,
+            "account_login": "rahi62",
+            "account_type": "User",
+            "repository_selection": "all",
+            "suspended": False,
+        }
+        response = self.client.post(
+            "/api/control/v1/github/installations/",
+            {"installation_id": 168152964, "verify": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        details.assert_called_once_with(168152964)
+        self.assertTrue(
+            GitHubInstallation.objects.filter(
+                installation_id=168152964,
+                account_login="rahi62",
+            ).exists()
+        )
+
+    def test_installation_direct_verify_rejects_false_verify_flag(self):
+        response = self.client.post(
+            "/api/control/v1/github/installations/",
+            {"installation_id": 168152964, "verify": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)

@@ -453,6 +453,13 @@ export function registerGitHubInstallation(installationId: number, state: string
   });
 }
 
+export function verifyGitHubInstallation(installationId: number): Promise<GitHubInstallation> {
+  return request("/api/control/v1/github/installations/", {
+    method: "POST",
+    body: JSON.stringify({ installation_id: installationId, verify: true }),
+  });
+}
+
 export async function listGitHubRepositories(installationId: number): Promise<GitHubRepository[]> {
   const result = await request<{ items: GitHubRepository[] }>(
     `/api/control/v1/github/installations/${installationId}/repositories/`,
