@@ -41,3 +41,24 @@ class DomainAPITests(TestCase):
             format="json",
         )
         self.assertEqual(response.status_code, 400)
+
+
+    def test_external_domain_is_metadata_only(self):
+        response = self.client.post(
+            f"/api/control/v1/projects/{self.project.public_id}/domains/",
+            {
+                "service_id": str(self.service.public_id),
+                "hostname": "cafeno.digitalafarin.ir",
+                "configure_nginx": False,
+                "ssl_enabled": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        body = response.json()
+        self.assertEqual(body["status"], "external")
+        self.assertEqual(body["management_mode"], "external")
+        self.assertTrue(body["ssl_enabled"])
+        self.assertNotIn("operation_id", body)
+        self.assertEqual(Operation.objects.count(), 0)

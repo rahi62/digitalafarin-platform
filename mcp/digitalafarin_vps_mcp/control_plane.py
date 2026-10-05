@@ -457,7 +457,14 @@ class ControlPlaneClient:
             {},
         )
 
-    async def create_domain(self, project_id: str, service_id: str, hostname: str) -> dict:
+    async def create_domain(
+        self,
+        project_id: str,
+        service_id: str,
+        hostname: str,
+        configure_nginx: bool = True,
+        ssl_enabled: bool = False,
+    ) -> dict:
         _validate_uuid(project_id, "project_id")
         _validate_uuid(service_id, "service_id")
         if not re.fullmatch(
@@ -467,7 +474,12 @@ class ControlPlaneClient:
             raise MCPDomainError("invalid_request", "hostname is invalid.")
         return await self._post(
             f"/api/control/v1/projects/{quote(project_id, safe='')}/domains/",
-            {"service_id": service_id, "hostname": hostname},
+            {
+                "service_id": service_id,
+                "hostname": hostname,
+                "configure_nginx": configure_nginx,
+                "ssl_enabled": ssl_enabled,
+            },
         )
 
     async def enable_domain_ssl(self, domain_id: str) -> dict:

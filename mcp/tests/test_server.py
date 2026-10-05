@@ -100,8 +100,15 @@ class FakeControlPlane:
     async def cancel_service_takeover(self, takeover_id):
         return {"id": takeover_id, "state": "canceled"}
 
-    async def create_domain(self, project_id, service_id, hostname):
-        return {"id": "domain-id", "project_id": project_id, "service_id": service_id, "hostname": hostname, "status": "pending"}
+    async def create_domain(self, project_id, service_id, hostname, configure_nginx=True, ssl_enabled=False):
+        return {
+            "id": "domain-id",
+            "project_id": project_id,
+            "service_id": service_id,
+            "hostname": hostname,
+            "status": "queued" if configure_nginx else "external",
+            "ssl_enabled": ssl_enabled,
+        }
 
     async def enable_domain_ssl(self, domain_id):
         return {"id": domain_id, "ssl_enabled": True}
@@ -252,6 +259,8 @@ async def test_domain_tools_expose_typed_hostname_and_domain_id():
                 "project_id": "11111111-1111-1111-1111-111111111111",
                 "service_id": "22222222-2222-2222-2222-222222222222",
                 "hostname": "cafeno.digitalafarin.ir",
+                "configure_nginx": False,
+                "ssl_enabled": True,
             },
         )
         enabled = await client.call_tool(
@@ -260,6 +269,8 @@ async def test_domain_tools_expose_typed_hostname_and_domain_id():
         )
 
     assert created.structured_content["hostname"] == "cafeno.digitalafarin.ir"
+    assert created.structured_content["status"] == "external"
+    assert created.structured_content["ssl_enabled"] is True
     assert enabled.structured_content["ssl_enabled"] is True
 
 

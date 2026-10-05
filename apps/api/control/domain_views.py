@@ -15,6 +15,15 @@ class DomainCreateSerializer(StrictSerializer):
     hostname = serializers.RegexField(
         r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$"
     )
+    configure_nginx = serializers.BooleanField(default=True)
+    ssl_enabled = serializers.BooleanField(default=False)
+
+    def validate(self, attrs):
+        if attrs["configure_nginx"] and attrs["ssl_enabled"]:
+            raise serializers.ValidationError(
+                {"ssl_enabled": "Managed domains must enable SSL through the SSL operation."}
+            )
+        return attrs
 
     def validate_service_id(self, value):
         try:
@@ -32,6 +41,7 @@ def serialize_domain(domain, operation=None):
         "hostname": domain.hostname,
         "status": domain.status,
         "ssl_enabled": domain.ssl_enabled,
+        "management_mode": "external" if domain.status == "external" else "platform",
     }
     if operation:
         data["operation_id"] = str(operation.public_id)
@@ -65,12 +75,17 @@ class DomainListCreateView(APIView):
         serializer = DomainCreateSerializer(data=request.data, context={"project": project})
         serializer.is_valid(raise_exception=True)
         service = serializer.validated_data["service_id"]
+        configure_nginx = serializer.validated_data["configure_nginx"]
         domain = Domain.objects.create(
             project=project,
             service=service,
             server=service.target_server,
             hostname=serializer.validated_data["hostname"],
+            status="queued" if configure_nginx else "external",
+            ssl_enabled=serializer.validated_data["ssl_enabled"] if not configure_nginx else False,
         )
+        if not configure_nginx:
+            return Response(serialize_domain(domain), status=status.HTTP_201_CREATED)
         operation = create_operation(
             server=domain.server,
             kind=Operation.KIND_DOMAIN_CONFIGURE,

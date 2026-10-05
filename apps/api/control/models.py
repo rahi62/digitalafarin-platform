@@ -634,7 +634,7 @@ class Domain(models.Model):
     hostname = models.CharField(max_length=253, unique=True)
     status = models.CharField(
         max_length=16,
-        choices=[("queued", "Queued"), ("configured", "Configured"), ("failed", "Failed")],
+        choices=[("queued", "Queued"), ("configured", "Configured"), ("failed", "Failed"), ("external", "External")],
         default="queued",
     )
     ssl_enabled = models.BooleanField(default=False)

@@ -232,9 +232,19 @@ def create_mcp(control_plane: ControlPlaneClient | Any | None = None) -> MCPServ
         project_id: str,
         service_id: str,
         hostname: str,
+        configure_nginx: bool = True,
+        ssl_enabled: bool = False,
     ) -> dict[str, Any]:
-        """Register one validated hostname for a project service and queue Nginx configuration."""
-        return await _safe(client.create_domain(project_id, service_id, hostname))
+        """Register one validated hostname; optionally keep Nginx externally managed."""
+        return await _safe(
+            client.create_domain(
+                project_id,
+                service_id,
+                hostname,
+                configure_nginx,
+                ssl_enabled,
+            )
+        )
 
     @mcp.tool()
     async def vps_enable_domain_ssl(domain_id: str) -> dict[str, Any]:

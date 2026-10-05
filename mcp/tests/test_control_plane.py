@@ -344,13 +344,19 @@ async def test_create_domain_posts_typed_project_domain_payload():
     project_id = "11111111-1111-1111-1111-111111111111"
     service_id = "22222222-2222-2222-2222-222222222222"
 
-    result = await client.create_domain(project_id, service_id, "cafeno.digitalafarin.ir")
+    result = await client.create_domain(
+        project_id,
+        service_id,
+        "cafeno.digitalafarin.ir",
+        configure_nginx=False,
+        ssl_enabled=True,
+    )
 
     assert result["hostname"] == "cafeno.digitalafarin.ir"
     assert seen == [(
         "POST",
         f"/api/control/v1/projects/{project_id}/domains/",
-        '{"service_id":"' + service_id + '","hostname":"cafeno.digitalafarin.ir"}',
+        '{"service_id":"' + service_id + '","hostname":"cafeno.digitalafarin.ir","configure_nginx":false,"ssl_enabled":true}',
     )]
     await http.aclose()
 
