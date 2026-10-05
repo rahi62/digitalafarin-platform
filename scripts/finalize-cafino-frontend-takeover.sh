@@ -180,12 +180,16 @@ print("\\n".join(out))' "$DOMAIN" <<<"$conf")"
   done <<<"$ports"
 }
 
-FRONTEND_PORT="$(port_from_env || true)"
+FRONTEND_PORT="${CAF_INO_FRONTEND_PORT:-}"
+[[ -n "$FRONTEND_PORT" ]] || FRONTEND_PORT="$(port_from_env || true)"
 [[ -n "$FRONTEND_PORT" ]] || FRONTEND_PORT="$(port_from_env_files || true)"
 [[ -n "$FRONTEND_PORT" ]] || FRONTEND_PORT="$(port_from_exec || true)"
 [[ -n "$FRONTEND_PORT" ]] || FRONTEND_PORT="$(port_from_nginx || true)"
 [[ -n "$FRONTEND_PORT" ]] || FRONTEND_PORT="$(port_from_journal || true)"
-[[ "$FRONTEND_PORT" =~ ^[0-9]+$ ]] || { echo "Could not derive frontend port."; exit 1; }
+[[ "$FRONTEND_PORT" =~ ^[0-9]+$ && "$FRONTEND_PORT" -ge 1 && "$FRONTEND_PORT" -le 65535 ]] || {
+  echo "Could not derive a valid frontend port."
+  exit 1
+}
 
 echo "Runtime working directory: $WORKDIR"
 echo "Takeover source transport: GitHub App bundle (private repo)"
