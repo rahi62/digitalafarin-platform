@@ -15,13 +15,17 @@ def test_trusted_source_syncs_exact_commit_before_build(tmp_path, monkeypatch):
     source = tmp_path / "source"
     source.mkdir()
     calls = []
+    synced = False
 
     def worker(*, phase, user, group, argv, timeout, **kwargs):
-        calls.append((phase, argv))
+        nonlocal synced
+        calls.append((phase, argv, kwargs.get("writable_path")))
         if argv[-3:] == ["remote", "get-url", "origin"]:
             return REPOSITORY
         if argv[-2:] == ["rev-parse", "HEAD"]:
-            return COMMIT
+            return COMMIT if synced else "b" * 40
+        if argv[-3:] == ["checkout", "--detach", COMMIT]:
+            synced = True
         return ""
 
     monkeypatch.setattr(h, "run_takeover_worker", worker)
@@ -38,12 +42,16 @@ def test_trusted_source_syncs_exact_commit_before_build(tmp_path, monkeypatch):
     assert result == source.resolve()
     assert [call[0] for call in calls] == [
         "source_verify",
+        "source_verify",
         "source_sync",
         "source_sync",
         "source_verify",
     ]
-    assert calls[1][1][-4:] == ["fetch", "--no-tags", "origin", COMMIT]
-    assert calls[2][1][-3:] == ["checkout", "--detach", COMMIT]
+    assert calls[2][1][-4:] == ["fetch", "--no-tags", "origin", COMMIT]
+    assert calls[3][1][-3:] == ["checkout", "--detach", COMMIT]
+    assert calls[2][2] == source.resolve()
+    assert calls[3][2] == source.resolve()
+    assert calls[0][2] is None and calls[1][2] is None and calls[4][2] is None
 
 
 @pytest.mark.parametrize("remote", [

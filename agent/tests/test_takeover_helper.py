@@ -437,16 +437,9 @@ def test_source_verification_uses_systemd_worker_with_service_identity(tmp_path,
     )
 
     assert output == source
-    assert [call["phase"] for call in calls] == [
-        "source_verify",
-        "source_sync",
-        "source_sync",
-        "source_verify",
-    ]
+    assert [call["phase"] for call in calls] == ["source_verify", "source_verify"]
     assert calls[0]["argv"] == ["git", "-C", str(source), "remote", "get-url", "origin"]
-    assert calls[1]["argv"] == ["git", "-C", str(source), "fetch", "--no-tags", "origin", "a" * 40]
-    assert calls[2]["argv"] == ["git", "-C", str(source), "checkout", "--detach", "a" * 40]
-    assert calls[3]["argv"] == ["git", "-C", str(source), "rev-parse", "HEAD"]
+    assert calls[1]["argv"] == ["git", "-C", str(source), "rev-parse", "HEAD"]
 
 
 def test_trusted_source_repository_configuration_parses_exact_binding(monkeypatch):

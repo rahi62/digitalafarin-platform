@@ -283,11 +283,21 @@ def _trusted_local_source_repository(
                 "managed_repository_not_allowed",
                 "Trusted local source origin does not match the managed repository.",
             )
+        head = run_takeover_worker(
+            phase="source_verify",
+            user=user,
+            group=group,
+            argv=["git", "-C", str(source), "rev-parse", "HEAD"],
+            timeout=30,
+        )
+        if COMMIT.fullmatch(head) and head == exact_commit:
+            return source
         run_takeover_worker(
             phase="source_sync",
             user=user,
             group=group,
             argv=["git", "-C", str(source), "fetch", "--no-tags", "origin", exact_commit],
+            writable_path=source,
             timeout=120,
         )
         run_takeover_worker(
@@ -295,6 +305,7 @@ def _trusted_local_source_repository(
             user=user,
             group=group,
             argv=["git", "-C", str(source), "checkout", "--detach", exact_commit],
+            writable_path=source,
             timeout=30,
         )
         head = run_takeover_worker(
