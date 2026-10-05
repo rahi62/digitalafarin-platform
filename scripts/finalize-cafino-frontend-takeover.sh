@@ -13,6 +13,8 @@ SOURCE_PARENT="/srv/digitalafarin/apps/.sources"
 SOURCE_REPO="$SOURCE_PARENT/coffino"
 PRIVATE_REMOTE="ssh://git@github.com/rahi62/coffino.git"
 MANAGED_REMOTE="https://github.com/rahi62/coffino.git"
+COMPAT_DROPIN_DIR="/etc/systemd/system/${UNIT_NAME}.d"
+COMPAT_DROPIN="$COMPAT_DROPIN_DIR/20-cafino-relative-exec.conf"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Run as root."
@@ -67,10 +69,53 @@ SERVICE_GROUP="$(systemctl show "$UNIT_NAME" -p Group --value)"
 [[ -n "$SERVICE_GROUP" ]] || SERVICE_GROUP="$(id -gn "$SERVICE_USER")"
 
 EXEC_START="$(systemctl show "$UNIT_NAME" -p ExecStart --value)"
+normalize_standalone_execstart() {
+  local expected="$WORKDIR/.next/standalone/server.js"
+  if [[ "$EXEC_START" != *"$expected"* ]]; then
+    return 0
+  fi
+
+  if [[ "$EXEC_START" != *"path=/usr/bin/node"* ]]; then
+    echo "Refusing takeover: absolute runtime path is not the supported Node standalone shape."
+    echo "ExecStart=$EXEC_START"
+    exit 1
+  fi
+
+  echo "Normalizing Cafino frontend ExecStart to release-relative Next.js standalone path..."
+  mkdir -p "$COMPAT_DROPIN_DIR"
+  cat > "$COMPAT_DROPIN" <<'EOF'
+[Service]
+ExecStart=
+ExecStart=/usr/bin/node .next/standalone/server.js
+EOF
+  chmod 0644 "$COMPAT_DROPIN"
+  systemctl daemon-reload
+  systemctl restart "$UNIT_NAME"
+
+  for _ in $(seq 1 30); do
+    if systemctl is-active --quiet "$UNIT_NAME" && curl -kfsS --max-time 5 "https://$DOMAIN/" >/dev/null; then
+      break
+    fi
+    sleep 2
+  done
+  if ! systemctl is-active --quiet "$UNIT_NAME" || ! curl -kfsS --max-time 10 "https://$DOMAIN/" >/dev/null; then
+    echo "Compatibility restart failed; removing relative ExecStart drop-in and restoring original service."
+    rm -f "$COMPAT_DROPIN"
+    rmdir "$COMPAT_DROPIN_DIR" 2>/dev/null || true
+    systemctl daemon-reload
+    systemctl restart "$UNIT_NAME"
+    exit 1
+  fi
+
+  EXEC_START="$(systemctl show "$UNIT_NAME" -p ExecStart --value)"
+  echo "Frontend ExecStart normalized successfully."
+}
+
+normalize_standalone_execstart
+
 if [[ "$EXEC_START" == *"$WORKDIR/"* ]]; then
-  echo "Refusing takeover: ExecStart contains an absolute path inside the old runtime directory."
+  echo "Refusing takeover: ExecStart still contains an absolute path inside the old runtime directory."
   echo "ExecStart=$EXEC_START"
-  echo "Convert ExecStart to a working-directory-relative command (for example npm start) first."
   exit 1
 fi
 
@@ -250,6 +295,7 @@ STATE="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])' <<<"
 [[ "$STATE" == "succeeded" ]] || { echo "Takeover did not succeed."; exit 1; }
 
 curl -kfsS --max-time 15 "https://$DOMAIN/" >/dev/null
+curl -kfsS --max-time 15 "https://$DOMAIN/api/v1/health/" >/dev/null
 FINAL="$(api_get "/api/control/v1/projects/$PROJECT_ID/")"
 python3 -c 'import json,sys; d=json.load(sys.stdin); s=next(x for x in d["services"] if x["name"]=="frontend"); print("Frontend:", s["lifecycle_state"], s["repository"], s["root_directory"], s["service_port"]); print("Domain:", d["domains"][0]["hostname"], d["domains"][0]["status"], d["domains"][0].get("management_mode"))' <<<"$FINAL"
 
