@@ -119,7 +119,9 @@ if [[ "$EXEC_START" == *"$WORKDIR/"* ]]; then
 fi
 
 prepare_source_binding() {
-  mkdir -p "$SOURCE_PARENT" "$SOURCE_REPO"
+  mkdir -p "$SOURCE_PARENT"
+  rm -rf "$SOURCE_REPO"
+  mkdir -p "$SOURCE_REPO"
   chown "$SERVICE_USER:$SERVICE_GROUP" "$SOURCE_REPO"
   chmod 0750 "$SOURCE_REPO"
 }
