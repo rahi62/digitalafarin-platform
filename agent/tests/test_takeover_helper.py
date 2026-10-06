@@ -116,6 +116,31 @@ def test_release_roots_allow_traversal_without_parent_write_access(tmp_path, mon
     assert stat.S_IMODE(releases.stat().st_mode) & 0o022 == 0
 
 
+def test_release_roots_make_project_parent_traversable_for_worker(tmp_path, monkeypatch):
+    apps_root = tmp_path / "apps"
+    apps_root.mkdir(mode=0o750)
+    project_root = apps_root / "cafino"
+    project_root.mkdir(mode=0o700)
+    monkeypatch.setattr("digitalafarin_agent.takeover_helper._account", _account)
+    monkeypatch.setattr(
+        "digitalafarin_agent.takeover_helper._group_id", lambda _group, _fallback: 33
+    )
+    monkeypatch.setattr("digitalafarin_agent.takeover_helper.os.chown", lambda *_a: None)
+
+    service_root = _ensure_release_directories(
+        apps_root,
+        "cafino",
+        "frontend",
+        user="deploy",
+        group="www-data",
+    )
+
+    assert service_root == project_root / "frontend"
+    assert stat.S_IMODE(apps_root.stat().st_mode) == 0o751
+    assert stat.S_IMODE(project_root.stat().st_mode) == 0o751
+    assert stat.S_IMODE(service_root.stat().st_mode) == 0o755
+
+
 def test_release_root_setup_does_not_chmod_apps_parent(tmp_path, monkeypatch):
     apps_root = tmp_path / "apps"
     apps_root.mkdir(mode=0o750)

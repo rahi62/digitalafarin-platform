@@ -451,15 +451,21 @@ def _ensure_release_directories(
 ) -> Path:
     account = _account(user)
     service_root = _service_root(apps_root, project_slug, service_name)
+    project_root = service_root.parent
     gid = _group_id(group, account.pw_gid)
     releases = service_root / "releases"
     shared = service_root / "shared"
     for path in (service_root, releases, shared):
         path.mkdir(parents=True, exist_ok=True)
     try:
-        # Workers need traversal through the managed apps root. The helper is
-        # intentionally sandboxed to /srv/digitalafarin/apps and must not mutate
-        # its parent (/srv/digitalafarin); parent traversal is a host bootstrap invariant.
+        # Build workers need execute/traversal permission across every managed
+        # parent leading to the release. The helper server runs with umask 077,
+        # so a newly-created project root would otherwise remain 0700 and make
+        # the service release unreachable to the non-root build identity.
+        if project_root.is_symlink() or project_root.resolve(strict=True).parent != apps_root.resolve(strict=True):
+            raise OSError("invalid managed project root")
+        os.chown(project_root, 0, 0)
+        os.chmod(project_root, 0o751)
         os.chmod(apps_root, 0o751)
         for path in (service_root, releases):
             os.chown(path, 0, 0)
