@@ -263,7 +263,9 @@ def test_prepare_helper_derives_release_and_runs_build_as_service_user(tmp_path,
             timeout=300,
         )
         cwd = release / "apps" / "web"
-        (cwd / ".next").mkdir(parents=True)
+        (cwd / ".next" / "standalone").mkdir(parents=True)
+        (cwd / ".next" / "static").mkdir(parents=True)
+        (cwd / ".next" / "standalone" / "server.js").write_text("server", encoding="utf-8")
         (cwd / "package.json").write_text("{}", encoding="utf-8")
         (cwd / "package-lock.json").write_text("{}", encoding="utf-8")
         return release
@@ -597,7 +599,7 @@ def test_worker_command_failure_maps_to_stable_helper_error(monkeypatch):
         )
 
     assert exc.value.code == "release_prepare_failed"
-    assert str(exc.value) == "Takeover build command failed."
+    assert str(exc.value) == "Takeover build command failed during npm_ci."
     assert "internal diagnostic" not in str(exc.value)
 
 
