@@ -236,12 +236,14 @@ class OperationRunner:
                         type(exc).__name__,
                     )
 
-            result = await asyncio.to_thread(
-                execute_operation,
-                operation["kind"],
-                execution,
-                progress if operation["kind"] in {"deployment.deploy", "deployment.rollback"} else None,
-            )
+            if operation["kind"] in {"deployment.deploy", "deployment.rollback"}:
+                result = await asyncio.to_thread(
+                    execute_operation, operation["kind"], execution, progress
+                )
+            else:
+                result = await asyncio.to_thread(
+                    execute_operation, operation["kind"], execution
+                )
             completion = {"succeeded": True, "result": result}
         except OperationExecutionError as exc:
             completion = {
