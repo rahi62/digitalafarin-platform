@@ -109,7 +109,7 @@ def deploy_managed_release(payload: dict, *, helper=None, progress=None) -> dict
         return {**result, "final_state": "failed", "error_code": code, "error_message": message[:500]}
 
 
-def rollback_managed_release(payload: dict, *, helper=None) -> dict:
+def rollback_managed_release(payload: dict, *, helper=None, progress=None) -> dict:
     """Accept the existing control-plane payload without accessing release files."""
     from .takeover_helper_client import TakeoverHelperClient, TakeoverHelperError
 
@@ -131,7 +131,7 @@ def rollback_managed_release(payload: dict, *, helper=None) -> dict:
             raise ValueError("Invalid managed rollback path")
         identity = {"project_slug": relative.parts[0], "service_name": relative.parts[1], "unit_name": payload["unit_name"]}
         for state in ("cloning", "building", "releasing", "health_check", "activating"):
-            _event(events, state, "Retained release rollback")
+            _event(events, state, "Retained release rollback", progress=progress)
         activation = helper.rollback_managed_release({
             **identity, "release_name": release.name, "exact_commit": payload["exact_commit"],
         })
