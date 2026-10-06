@@ -70,16 +70,31 @@ class HeartbeatRunner:
         self.identity_store.write(result.agent_token)
         return result.agent_token
 
-    async def run_forever(self) -> None:
-        token = await self.ensure_identity()
-        operation_runner = OperationRunner(self.client)
+    async def _heartbeat_loop(self, token: str) -> None:
         while True:
             try:
                 await self.client.heartbeat(token, build_heartbeat_payload())
-                await operation_runner.run_once(token)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 # Never log HTTP payloads, headers, or bearer values.
                 logger.warning("heartbeat failed: %s", type(exc).__name__)
             await asyncio.sleep(self.interval_seconds)
+
+    async def _operation_loop(self, token: str) -> None:
+        operation_runner = OperationRunner(self.client)
+        while True:
+            try:
+                await operation_runner.run_once(token)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning("operation polling failed: %s", type(exc).__name__)
+            await asyncio.sleep(self.interval_seconds)
+
+    async def run_forever(self) -> None:
+        token = await self.ensure_identity()
+        await asyncio.gather(
+            self._heartbeat_loop(token),
+            self._operation_loop(token),
+        )
