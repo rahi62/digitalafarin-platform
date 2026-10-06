@@ -31,6 +31,24 @@ def deployment_admission(server) -> dict[str, bool]:
     return {"allowed": True, "warning": server.disk_percent >= 80}
 
 
+DEPLOYMENT_STATE_ORDER = {
+    state: index
+    for index, state in enumerate(
+        (
+            "queued",
+            "preparing",
+            "cloning",
+            "building",
+            "releasing",
+            "health_check",
+            "activating",
+            "verifying",
+            "succeeded",
+        )
+    )
+}
+
+
 NEXT_STATES = {
     "queued": {"preparing", "failed"},
     "preparing": {"cloning", "failed"},
@@ -157,6 +175,46 @@ def transition_deployment(
 
 
 @transaction.atomic
+def apply_deployment_progress(
+    operation: Operation,
+    *,
+    state: str,
+    message: str = "",
+) -> Deployment:
+    if operation.kind not in {
+        Operation.KIND_DEPLOYMENT_DEPLOY,
+        Operation.KIND_DEPLOYMENT_ROLLBACK,
+    }:
+        raise DeploymentTransitionError("operation is not a deployment")
+    if state not in {"preparing", "cloning", "building"}:
+        raise DeploymentTransitionError("unsupported live deployment state")
+    try:
+        deployment = Deployment.objects.select_for_update().get(
+            public_id=operation.payload["deployment_id"],
+            service__target_server=operation.server,
+        )
+    except (Deployment.DoesNotExist, KeyError) as exc:
+        raise DeploymentTransitionError("deployment not found") from exc
+    if deployment.state in {"succeeded", "failed", "rolled_back"}:
+        return deployment
+    if deployment.state == state:
+        return deployment
+    current_rank = DEPLOYMENT_STATE_ORDER.get(deployment.state, -1)
+    target_rank = DEPLOYMENT_STATE_ORDER[state]
+    if target_rank <= current_rank:
+        return deployment
+    if state not in NEXT_STATES.get(deployment.state, set()):
+        raise DeploymentTransitionError(
+            f"illegal live deployment transition: {deployment.state} -> {state}"
+        )
+    return transition_deployment(
+        deployment.public_id,
+        state,
+        message=message,
+    )
+
+
+@transaction.atomic
 def apply_deployment_result(operation: Operation, *, succeeded: bool, result: dict, error_code: str = "") -> Deployment:
     deployment = Deployment.objects.select_for_update().select_related("service__project").get(
         public_id=operation.payload["deployment_id"], service__target_server=operation.server
@@ -173,11 +231,19 @@ def apply_deployment_result(operation: Operation, *, succeeded: bool, result: di
     for item in events:
         if not isinstance(item, dict) or set(item) - {"state", "message"}:
             raise DeploymentTransitionError("invalid deployment event")
+        next_state = item.get("state", "")
+        deployment.refresh_from_db(fields=["state"])
+        if (
+            next_state in DEPLOYMENT_STATE_ORDER
+            and deployment.state in DEPLOYMENT_STATE_ORDER
+            and DEPLOYMENT_STATE_ORDER[next_state] <= DEPLOYMENT_STATE_ORDER[deployment.state]
+        ):
+            continue
         transition_deployment(
             deployment.public_id,
-            item.get("state", ""),
+            next_state,
             message=str(item.get("message", ""))[:500],
-            failure_code="health_failed" if item.get("state") == "rolled_back" else "",
+            failure_code="health_failed" if next_state == "rolled_back" else "",
         )
     deployment.refresh_from_db()
     exact_commit = result.get("exact_commit", "")
