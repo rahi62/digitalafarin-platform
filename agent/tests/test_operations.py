@@ -153,7 +153,7 @@ async def test_protected_managed_deploy_uses_trusted_local_source_without_github
 
     monkeypatch.setattr(
         "digitalafarin_agent.operations.execute_operation",
-        lambda kind, payload: {"final_state": "succeeded"},
+        lambda kind, payload, progress=None: {"final_state": "succeeded"},
     )
     client = DeployClient()
     assert await OperationRunner(client).run_once("agent-token") is True
@@ -178,7 +178,7 @@ async def test_regular_managed_deploy_still_downloads_bound_source(monkeypatch):
     stored = []
     monkeypatch.setattr("digitalafarin_agent.operations.store_source_artifact", lambda *args: stored.append(args))
     monkeypatch.setattr("digitalafarin_agent.operations.remove_source_artifact", lambda *args: None)
-    monkeypatch.setattr("digitalafarin_agent.operations.execute_operation", lambda kind, payload: {"final_state": "succeeded"})
+    monkeypatch.setattr("digitalafarin_agent.operations.execute_operation", lambda kind, payload, progress=None: {"final_state": "succeeded"})
     client = DeployClient()
     assert await OperationRunner(client).run_once("agent-token") is True
     assert "download" in client.calls
@@ -289,3 +289,37 @@ async def test_takeover_prepare_downloads_bound_private_source_artifact(monkeypa
     assert stored[0][1:] == (b"private-bundle", "b" * 40)
     assert seen["payload"]["source_id"] == "11111111-1111-1111-1111-111111111111"
     assert removed == [("11111111-1111-1111-1111-111111111111",)]
+
+
+@pytest.mark.asyncio
+async def test_deployment_runner_reports_live_progress_without_blocking_executor(monkeypatch):
+    class DeployClient(FakeClient):
+        async def claim_operation(self, token):
+            claimed = await super().claim_operation(token)
+            claimed["operation"].update({
+                "kind": "deployment.deploy",
+                "execution": {
+                    "project_slug": "digitalafarin-platform",
+                    "service_name": "platform-web",
+                    "unit_name": "digitalafarin-platform-web.service",
+                    "source_transport": "trusted_local",
+                },
+            })
+            return claimed
+
+        async def progress_operation(self, token, operation_id, claim_token, state, message=""):
+            self.calls.append(("progress", state, message))
+
+    def execute(kind, payload, progress=None):
+        assert progress is not None
+        progress("building", "Build running")
+        progress("activating", "Activating release")
+        return {"final_state": "succeeded"}
+
+    monkeypatch.setattr("digitalafarin_agent.operations.execute_operation", execute)
+    client = DeployClient()
+
+    assert await OperationRunner(client).run_once("agent-token") is True
+    assert ("progress", "building", "Build running") in client.calls
+    assert ("progress", "activating", "Activating release") in client.calls
+    assert client.calls[-1][0] == "complete"
