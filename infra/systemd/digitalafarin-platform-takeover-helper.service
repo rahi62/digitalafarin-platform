@@ -24,7 +24,7 @@ ProtectKernelModules=yes
 ProtectControlGroups=yes
 LockPersonality=yes
 ReadWritePaths=/srv/digitalafarin/apps /etc/systemd/system /run/digitalafarin-takeover
-ReadOnlyPaths=/var/lib/digitalafarin-agent/sources
+ReadOnlyPaths=-/var/lib/digitalafarin-agent/sources
 
 [Install]
 WantedBy=multi-user.target

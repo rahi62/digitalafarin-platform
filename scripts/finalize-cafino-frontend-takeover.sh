@@ -246,8 +246,31 @@ Environment="DIGITALAFARIN_MANAGED_REPOSITORIES=$NEW_MANAGED"
 EOF
 
 systemctl daemon-reload
+systemctl reset-failed digitalafarin-platform-takeover-helper.service 2>/dev/null || true
 systemctl restart digitalafarin-platform-takeover-helper.service
-systemctl is-active --quiet digitalafarin-platform-takeover-helper.service
+
+HELPER_SOCKET="$(
+  systemctl show digitalafarin-platform-takeover-helper.service -p Environment --value \
+    | tr ' ' '\n' \
+    | sed -n 's/^DIGITALAFARIN_TAKEOVER_HELPER_SOCKET=//p' \
+    | head -1
+)"
+HELPER_SOCKET="${HELPER_SOCKET:-/run/digitalafarin-takeover/helper.sock}"
+HELPER_READY=0
+for _ in $(seq 1 30); do
+  if systemctl is-active --quiet digitalafarin-platform-takeover-helper.service && [[ -S "$HELPER_SOCKET" ]]; then
+    HELPER_READY=1
+    break
+  fi
+  sleep 1
+done
+if [[ "$HELPER_READY" != "1" ]]; then
+  echo "Privileged takeover helper did not become ready."
+  systemctl status digitalafarin-platform-takeover-helper.service --no-pager -l || true
+  journalctl -u digitalafarin-platform-takeover-helper.service --since "5 minutes ago" --no-pager -n 80 || true
+  exit 1
+fi
+echo "Takeover helper ready: $HELPER_SOCKET"
 
 TAKEOVER="$(api_post "/api/control/v1/services/$SERVICE_ID/takeovers/" "$(printf '{"commit":"%s"}' "$TARGET_COMMIT")")"
 TAKEOVER_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$TAKEOVER")"

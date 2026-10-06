@@ -181,10 +181,10 @@ def main() -> None:
     allowed_bindings = allowed_bindings_from_env()
     if not allowed_bindings:
         raise SystemExit("No takeover project/service/unit bindings are allowlisted.")
+    # Local source repositories are an optional fallback. GitHub App source bundles
+    # are delivered as source_id artifacts and do not require a persistent checkout
+    # for every allowlisted binding.
     source_repositories = trusted_source_repositories_from_env()
-    missing_sources = allowed_bindings.difference(source_repositories)
-    if missing_sources:
-        raise SystemExit("No trusted local source repository is configured for an allowlisted binding.")
 
     old_umask = os.umask(0o077)
     try:
