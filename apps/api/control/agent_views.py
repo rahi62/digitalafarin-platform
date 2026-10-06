@@ -1,4 +1,5 @@
 from django.db import transaction
+import secrets
 from django.http import HttpResponse
 
 from rest_framework import status
@@ -10,6 +11,7 @@ from control.agent_serializers import (
     EnrollRequestSerializer,
     HeartbeatRequestSerializer,
     OperationCompleteSerializer,
+    OperationProgressSerializer,
     OperationStartedSerializer,
 )
 from control.operation_serializers import serialize_operation
@@ -129,6 +131,38 @@ class OperationStartedView(AgentOperationView):
                 status=status.HTTP_409_CONFLICT,
             )
         return Response(serialize_operation(operation, include_result=False))
+
+
+class OperationProgressView(AgentOperationView):
+    def post(self, request, operation_id):
+        serializer = OperationProgressSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            operation = Operation.objects.get(
+                public_id=operation_id,
+                server=request.user.server,
+                state=Operation.STATE_RUNNING,
+            )
+        except Operation.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        claim_token = serializer.validated_data["claim_token"]
+        if (
+            not operation.claim_token
+            or not secrets.compare_digest(operation.claim_token, claim_token)
+        ):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        try:
+            deployment = apply_deployment_progress(
+                operation,
+                state=serializer.validated_data["state"],
+                message=serializer.validated_data["message"],
+            )
+        except DeploymentTransitionError as exc:
+            return Response(
+                {"error": "deployment_transition_rejected", "message": str(exc)},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response({"state": deployment.state})
 
 
 class OperationCompleteView(AgentOperationView):
