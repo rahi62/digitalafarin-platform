@@ -64,6 +64,13 @@ async def test_operation_client_uses_outbound_agent_routes():
 
     assert await client.claim_operation("agent-token") is None
     await client.start_operation("agent-token", "operation-id", "claim-token")
+    await client.progress_operation(
+        "agent-token",
+        "operation-id",
+        "claim-token",
+        "building",
+        "Build running",
+    )
     await client.complete_operation(
         "agent-token",
         "operation-id",
@@ -74,6 +81,7 @@ async def test_operation_client_uses_outbound_agent_routes():
     assert requests == [
         ("POST", "/api/agent/v1/operations/claim"),
         ("POST", "/api/agent/v1/operations/operation-id/started"),
+        ("POST", "/api/agent/v1/operations/operation-id/progress"),
         ("POST", "/api/agent/v1/operations/operation-id/complete"),
     ]
     await http.aclose()
