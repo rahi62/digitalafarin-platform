@@ -204,6 +204,18 @@ class ControlPlaneClient:
             )
         return resolved
 
+    async def get_coolify_status(self) -> dict:
+        return await self._get("/api/control/v1/coolify/status/")
+
+    async def list_coolify_servers(self) -> dict:
+        return await self._get("/api/control/v1/coolify/servers/")
+
+    async def list_coolify_projects(self) -> dict:
+        return await self._get("/api/control/v1/coolify/projects/")
+
+    async def list_coolify_resources(self) -> dict:
+        return await self._get("/api/control/v1/coolify/resources/")
+
     async def list_servers(self) -> dict:
         return await self._get("/api/control/v1/servers/")
 
