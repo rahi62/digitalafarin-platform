@@ -276,9 +276,14 @@ TAKEOVER="$(api_post "/api/control/v1/services/$SERVICE_ID/takeovers/" "$(printf
 TAKEOVER_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$TAKEOVER")"
 echo "Takeover: $TAKEOVER_ID"
 
-for _ in $(seq 1 300); do
+LAST_STATE=""
+for ATTEMPT in $(seq 1 1200); do
   STATE_JSON="$(api_get "/api/control/v1/takeovers/$TAKEOVER_ID/")"
   STATE="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])' <<<"$STATE_JSON")"
+  if [[ "$STATE" != "$LAST_STATE" || $((ATTEMPT % 10)) -eq 0 ]]; then
+    echo "Takeover prepare state: $STATE"
+    LAST_STATE="$STATE"
+  fi
   case "$STATE" in
     prepared)
       break
@@ -297,9 +302,14 @@ STATE="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])' <<<"
 
 api_post "/api/control/v1/takeovers/$TAKEOVER_ID/activate/" '{}' >/dev/null
 
-for _ in $(seq 1 120); do
+LAST_STATE=""
+for ATTEMPT in $(seq 1 300); do
   STATE_JSON="$(api_get "/api/control/v1/takeovers/$TAKEOVER_ID/")"
   STATE="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])' <<<"$STATE_JSON")"
+  if [[ "$STATE" != "$LAST_STATE" || $((ATTEMPT % 10)) -eq 0 ]]; then
+    echo "Takeover activation state: $STATE"
+    LAST_STATE="$STATE"
+  fi
   case "$STATE" in
     succeeded)
       break
