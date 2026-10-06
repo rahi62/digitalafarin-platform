@@ -150,6 +150,7 @@ class Operation(models.Model):
     KIND_DEPLOYMENT_ROLLBACK = "deployment.rollback"
     KIND_DOMAIN_CONFIGURE = "domain.configure"
     KIND_DOMAIN_SSL = "domain.ssl"
+    KIND_DOMAIN_DELETE = "domain.delete"
     KIND_TAKEOVER_PREPARE = "service.takeover.prepare"
     KIND_TAKEOVER_ACTIVATE = "service.takeover.activate"
     KIND_CHOICES = [
@@ -166,6 +167,7 @@ class Operation(models.Model):
         (KIND_DEPLOYMENT_ROLLBACK, "Rollback release"),
         (KIND_DOMAIN_CONFIGURE, "Configure domain"),
         (KIND_DOMAIN_SSL, "Enable domain SSL"),
+        (KIND_DOMAIN_DELETE, "Delete domain"),
         (KIND_TAKEOVER_PREPARE, "Prepare controlled service takeover"),
         (KIND_TAKEOVER_ACTIVATE, "Activate controlled service takeover"),
     ]
@@ -499,6 +501,9 @@ class EnvironmentVariable(models.Model):
     SCOPE_PROJECT = "project"
     SCOPE_SERVICE = "service"
     SCOPE_ENVIRONMENT = "environment"
+    TARGET_BUILD = "build"
+    TARGET_RUNTIME = "runtime"
+    TARGET_BOTH = "both"
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     project = models.ForeignKey(
@@ -524,6 +529,15 @@ class EnvironmentVariable(models.Model):
         ],
     )
     environment = models.SlugField(max_length=80, blank=True)
+    target = models.CharField(
+        max_length=10,
+        choices=[
+            (TARGET_BUILD, "Build"),
+            (TARGET_RUNTIME, "Runtime"),
+            (TARGET_BOTH, "Build and runtime"),
+        ],
+        default=TARGET_BOTH,
+    )
     plain_value = models.TextField(blank=True)
     secret_ciphertext = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
