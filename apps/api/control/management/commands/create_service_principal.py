@@ -9,6 +9,9 @@ TELEGRAM_ADMIN_SCOPES = ["telegram:admin", "telegram:read", "telegram:publish"]
 TELEGRAM_MCP_SCOPES = ["telegram:read", "telegram:publish"]
 
 PROFILES = {
+    "coolify-deployer": ["coolify:read", "coolify:deploy"],
+    "coolify-manager": ["coolify:read", "coolify:deploy", "coolify:manage"],
+    "coolify-deleter": ["coolify:read", "coolify:delete"],
     "readonly": READ_SCOPES,
     "operator": OPERATOR_SCOPES,
     "telegram-admin": TELEGRAM_ADMIN_SCOPES,

@@ -3,6 +3,7 @@ from typing import Any, Awaitable, Literal
 from mcp.server import MCPServer
 
 from digitalafarin_vps_mcp.config import get_settings
+from digitalafarin_vps_mcp.coolify import register_coolify_tools
 from digitalafarin_vps_mcp.control_plane import ControlPlaneClient
 from digitalafarin_vps_mcp.errors import MCPDomainError
 
@@ -28,6 +29,8 @@ def create_mcp(control_plane: ControlPlaneClient | Any | None = None) -> MCPServ
             "No arbitrary shell, command, systemctl, filesystem, or SQL access."
         ),
     )
+
+    register_coolify_tools(mcp, client, _safe)
 
     @mcp.tool()
     async def coolify_get_status() -> dict[str, Any]:

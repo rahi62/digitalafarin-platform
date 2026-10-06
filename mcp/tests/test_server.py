@@ -146,6 +146,23 @@ async def test_server_discovers_only_inventory_and_typed_operation_tools():
         names = {tool.name for tool in result.tools}
 
     assert names == {
+        "coolify_list_management_targets",
+        "coolify_list_environments",
+        "coolify_create_application",
+        "coolify_configure_application",
+        "coolify_list_environment_variables",
+        "coolify_create_environment_variable",
+        "coolify_update_environment_variable",
+        "coolify_deploy_application",
+        "coolify_redeploy_application",
+        "coolify_start_application",
+        "coolify_stop_application",
+        "coolify_restart_application",
+        "coolify_list_deployments",
+        "coolify_get_deployment",
+        "coolify_get_deployment_logs",
+        "coolify_delete_application",
+
         "coolify_get_status",
         "coolify_list_servers",
         "coolify_list_projects",

@@ -729,3 +729,17 @@ class TelegramPublishAudit(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+
+
+class CoolifyManagedApplication(models.Model):
+    """Only resources created by this boundary can be managed through it.
+
+    Reserve request_id before contacting Coolify: uncertain creates must be
+    reconciled by an administrator, never blindly retried.
+    """
+    request_id = models.UUIDField(primary_key=True)
+    application_uuid = models.CharField(max_length=80, unique=True, null=True)
+    target = models.CharField(max_length=80)
+    principal = models.ForeignKey(ServicePrincipal, on_delete=models.PROTECT)
+    deleted = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)

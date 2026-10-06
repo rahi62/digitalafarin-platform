@@ -396,3 +396,13 @@ Acceptance requires actual primary-VPS values, a recent snapshot with `stale=fal
 3. Add approval policy and scheduled deployment windows
 4. Add backup automation and restore drills
 5. Add alerts and scheduled jobs
+
+## Coolify management boundary
+
+The existing read-only Coolify inventory is extended with typed, scoped
+application creation/configuration, write-only variables, deployment/lifecycle
+operations, and explicit deletion. Writes remain disabled until reviewed target
+policy and individual scopes are configured. Only applications created by this
+layer are manageable; existing production workloads are not enrolled.
+See [the Coolify management contract](docs/coolify-management.md) for endpoint/tool
+mappings, 4.3.23 API findings, security restrictions, and future configuration.

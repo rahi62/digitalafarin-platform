@@ -4,6 +4,7 @@ from urllib.parse import quote
 import httpx
 
 from digitalafarin_vps_mcp.errors import MCPDomainError
+from digitalafarin_vps_mcp.coolify import ApplicationCreate, ApplicationSettings, EnvironmentVariable
 
 _SERVICE_RE = re.compile(r"^[A-Za-z0-9_.@:-]+\.service$")
 UUID_RE = re.compile(r"^[0-9a-fA-F-]{36}$")
@@ -50,11 +51,14 @@ class ControlPlaneClient:
         self._owns_http = http is None
 
     async def _get(self, path: str, params: dict | None = None) -> dict:
+        # Management reads/writes perform several bounded upstream checks.
+        options = {"timeout": 60.0} if path.startswith("/api/control/v1/coolify/") else {}
         try:
             response = await self.http.get(
                 f"{self.base_url}{path}",
                 params=params,
                 headers={"Authorization": f"Bearer {self.token}"},
+                **options,
             )
         except httpx.HTTPError as exc:
             raise MCPDomainError(
@@ -123,11 +127,13 @@ class ControlPlaneClient:
         )
 
     async def _post(self, path: str, payload: dict) -> dict:
+        options = {"timeout": 60.0} if path.startswith("/api/control/v1/coolify/") else {}
         try:
             response = await self.http.post(
                 f"{self.base_url}{path}",
                 json=payload,
                 headers={"Authorization": f"Bearer {self.token}"},
+                **options,
             )
         except httpx.HTTPError as exc:
             raise MCPDomainError(
@@ -215,6 +221,63 @@ class ControlPlaneClient:
 
     async def list_coolify_resources(self) -> dict:
         return await self._get("/api/control/v1/coolify/resources/")
+
+    @staticmethod
+    def _coolify_id(value: str) -> str:
+        if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}", value):
+            raise MCPDomainError("invalid_request", "Invalid Coolify identifier.")
+        return value
+
+    async def list_coolify_management_targets(self) -> dict:
+        return await self._get("/api/control/v1/coolify/targets/")
+
+    async def list_coolify_environments(self, project_uuid: str) -> dict:
+        return await self._get(f"/api/control/v1/coolify/projects/{self._coolify_id(project_uuid)}/environments/")
+
+    async def create_coolify_application(self, application: ApplicationCreate) -> dict:
+        return await self._post("/api/control/v1/coolify/applications/", application.model_dump(exclude_none=True))
+
+    async def configure_coolify_application(self, application_uuid: str, settings: ApplicationSettings) -> dict:
+        return await self._post(f"/api/control/v1/coolify/applications/{self._coolify_id(application_uuid)}/configure/", settings.model_dump(exclude_none=True))
+
+    async def list_coolify_environment_variables(self, application_uuid: str) -> dict:
+        return await self._get(f"/api/control/v1/coolify/applications/{self._coolify_id(application_uuid)}/environment/")
+
+    async def create_coolify_environment_variable(self, application_uuid: str, variable: EnvironmentVariable) -> dict:
+        return await self._post(f"/api/control/v1/coolify/applications/{self._coolify_id(application_uuid)}/environment/create/", variable.payload())
+
+    async def update_coolify_environment_variable(self, application_uuid: str, variable: EnvironmentVariable) -> dict:
+        return await self._post(f"/api/control/v1/coolify/applications/{self._coolify_id(application_uuid)}/environment/update/", variable.payload())
+
+    async def deploy_coolify_application(self, application_uuid: str) -> dict:
+        return await self._post(f"/api/control/v1/coolify/applications/{self._coolify_id(application_uuid)}/deploy/", {})
+
+    async def redeploy_coolify_application(self, application_uuid: str) -> dict:
+        return await self._post(f"/api/control/v1/coolify/applications/{self._coolify_id(application_uuid)}/redeploy/", {})
+
+    async def start_coolify_application(self, application_uuid: str) -> dict:
+        return await self._post(f"/api/control/v1/coolify/applications/{self._coolify_id(application_uuid)}/start/", {})
+
+    async def stop_coolify_application(self, application_uuid: str) -> dict:
+        return await self._post(f"/api/control/v1/coolify/applications/{self._coolify_id(application_uuid)}/stop/", {})
+
+    async def restart_coolify_application(self, application_uuid: str) -> dict:
+        return await self._post(f"/api/control/v1/coolify/applications/{self._coolify_id(application_uuid)}/restart/", {})
+
+    async def list_coolify_deployments(self, application_uuid: str) -> dict:
+        return await self._get(f"/api/control/v1/coolify/applications/{self._coolify_id(application_uuid)}/deployments/")
+
+    async def get_coolify_deployment(self, application_uuid: str, deployment_uuid: str) -> dict:
+        return await self._get(f"/api/control/v1/coolify/applications/{self._coolify_id(application_uuid)}/deployments/{self._coolify_id(deployment_uuid)}/")
+
+    async def get_coolify_deployment_logs(self, application_uuid: str, deployment_uuid: str, lines: int = 100) -> dict:
+        if type(lines) is not int or not 1 <= lines <= 200:
+            raise MCPDomainError("invalid_request", "lines must be between 1 and 200.")
+        return await self._get(f"/api/control/v1/coolify/applications/{self._coolify_id(application_uuid)}/deployments/{self._coolify_id(deployment_uuid)}/logs/", params={"lines": lines})
+
+    async def delete_coolify_application(self, application_uuid: str, confirm_application_uuid: str) -> dict:
+        self._coolify_id(confirm_application_uuid)
+        return await self._post(f"/api/control/v1/coolify/applications/{self._coolify_id(application_uuid)}/delete/", {"confirm_application_uuid": confirm_application_uuid})
 
     async def list_servers(self) -> dict:
         return await self._get("/api/control/v1/servers/")

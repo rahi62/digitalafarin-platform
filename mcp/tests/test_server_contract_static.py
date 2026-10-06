@@ -3,6 +3,30 @@ from pathlib import Path
 
 
 EXPECTED = {
+    "coolify_list_management_targets",
+    "coolify_list_environments",
+    "coolify_create_application",
+    "coolify_configure_application",
+    "coolify_list_environment_variables",
+    "coolify_create_environment_variable",
+    "coolify_update_environment_variable",
+    "coolify_deploy_application",
+    "coolify_redeploy_application",
+    "coolify_start_application",
+    "coolify_stop_application",
+    "coolify_restart_application",
+    "coolify_list_deployments",
+    "coolify_get_deployment",
+    "coolify_get_deployment_logs",
+    "coolify_delete_application",
+    "coolify_get_status",
+    "coolify_list_servers",
+    "coolify_list_projects",
+    "coolify_list_resources",
+    "vps_create_service",
+    "vps_create_domain",
+    "vps_enable_domain_ssl",
+
     "vps_list_servers",
     "vps_get_server",
     "vps_get_metrics",
@@ -33,7 +57,7 @@ BANNED_FRAGMENTS = {"shell", "command", "exec", "terminal", "sql"}
 
 def test_server_source_registers_only_inventory_and_typed_operation_tools():
     source_path = Path(__file__).parents[1] / "digitalafarin_vps_mcp" / "server.py"
-    tree = ast.parse(source_path.read_text(encoding="utf-8"))
+    tree = ast.parse(source_path.read_text(encoding="utf-8") + "\n" + source_path.with_name("coolify.py").read_text(encoding="utf-8"))
     tool_names = set()
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
