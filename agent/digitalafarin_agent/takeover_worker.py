@@ -94,7 +94,6 @@ def run_takeover_worker(
         "--property=LockPersonality=yes",
         "--property=CapabilityBoundingSet=",
         "--property=AmbientCapabilities=",
-        f"--property=RuntimeMaxSec={timeout}s",
         "--setenv=HOME=/tmp",
         f"--setenv=USER={user}",
         f"--setenv=LOGNAME={user}",
@@ -123,7 +122,7 @@ def run_takeover_worker(
             check=False,
             capture_output=True,
             text=True,
-            timeout=timeout + 30,
+            timeout=timeout,
             shell=False,
             env={"PATH": "/usr/local/bin:/usr/bin:/bin"},
         )
