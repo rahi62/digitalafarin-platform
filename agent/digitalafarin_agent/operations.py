@@ -1,3 +1,4 @@
+import asyncio
 import re
 import subprocess
 
@@ -69,7 +70,7 @@ def _bounded(text: str) -> tuple[str, bool]:
     return encoded[:MAX_LOG_BYTES].decode("utf-8", errors="ignore"), True
 
 
-def execute_operation(kind: str, payload: dict) -> dict:
+def execute_operation(kind: str, payload: dict, progress=None) -> dict:
     if kind == "service.delete":
         if set(payload) != {"service_id", "project_slug", "service_name", "unit_name", "root_directory"}:
             raise OperationExecutionError("invalid_payload", "unsupported payload field")
@@ -107,7 +108,7 @@ def execute_operation(kind: str, payload: dict) -> dict:
             raise OperationExecutionError("domain_ssl_failed", str(exc)) from exc
     if kind == "deployment.deploy":
         try:
-            result = deploy_managed_release(payload)
+            result = deploy_managed_release(payload, progress=progress)
             if result["final_state"] == "failed":
                 code = result["error_code"]
                 raise OperationExecutionError(code, redact(result.get("error_message") or code)[:500])
@@ -214,8 +215,22 @@ class OperationRunner:
                 source_id = operation_id
                 store_source_artifact(source_id, data, commit)
                 execution = {**execution, "source_id": source_id}
-            result = execute_operation(
-                operation["kind"], execution
+            loop = asyncio.get_running_loop()
+
+            def progress(state: str, message: str = "") -> None:
+                future = asyncio.run_coroutine_threadsafe(
+                    self.client.progress_operation(
+                        agent_token, operation_id, claim_token, state, message
+                    ),
+                    loop,
+                )
+                future.result(timeout=15)
+
+            result = await asyncio.to_thread(
+                execute_operation,
+                operation["kind"],
+                execution,
+                progress if operation["kind"] == "deployment.deploy" else None,
             )
             completion = {"succeeded": True, "result": result}
         except OperationExecutionError as exc:
