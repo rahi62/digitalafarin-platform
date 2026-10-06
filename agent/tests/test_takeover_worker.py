@@ -55,6 +55,8 @@ def test_worker_uses_internally_generated_hardened_unit_and_exact_identity(monke
     assert "--property=ProtectSystem=strict" in argv
     assert "--property=CapabilityBoundingSet=" in argv
     assert "--property=AmbientCapabilities=" in argv
+    assert not any(item.startswith("--property=RuntimeMaxSec=") for item in argv)
+    assert kwargs["timeout"] == 30
     assert not any(item.startswith("--property=ReadWritePaths=") for item in argv)
     assert "setpriv" not in argv
     assert "runuser" not in argv
