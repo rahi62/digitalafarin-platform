@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import re
 import subprocess
 
@@ -25,6 +26,7 @@ SERVICE_ACTIONS = {
     "service.restart": "restart",
 }
 MAX_LOG_BYTES = 65536
+logger = logging.getLogger(__name__)
 
 
 class OperationExecutionError(RuntimeError):
@@ -119,7 +121,7 @@ def execute_operation(kind: str, payload: dict, progress=None) -> dict:
             raise OperationExecutionError("deployment_failed", redact(str(exc))[:500]) from exc
     if kind == "deployment.rollback":
         try:
-            result = rollback_managed_release(payload)
+            result = rollback_managed_release(payload, progress=progress)
             if result["final_state"] == "failed":
                 code = result["error_code"]
                 raise OperationExecutionError(code, code)
@@ -224,13 +226,21 @@ class OperationRunner:
                     ),
                     loop,
                 )
-                future.result(timeout=15)
+                try:
+                    future.result(timeout=15)
+                except Exception as exc:
+                    logger.warning(
+                        "operation progress failed operation=%s state=%s error=%s",
+                        operation_id,
+                        state,
+                        type(exc).__name__,
+                    )
 
             result = await asyncio.to_thread(
                 execute_operation,
                 operation["kind"],
                 execution,
-                progress if operation["kind"] == "deployment.deploy" else None,
+                progress if operation["kind"] in {"deployment.deploy", "deployment.rollback"} else None,
             )
             completion = {"succeeded": True, "result": result}
         except OperationExecutionError as exc:
