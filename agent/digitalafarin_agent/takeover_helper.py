@@ -344,6 +344,75 @@ def _artifact_source(source_id: Any) -> Path:
     return resolved
 
 
+
+def _stage_source_artifact(
+    source: Path,
+    service_root: Path,
+    *,
+    user: str,
+    group: str,
+) -> Path:
+    """Expose one protected source bundle to the sandboxed build identity read-only."""
+    account = _account(user)
+    gid = _group_id(group, account.pw_gid)
+    service_root = service_root.resolve(strict=True)
+    staging_root = service_root / ".source-artifacts"
+    if staging_root.is_symlink():
+        raise TakeoverHelperDomainError(
+            "source_artifact_invalid", "Source artifact staging root is unsafe."
+        )
+    try:
+        staging_root.mkdir(mode=0o750, exist_ok=True)
+        if staging_root.resolve(strict=True).parent != service_root:
+            raise OSError("source artifact staging root escaped service root")
+        os.chown(staging_root, 0, gid)
+        os.chmod(staging_root, 0o750)
+
+        destination = staging_root / source.name
+        if destination.exists() or destination.is_symlink():
+            raise OSError("source artifact staging destination already exists")
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        fd = os.open(destination, flags, 0o440)
+        try:
+            with source.open("rb") as source_stream, os.fdopen(fd, "wb") as target_stream:
+                shutil.copyfileobj(source_stream, target_stream, length=1024 * 1024)
+                target_stream.flush()
+                os.fsync(target_stream.fileno())
+            os.chown(destination, 0, gid)
+            os.chmod(destination, 0o440)
+        except Exception:
+            try:
+                destination.unlink()
+            except OSError:
+                pass
+            raise
+        return destination
+    except TakeoverHelperDomainError:
+        raise
+    except OSError as exc:
+        raise TakeoverHelperDomainError(
+            "source_artifact_staging_failed",
+            "Unable to stage protected source artifact for the build worker.",
+        ) from exc
+
+
+def _cleanup_staged_source_artifact(path: Path | None) -> None:
+    if path is None:
+        return
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        return
+    try:
+        path.parent.rmdir()
+    except OSError:
+        pass
+
+
 def _run_as_worker(
     user: str,
     group: str,
@@ -368,7 +437,7 @@ def _run_as_worker(
         )
     except TakeoverWorkerError as exc:
         raise TakeoverHelperDomainError(
-            "release_prepare_failed", "Takeover build command failed."
+            "release_prepare_failed", f"Takeover build command failed during {phase}."
         ) from exc
 
 
@@ -732,8 +801,23 @@ def prepare_node_nextjs_release(
         else trusted_source_repositories_from_env()
     )
     source_id = params.get("source_id")
+    staged_source = None
     if source_id:
-        trusted_source = _artifact_source(source_id)
+        protected_source = _artifact_source(source_id)
+        service_root = _ensure_release_directories(
+            apps_root,
+            project_slug,
+            service_name,
+            user=user,
+            group=group,
+        )
+        staged_source = _stage_source_artifact(
+            protected_source,
+            service_root,
+            user=user,
+            group=group,
+        )
+        trusted_source = staged_source
     else:
         provider = LocalSourceProvider(_trusted_local_source_repository, sources)
         try:
@@ -750,18 +834,21 @@ def prepare_node_nextjs_release(
             )
         except SourceProviderError as exc:
             raise TakeoverHelperDomainError(exc.code, str(exc)) from exc
-    service_root = _ensure_release_directories(
-        apps_root,
-        project_slug,
-        service_name,
-        user=user,
-        group=group,
-    )
-    return _build_node_release(
-        service_root, apps_root, project_slug, service_name, str(trusted_source),
-        exact_commit, root_directory, install_configuration, build_configuration,
-        user, group, source_snapshot,
-    )
+        service_root = _ensure_release_directories(
+            apps_root,
+            project_slug,
+            service_name,
+            user=user,
+            group=group,
+        )
+    try:
+        return _build_node_release(
+            service_root, apps_root, project_slug, service_name, str(trusted_source),
+            exact_commit, root_directory, install_configuration, build_configuration,
+            user, group, source_snapshot,
+        )
+    finally:
+        _cleanup_staged_source_artifact(staged_source)
 
 
 def _build_node_release(
@@ -1217,7 +1304,11 @@ def _managed_context(params, allowed_bindings, apps_root, systemd_root):
 def prepare_managed_node_nextjs_release(
     params, *, allowed_bindings=None, apps_root=APPS_ROOT, systemd_root=SYSTEMD_ROOT,
 ):
-    _require_exact_keys(params, _MANAGED_PREPARE_KEYS)
+    keys = set(params)
+    if keys not in (_MANAGED_PREPARE_KEYS, _MANAGED_PREPARE_KEYS | {"source_id"}):
+        raise TakeoverHelperDomainError(
+            "helper_invalid_request", "Invalid privileged helper parameters."
+        )
     project, service, unit, service_root, root_directory, _ = _managed_context(
         params, allowed_bindings, apps_root, systemd_root,
     )
@@ -1246,21 +1337,36 @@ def prepare_managed_node_nextjs_release(
     account = _account(user)
     if account.pw_uid == 0 or user == "digitalafarin-agent":
         raise TakeoverHelperDomainError("source_user_unsafe", "Unsafe managed build identity.")
-    sources = trusted_source_repositories_from_env()
-    trusted_source = _trusted_local_source_repository(
-        project,
-        service,
-        unit,
-        commit,
-        params["repository"],
-        user,
-        group,
-        sources,
-    )
-    return _build_node_release(
-        service_root, apps_root, project, service, str(trusted_source), commit,
-        root_directory, install, build, user, group, snapshot,
-    )
+    source_id = params.get("source_id")
+    staged_source = None
+    if source_id:
+        protected_source = _artifact_source(source_id)
+        staged_source = _stage_source_artifact(
+            protected_source,
+            service_root,
+            user=user,
+            group=group,
+        )
+        trusted_source = staged_source
+    else:
+        sources = trusted_source_repositories_from_env()
+        trusted_source = _trusted_local_source_repository(
+            project,
+            service,
+            unit,
+            commit,
+            params["repository"],
+            user,
+            group,
+            sources,
+        )
+    try:
+        return _build_node_release(
+            service_root, apps_root, project, service, str(trusted_source), commit,
+            root_directory, install, build, user, group, snapshot,
+        )
+    finally:
+        _cleanup_staged_source_artifact(staged_source)
 
 
 def activate_managed_release(

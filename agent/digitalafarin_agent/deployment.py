@@ -48,13 +48,16 @@ def deploy_managed_release(payload: dict, *, helper=None) -> dict:
             raise TakeoverHelperError("invalid_exact_commit", "An exact lowercase commit is required.")
         _event(events, "cloning")
         _event(events, "building")
-        prepared = helper.prepare_managed_node_nextjs_release({
+        prepare_request = {
             **identity, "repository": payload["repository"], "exact_commit": exact_commit,
             "runtime": payload["runtime"], "root_directory": root,
             "install_configuration": payload.get("install_configuration", {}),
             "build_configuration": payload.get("build_configuration", {}),
             "environment": payload.get("environment", {}), "volumes": payload.get("volumes", []),
-        })
+        }
+        if payload.get("source_id"):
+            prepare_request["source_id"] = payload["source_id"]
+        prepared = helper.prepare_managed_node_nextjs_release(prepare_request)
         release_name = prepared["release_name"]
         result["release_name"] = release_name
         if prepared["resolved_commit"] != exact_commit:

@@ -12,6 +12,38 @@ from digitalafarin_agent.health import HealthCheckError
 from digitalafarin_agent.takeover_helper_client import TakeoverHelperError
 
 
+def test_managed_deployment_forwards_downloaded_source_artifact(monkeypatch):
+    calls = []
+
+    class Helper:
+        def prepare_managed_node_nextjs_release(self, params):
+            calls.append(("prepare", params))
+            return {"release_name": "20260923-120000-aaaaaaa", "resolved_commit": "a" * 40}
+
+        def activate_managed_release(self, params):
+            return {"previous_release_name": "20260922-120000-bbbbbbb"}
+
+        def prune_managed_releases(self, params):
+            return {"removed": []}
+
+    monkeypatch.setattr(deployment, "check_http_health", lambda config: None)
+    source_id = "12345678-1234-1234-1234-123456789abc"
+    result = deployment.deploy_managed_release({
+        "deployment_id": "1",
+        "project_slug": "project",
+        "service_name": "web",
+        "unit_name": "web.service",
+        "repository": "https://example.com/repo.git",
+        "exact_commit": "a" * 40,
+        "runtime": "node-nextjs",
+        "health_check": {},
+        "source_id": source_id,
+    }, helper=Helper())
+
+    assert result["final_state"] == "succeeded"
+    assert calls[0][1]["source_id"] == source_id
+
+
 def test_managed_deployment_uses_helper_only(monkeypatch):
     calls = []
     class Helper:
