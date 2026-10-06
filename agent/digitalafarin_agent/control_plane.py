@@ -90,6 +90,22 @@ class AgentControlPlaneClient:
             "operation start failed",
         )
 
+    async def progress_operation(
+        self,
+        agent_token: str,
+        operation_id: str,
+        claim_token: str,
+        state: str,
+        message: str = "",
+    ) -> None:
+        await self._operation_post(
+            agent_token,
+            operation_id,
+            "progress",
+            {"claim_token": claim_token, "state": state, "message": message},
+            "operation progress failed",
+        )
+
     async def complete_operation(
         self,
         agent_token: str,
