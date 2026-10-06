@@ -569,9 +569,65 @@ def _validate_node_artifacts(cwd: Path, install_configuration: dict[str, Any]) -
         not (cwd / "package.json").is_file()
         or not (cwd / "package-lock.json").is_file()
         or not (cwd / ".next").is_dir()
+        or not (cwd / ".next" / "standalone" / "server.js").is_file()
+        or not (cwd / ".next" / "standalone" / ".next" / "static").is_dir()
     ):
         raise TakeoverHelperDomainError(
             "release_validation_failed", "Prepared Next.js release is incomplete."
+        )
+
+
+def _prepare_next_standalone_runtime(cwd: Path) -> None:
+    """Materialize assets Next.js omits from output: standalone by default."""
+    next_dir = cwd / ".next"
+    standalone = next_dir / "standalone"
+    static_source = next_dir / "static"
+    if (
+        standalone.is_symlink()
+        or not standalone.is_dir()
+        or static_source.is_symlink()
+        or not static_source.is_dir()
+    ):
+        raise TakeoverHelperDomainError(
+            "release_validation_failed",
+            "Prepared Next.js standalone output is incomplete.",
+        )
+
+    copies = [(static_source, standalone / ".next" / "static")]
+    public_source = cwd / "public"
+    if public_source.exists():
+        if public_source.is_symlink() or not public_source.is_dir():
+            raise TakeoverHelperDomainError(
+                "release_validation_failed",
+                "Prepared Next.js public directory is unsafe.",
+            )
+        copies.append((public_source, standalone / "public"))
+
+    try:
+        for source, destination in copies:
+            if destination.exists() or destination.is_symlink():
+                if destination.is_symlink() or not destination.is_dir():
+                    raise OSError("standalone asset destination is unsafe")
+                shutil.rmtree(destination)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(source, destination, symlinks=True)
+    except OSError as exc:
+        raise TakeoverHelperDomainError(
+            "release_prepare_failed",
+            "Unable to materialize Next.js standalone runtime assets.",
+        ) from exc
+
+    server = standalone / "server.js"
+    static_destination = standalone / ".next" / "static"
+    if (
+        server.is_symlink()
+        or not server.is_file()
+        or static_destination.is_symlink()
+        or not static_destination.is_dir()
+    ):
+        raise TakeoverHelperDomainError(
+            "release_validation_failed",
+            "Prepared Next.js standalone runtime is incomplete.",
         )
 
 
@@ -921,6 +977,7 @@ def _build_node_release(
                 npm_cache=True,
                 timeout=900,
             )
+        _prepare_next_standalone_runtime(cwd)
         _validate_prepared_release(
             release, service_root, root_directory, exact_commit, install_configuration,
             sealed=False,

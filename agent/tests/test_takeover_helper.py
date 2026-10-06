@@ -348,6 +348,38 @@ def test_prepare_helper_derives_release_and_runs_build_as_service_user(tmp_path,
     assert sealed[0][3] == (release / "apps" / "web" / ".next" / "cache",)
 
 
+def test_prepare_next_standalone_runtime_copies_static_and_public(tmp_path):
+    cwd = tmp_path / "frontend"
+    standalone = cwd / ".next" / "standalone"
+    static_source = cwd / ".next" / "static"
+    public_source = cwd / "public"
+    standalone.mkdir(parents=True)
+    static_source.mkdir(parents=True)
+    public_source.mkdir()
+    (standalone / "server.js").write_text("server", encoding="utf-8")
+    (static_source / "chunk.js").write_text("chunk", encoding="utf-8")
+    (public_source / "manifest.webmanifest").write_text("{}", encoding="utf-8")
+
+    _prepare_next_standalone_runtime(cwd)
+
+    assert (standalone / ".next" / "static" / "chunk.js").read_text(encoding="utf-8") == "chunk"
+    assert (standalone / "public" / "manifest.webmanifest").read_text(encoding="utf-8") == "{}"
+
+
+def test_validate_node_artifacts_requires_standalone_static_runtime(tmp_path):
+    cwd = tmp_path / "frontend"
+    (cwd / ".next" / "standalone").mkdir(parents=True)
+    (cwd / "package.json").write_text("{}", encoding="utf-8")
+    (cwd / "package-lock.json").write_text("{}", encoding="utf-8")
+    (cwd / ".next" / "standalone" / "server.js").write_text("server", encoding="utf-8")
+
+    with pytest.raises(TakeoverHelperDomainError):
+        _validate_node_artifacts(cwd, {"lockfile": "package-lock.json"})
+
+    (cwd / ".next" / "standalone" / ".next" / "static").mkdir(parents=True)
+    _validate_node_artifacts(cwd, {"lockfile": "package-lock.json"})
+
+
 def test_prepare_helper_cleans_partial_release_when_build_fails(tmp_path, monkeypatch):
     monkeypatch.setattr("digitalafarin_agent.takeover_helper._account", _account)
     monkeypatch.setattr("digitalafarin_agent.takeover_helper._group_id", lambda _g, fallback: 33)
