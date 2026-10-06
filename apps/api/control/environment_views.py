@@ -19,6 +19,7 @@ class EnvironmentVariableSerializer(StrictSerializer):
     scope = serializers.ChoiceField(choices=["project", "service", "environment"])
     service_id = serializers.UUIDField(required=False, allow_null=True)
     environment = serializers.SlugField(required=False, allow_blank=True, default="")
+    target = serializers.ChoiceField(choices=["build", "runtime", "both"], default="both")
     has_value = serializers.SerializerMethodField(read_only=True)
 
     def validate(self, attrs):
