@@ -5,6 +5,7 @@ from control.agent_views import (
     HeartbeatView,
     OperationClaimView,
     OperationCompleteView,
+    OperationProgressView,
     OperationStartedView,
     OperationSourceView,
 )
@@ -22,6 +23,11 @@ urlpatterns = [
         "operations/<uuid:operation_id>/source",
         OperationSourceView.as_view(),
         name="agent-operation-source",
+    ),
+    path(
+        "operations/<uuid:operation_id>/progress",
+        OperationProgressView.as_view(),
+        name="agent-operation-progress",
     ),
     path(
         "operations/<uuid:operation_id>/complete",
