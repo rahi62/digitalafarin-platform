@@ -429,6 +429,16 @@ def serialize_deployment(deployment, operation=None):
     }
     if operation:
         data["operation_id"] = str(operation.public_id)
+        data["operation"] = {
+            "id": str(operation.public_id),
+            "state": operation.state,
+            "error_code": operation.error_code,
+            "error_message": operation.error_message,
+            "created_at": operation.created_at,
+            "claimed_at": operation.claimed_at,
+            "started_at": operation.started_at,
+            "completed_at": operation.completed_at,
+        }
     return data
 
 
@@ -535,7 +545,19 @@ class DeploymentDetailView(APIView):
             deployment = Deployment.objects.select_related("service", "active_release", "previous_release").get(public_id=deployment_id)
         except Deployment.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
-        data = serialize_deployment(deployment)
+        operation = (
+            Operation.objects.filter(
+                server=deployment.service.target_server,
+                kind__in=[
+                    Operation.KIND_DEPLOYMENT_DEPLOY,
+                    Operation.KIND_DEPLOYMENT_ROLLBACK,
+                ],
+                payload__deployment_id=str(deployment.public_id),
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        data = serialize_deployment(deployment, operation)
         data["active_release"] = deployment.active_release.name if deployment.active_release else None
         data["previous_release"] = deployment.previous_release.name if deployment.previous_release else None
         data["events"] = [
