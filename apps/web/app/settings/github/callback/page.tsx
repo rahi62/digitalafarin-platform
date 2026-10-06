@@ -30,28 +30,28 @@ export default async function GitHubCallbackPage({
     );
   }
 
-  try {
-    if (state) {
-      await registerGitHubInstallation(installationId, state);
-    } else if (setupAction === "install" || setupAction === "update") {
-      await verifyGitHubInstallation(installationId);
-    } else {
-      return (
-        <main className="railPage">
-          <h1>GitHub connection failed</h1>
-          <p>Missing installation verification context.</p>
-        </main>
-      );
+  let failure = "";
+  if (!state && setupAction !== "install" && setupAction !== "update") {
+    failure = "Missing installation verification context.";
+  } else {
+    try {
+      if (state) {
+        await registerGitHubInstallation(installationId, state);
+      } else {
+        await verifyGitHubInstallation(installationId);
+      }
+    } catch (error) {
+      failure = error instanceof Error
+        ? error.message
+        : "Unable to verify GitHub installation.";
     }
-  } catch (error) {
+  }
+
+  if (failure) {
     return (
       <main className="railPage">
         <h1>GitHub connection failed</h1>
-        <p>
-          {error instanceof Error
-            ? error.message
-            : "Unable to verify GitHub installation."}
-        </p>
+        <p>{failure}</p>
       </main>
     );
   }
