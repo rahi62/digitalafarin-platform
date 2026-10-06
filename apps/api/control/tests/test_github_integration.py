@@ -1,4 +1,7 @@
 from unittest.mock import patch
+import subprocess
+import tempfile
+from pathlib import Path
 
 from django.core import signing
 from django.test import TestCase
@@ -6,6 +9,54 @@ from rest_framework.test import APIClient
 
 from control.models import GitHubInstallation, ServiceCredential, ServicePrincipal
 from control.security import issue_secret
+
+
+class GitHubBundleRegressionTests(TestCase):
+    def test_bundle_ref_is_cloneable_and_exact_commit_can_be_checked_out(self):
+        from control.services import github_source
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source"
+            bare = root / "bare.git"
+            bundle = root / "source.bundle"
+            clone = root / "clone"
+
+            subprocess.run(["git", "init", "-q", str(source)], check=True)
+            subprocess.run(["git", "-C", str(source), "config", "user.email", "test@example.com"], check=True)
+            subprocess.run(["git", "-C", str(source), "config", "user.name", "Test"], check=True)
+            (source / "file.txt").write_text("one\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(source), "add", "file.txt"], check=True)
+            subprocess.run(["git", "-C", str(source), "commit", "-qm", "one"], check=True)
+            (source / "file.txt").write_text("two\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(source), "commit", "-qam", "two"], check=True)
+            commit = subprocess.run(
+                ["git", "-C", str(source), "rev-parse", "HEAD"],
+                check=True, capture_output=True, text=True,
+            ).stdout.strip()
+
+            subprocess.run(["git", "init", "--bare", "-q", str(bare)], check=True)
+            subprocess.run(
+                ["git", "-C", str(bare), "fetch", "--no-tags", str(source), commit],
+                check=True, capture_output=True,
+            )
+            source_ref = "refs/heads/digitalafarin-source"
+            subprocess.run(
+                ["git", "-C", str(bare), "update-ref", source_ref, commit],
+                check=True, capture_output=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(bare), "bundle", "create", str(bundle), source_ref],
+                check=True, capture_output=True,
+            )
+
+            subprocess.run(["git", "clone", "--no-checkout", "--", str(bundle), str(clone)], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(clone), "checkout", "--detach", commit], check=True, capture_output=True)
+            resolved = subprocess.run(
+                ["git", "-C", str(clone), "rev-parse", "HEAD"],
+                check=True, capture_output=True, text=True,
+            ).stdout.strip()
+            self.assertEqual(resolved, commit)
 
 
 class GitHubIntegrationTests(TestCase):

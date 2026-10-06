@@ -96,7 +96,7 @@ def download_bundle(repository: str, exact_commit: str, *, max_bytes: int = 100 
         try:
             subprocess.run(["git", "init", "--bare", str(bare)], check=True, capture_output=True, timeout=30, env=env)
             subprocess.run(
-                ["git", "-C", str(bare), "fetch", "--no-tags", "--depth=1", authenticated, exact_commit],
+                ["git", "-C", str(bare), "fetch", "--no-tags", authenticated, exact_commit],
                 check=True, capture_output=True, timeout=120, env=env,
             )
             resolved = subprocess.run(
@@ -105,8 +105,13 @@ def download_bundle(repository: str, exact_commit: str, *, max_bytes: int = 100 
             ).stdout.strip()
             if resolved != exact_commit:
                 raise GitHubSourceError("GitHub returned a different commit")
+            source_ref = "refs/heads/digitalafarin-source"
             subprocess.run(
-                ["git", "-C", str(bare), "bundle", "create", str(bundle), "FETCH_HEAD"],
+                ["git", "-C", str(bare), "update-ref", source_ref, exact_commit],
+                check=True, capture_output=True, timeout=30, env=env,
+            )
+            subprocess.run(
+                ["git", "-C", str(bare), "bundle", "create", str(bundle), source_ref],
                 check=True, capture_output=True, timeout=120, env=env,
             )
             data = bundle.read_bytes()
