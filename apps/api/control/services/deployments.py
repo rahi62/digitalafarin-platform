@@ -186,7 +186,10 @@ def apply_deployment_progress(
         Operation.KIND_DEPLOYMENT_ROLLBACK,
     }:
         raise DeploymentTransitionError("operation is not a deployment")
-    if state not in {"preparing", "cloning", "building"}:
+    if state not in {
+        "preparing", "cloning", "building", "releasing",
+        "health_check", "activating", "verifying",
+    }:
         raise DeploymentTransitionError("unsupported live deployment state")
     try:
         deployment = Deployment.objects.select_for_update().get(
