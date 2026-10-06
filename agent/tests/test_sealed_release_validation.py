@@ -1,5 +1,6 @@
 import os
 import stat
+import shutil
 from pathlib import Path
 
 import pytest
@@ -80,7 +81,7 @@ def test_helper_rejects_missing_build_artifact(prepared_tree, monkeypatch, artif
     def build(*args, **kwargs):
         path = allocated[0] / "apps/web" / artifact
         if path.is_dir():
-            path.rmdir()
+            shutil.rmtree(path)
         elif path.exists():
             path.unlink()
     monkeypatch.setattr(helper, "_run_as_worker", build)
