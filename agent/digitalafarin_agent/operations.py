@@ -110,7 +110,11 @@ def execute_operation(kind: str, payload: dict, progress=None) -> dict:
             raise OperationExecutionError("domain_ssl_failed", str(exc)) from exc
     if kind == "deployment.deploy":
         try:
-            result = deploy_managed_release(payload, progress=progress)
+            result = (
+                deploy_managed_release(payload, progress=progress)
+                if progress is not None
+                else deploy_managed_release(payload)
+            )
             if result["final_state"] == "failed":
                 code = result["error_code"]
                 raise OperationExecutionError(code, redact(result.get("error_message") or code)[:500])
@@ -121,7 +125,11 @@ def execute_operation(kind: str, payload: dict, progress=None) -> dict:
             raise OperationExecutionError("deployment_failed", redact(str(exc))[:500]) from exc
     if kind == "deployment.rollback":
         try:
-            result = rollback_managed_release(payload, progress=progress)
+            result = (
+                rollback_managed_release(payload, progress=progress)
+                if progress is not None
+                else rollback_managed_release(payload)
+            )
             if result["final_state"] == "failed":
                 code = result["error_code"]
                 raise OperationExecutionError(code, code)
