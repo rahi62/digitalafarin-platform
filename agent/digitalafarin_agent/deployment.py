@@ -9,8 +9,16 @@ class DeploymentFailure(RuntimeError):
     pass
 
 
-def _event(events: list[dict], state: str, message: str = "") -> None:
+_LIVE_STATES = {
+    "preparing", "cloning", "building", "releasing",
+    "health_check", "activating", "verifying",
+}
+
+
+def _event(events: list[dict], state: str, message: str = "", progress=None) -> None:
     events.append({"state": state, "message": message})
+    if progress is not None and state in _LIVE_STATES:
+        progress(state, message)
 
 
 def deploy_release(payload: dict, *, helper=None) -> dict:
@@ -23,7 +31,7 @@ def rollback_release(payload: dict, *, helper=None) -> dict:
     return rollback_managed_release(payload, helper=helper)
 
 
-def deploy_managed_release(payload: dict, *, helper=None) -> dict:
+def deploy_managed_release(payload: dict, *, helper=None, progress=None) -> dict:
     """Coordinate managed deployment without opening or mutating release files."""
     from .takeover_helper_client import TakeoverHelperClient, TakeoverHelperError
 
@@ -34,7 +42,7 @@ def deploy_managed_release(payload: dict, *, helper=None) -> dict:
     result = {"deployment_id": payload["deployment_id"], "exact_commit": exact_commit, "events": events}
     identity = {key: payload[key] for key in ("project_slug", "service_name", "unit_name")}
     root = payload.get("root_directory", ".")
-    _event(events, "preparing")
+    _event(events, "preparing", progress=progress)
     try:
         for key, empty, code in (
             ("environment", {}, "managed_environment_unsupported"),
@@ -46,8 +54,8 @@ def deploy_managed_release(payload: dict, *, helper=None) -> dict:
             raise TakeoverHelperError("managed_runtime_unsupported", "Only node-nextjs is supported.")
         if not isinstance(exact_commit, str) or not re.fullmatch(r"[0-9a-f]{40}", exact_commit):
             raise TakeoverHelperError("invalid_exact_commit", "An exact lowercase commit is required.")
-        _event(events, "cloning")
-        _event(events, "building")
+        _event(events, "cloning", progress=progress)
+        _event(events, "building", progress=progress)
         prepare_request = {
             **identity, "repository": payload["repository"], "exact_commit": exact_commit,
             "runtime": payload["runtime"], "root_directory": root,
@@ -62,14 +70,14 @@ def deploy_managed_release(payload: dict, *, helper=None) -> dict:
         result["release_name"] = release_name
         if prepared["resolved_commit"] != exact_commit:
             raise TakeoverHelperError("invalid_exact_commit", "Prepared commit does not match request.")
-        _event(events, "releasing")
-        _event(events, "health_check")
-        _event(events, "activating")
+        _event(events, "releasing", progress=progress)
+        _event(events, "health_check", progress=progress)
+        _event(events, "activating", progress=progress)
         activation = helper.activate_managed_release({
             **identity, "release_name": release_name, "root_directory": root,
             "exact_commit": exact_commit,
         })
-        _event(events, "verifying")
+        _event(events, "verifying", progress=progress)
         try:
             check_http_health(payload["health_check"])
         except Exception:
@@ -108,7 +116,7 @@ def rollback_managed_release(payload: dict, *, helper=None) -> dict:
     helper = helper or TakeoverHelperClient()
     events = []
     result = {"deployment_id": payload["deployment_id"], "exact_commit": payload["exact_commit"], "events": events}
-    _event(events, "preparing")
+    _event(events, "preparing", progress=progress)
     try:
         # Pure lexical parsing only. The helper independently binds names to paths.
         root = PurePosixPath(payload["service_root"])
@@ -129,7 +137,7 @@ def rollback_managed_release(payload: dict, *, helper=None) -> dict:
         })
         result["release_name"] = release.name
         root_directory = activation["root_directory"]
-        _event(events, "verifying")
+        _event(events, "verifying", progress=progress)
         try:
             check_http_health(payload["health_check"])
         except Exception:
