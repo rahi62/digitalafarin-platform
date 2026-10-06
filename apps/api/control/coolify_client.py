@@ -41,6 +41,8 @@ class CoolifyClient:
             raise CoolifyUpstreamError("Coolify rejected the configured credential.")
         if response.status_code >= 400:
             raise CoolifyUpstreamError("Coolify request failed.")
+        if path == "/version":
+            return response.text.strip().strip('"')
         try:
             return response.json()
         except ValueError as exc:
