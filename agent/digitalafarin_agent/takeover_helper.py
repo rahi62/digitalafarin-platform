@@ -388,9 +388,9 @@ def _ensure_release_directories(
     for path in (service_root, releases, shared):
         path.mkdir(parents=True, exist_ok=True)
     try:
-        # Workers need traversal, but never list or write access, through the managed path.
-        if apps_root == APPS_ROOT:
-            os.chmod(apps_root.parent, 0o751)
+        # Workers need traversal through the managed apps root. The helper is
+        # intentionally sandboxed to /srv/digitalafarin/apps and must not mutate
+        # its parent (/srv/digitalafarin); parent traversal is a host bootstrap invariant.
         os.chmod(apps_root, 0o751)
         for path in (service_root, releases):
             os.chown(path, 0, 0)
