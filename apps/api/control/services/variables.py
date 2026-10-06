@@ -3,7 +3,11 @@ from control.services.secrets import decrypt_secret
 
 
 def resolve_environment(
-    service: Service, environment: str, *, include_secrets: bool
+    service: Service,
+    environment: str,
+    *,
+    include_secrets: bool,
+    target: str | None = None,
 ) -> dict[str, str]:
     variables = EnvironmentVariable.objects.filter(project=service.project).order_by("created_at")
     resolved = {}
@@ -13,6 +17,8 @@ def resolve_environment(
         EnvironmentVariable.SCOPE_ENVIRONMENT,
     ):
         for variable in variables.filter(scope=scope):
+            if target and variable.target not in {target, EnvironmentVariable.TARGET_BOTH}:
+                continue
             if scope != EnvironmentVariable.SCOPE_PROJECT and variable.service_id != service.id:
                 continue
             if scope == EnvironmentVariable.SCOPE_ENVIRONMENT and variable.environment != environment:
