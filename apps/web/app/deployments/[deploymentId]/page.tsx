@@ -55,15 +55,12 @@ function stateTone(state: string) {
   return "neutral";
 }
 
-function stageStatus(stage: string, currentState: string) {
-  if (currentState === "failed" || currentState === "rolled_back") {
-    return stage === "succeeded" ? "pending" : "complete";
-  }
-  const currentIndex = DEPLOYMENT_STAGES.indexOf(currentState as (typeof DEPLOYMENT_STAGES)[number]);
+function stageStatus(stage: string, progressState: string) {
+  const currentIndex = DEPLOYMENT_STAGES.indexOf(progressState as (typeof DEPLOYMENT_STAGES)[number]);
   const stageIndex = DEPLOYMENT_STAGES.indexOf(stage as (typeof DEPLOYMENT_STAGES)[number]);
   if (currentIndex < 0) return "pending";
   if (stageIndex < currentIndex) return "complete";
-  if (stageIndex === currentIndex) return currentState === "succeeded" ? "complete" : "current";
+  if (stageIndex === currentIndex) return progressState === "succeeded" ? "complete" : "current";
   return "pending";
 }
 
@@ -89,6 +86,13 @@ export default async function DeploymentPage({
   const active = ACTIVE_STATES.has(deployment.state);
   const events = deployment.events ?? [];
   const diskWarning = findDiskWarning(events);
+  const lastProgressEvent = [...events].reverse().find((event) =>
+    DEPLOYMENT_STAGES.includes(event.state as (typeof DEPLOYMENT_STAGES)[number]),
+  );
+  const progressState =
+    deployment.state === "failed" || deployment.state === "rolled_back"
+      ? lastProgressEvent?.state ?? "queued"
+      : deployment.state;
   const operationError = deployment.operation?.error_message || deployment.operation?.error_code;
   const failureEvent = [...events].reverse().find((event) => event.state === "failed");
   const errorMessage = operationError || failureEvent?.message || null;
@@ -108,7 +112,15 @@ export default async function DeploymentPage({
               {deployment.state}
             </span>
           </div>
-          <h1>{deployment.state === "succeeded" ? "Deployment completed" : "Deployment in progress"}</h1>
+          <h1>
+            {deployment.state === "succeeded"
+              ? "Deployment completed"
+              : deployment.state === "failed"
+                ? "Deployment failed"
+                : deployment.state === "rolled_back"
+                  ? "Deployment rolled back"
+                  : "Deployment in progress"}
+          </h1>
           <p className="pageLead">
             <code>{deployment.resolved_commit || deployment.requested_ref || "No commit resolved"}</code>
           </p>
@@ -146,7 +158,7 @@ export default async function DeploymentPage({
         </div>
         <div className="deploymentStageTrack" aria-label="Deployment progress">
           {DEPLOYMENT_STAGES.map((stage) => {
-            const status = stageStatus(stage, deployment.state);
+            const status = stageStatus(stage, progressState);
             return (
               <div className={`deploymentStage deploymentStage-${status}`} key={stage}>
                 <span className="deploymentStageDot" />
