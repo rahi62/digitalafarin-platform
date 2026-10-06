@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import stat
 from types import SimpleNamespace
@@ -15,7 +16,9 @@ from digitalafarin_agent.takeover_helper import (
     _allocate_takeover_release,
     _ensure_release_directories,
     _prepare_release_destination,
+    _prepare_next_standalone_runtime,
     _run_as_worker,
+    _validate_node_artifacts,
     _trusted_local_source_repository,
 )
 from digitalafarin_agent.takeover_worker import TakeoverWorkerError
