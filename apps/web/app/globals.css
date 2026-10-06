@@ -318,3 +318,74 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 .railDangerButton{min-height:38px;padding:0 13px;border:1px solid rgba(255,89,105,.35);border-radius:7px;background:rgba(255,89,105,.08);color:#ff9aa3;font-weight:800;cursor:pointer}
 .railDangerButton:hover{background:rgba(255,89,105,.14)}.railDangerButton:disabled,.railPrimaryButton:disabled{opacity:.55;cursor:not-allowed}
 @media(max-width:680px){.railSettingsForm{grid-template-columns:1fr}.railFieldWide,.railSettingsForm .railFormError,.railSettingsForm .railFormSuccess{grid-column:auto}}
+
+
+/* === Deployment Console === */
+.deploymentConsole{max-width:1320px}
+.deploymentConsoleHeader{align-items:center}
+.deploymentTitleLine{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.deploymentTitleLine .eyebrow{margin:0}
+.deploymentConsole .pageActions button{min-height:38px;padding:0 13px;border:1px solid #303640;border-radius:8px;background:#14171c;color:#d7dbe0;font-size:11px;font-weight:700;cursor:pointer}
+.deploymentConsole .pageActions button:hover:not(:disabled){border-color:#48515d;background:#191d24}
+.deploymentConsole .pageActions button:disabled{opacity:.45;cursor:not-allowed}
+.deployLiveBadge{display:inline-flex;align-items:center;gap:7px;position:fixed;z-index:20;left:22px;bottom:22px;padding:7px 10px;border:1px solid rgba(66,213,139,.24);border-radius:999px;background:#101713;color:var(--success);font:700 10px/1 ui-monospace,SFMono-Regular,Menlo,monospace;box-shadow:0 12px 36px rgba(0,0,0,.28)}
+.deployLiveBadge i{width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 0 4px rgba(66,213,139,.1);animation:deployPulse 1.8s ease-in-out infinite}
+@keyframes deployPulse{50%{opacity:.42;box-shadow:0 0 0 7px rgba(66,213,139,.03)}}
+.deploymentWarning{margin-bottom:12px;padding:11px 13px;border:1px solid rgba(233,185,73,.22);border-radius:10px;background:var(--warning-soft);color:#dfbd65;font-size:11px}
+.deploymentError{display:grid;gap:5px;margin-bottom:12px;padding:13px 15px;border:1px solid rgba(255,107,122,.28);border-radius:10px;background:var(--danger-soft)}
+.deploymentError strong{color:#ff929d;font:700 11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
+.deploymentError span{color:#dca2a8;font-size:11px;line-height:1.7}
+.deploymentProgressPanel{margin-bottom:12px}
+.deploymentDuration{direction:ltr;color:#c8ced7;font:700 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace}
+.deploymentStageTrack{display:grid;grid-template-columns:repeat(9,minmax(72px,1fr));padding:24px 18px 20px;overflow-x:auto;direction:ltr}
+.deploymentStage{position:relative;min-width:72px;display:grid;justify-items:center;gap:9px;color:#596370;text-align:center}
+.deploymentStage::before{content:"";position:absolute;top:6px;left:-50%;width:100%;height:1px;background:#252c35}
+.deploymentStage:first-child::before{display:none}
+.deploymentStageDot{position:relative;z-index:1;width:13px;height:13px;border:3px solid var(--surface);border-radius:50%;background:#353d48;box-shadow:0 0 0 1px #353d48}
+.deploymentStage strong{font:650 9px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:lowercase;white-space:nowrap}
+.deploymentStage-complete{color:#74dda7}
+.deploymentStage-complete::before{background:rgba(66,213,139,.5)}
+.deploymentStage-complete .deploymentStageDot{background:var(--success);box-shadow:0 0 0 1px var(--success)}
+.deploymentStage-current{color:#e8c46e}
+.deploymentStage-current::before{background:rgba(66,213,139,.5)}
+.deploymentStage-current .deploymentStageDot{background:var(--warning);box-shadow:0 0 0 1px var(--warning),0 0 0 5px rgba(233,185,73,.08)}
+.deploymentTerminalState{margin:0 18px 18px;padding:9px 11px;border-radius:8px;font:700 10px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;text-align:center}
+.deploymentTerminalState-failed{color:#ff929d;background:var(--danger-soft);border:1px solid rgba(255,107,122,.2)}
+.deploymentTerminalState-rolled_back{color:#e8c46e;background:var(--warning-soft);border:1px solid rgba(233,185,73,.2)}
+.deploymentConsoleGrid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(300px,.75fr);gap:12px;margin-bottom:12px}
+.deploymentFacts{display:grid}
+.deploymentFacts>div{min-width:0;display:grid;grid-template-columns:130px minmax(0,1fr);gap:14px;padding:11px 16px;border-bottom:1px solid var(--line-soft);align-items:start}
+.deploymentFacts>div:last-child{border-bottom:0}
+.deploymentFacts span{color:var(--muted);font-size:10px}
+.deploymentFacts strong,.deploymentFacts code{min-width:0;color:var(--text-soft);font-size:10px;font-weight:600;direction:ltr;text-align:right;overflow-wrap:anywhere}
+.deploymentEventsPanel{margin-top:0}
+.deploymentTimeline{display:grid}
+.deploymentTimelineRow{display:grid;grid-template-columns:14px minmax(0,1fr);gap:12px;padding:15px 17px;border-bottom:1px solid var(--line-soft);direction:ltr}
+.deploymentTimelineRow:last-child{border-bottom:0}
+.deploymentEventDot{width:9px;height:9px;margin-top:3px;border-radius:50%;background:#65707d;box-shadow:0 0 0 4px rgba(101,112,125,.07)}
+.deploymentEventDot-success{background:var(--success)}
+.deploymentEventDot-warning{background:var(--warning)}
+.deploymentEventDot-danger{background:var(--danger)}
+.deploymentTimelineRow>div{min-width:0}
+.deploymentEventHeader{display:flex;align-items:center;justify-content:space-between;gap:14px}
+.deploymentEventHeader code{color:#cbd1d9;font-size:10px}
+.deploymentEventHeader time{color:#697482;font-size:9px;white-space:nowrap}
+.deploymentTimelineRow p{margin:6px 0 0;color:#9ca5b0;font-size:11px;line-height:1.65}
+.deploymentTimelineRow details{margin-top:9px}
+.deploymentTimelineRow summary{width:max-content;color:#737e8b;font-size:9px;cursor:pointer}
+.deploymentTimelineRow pre{max-width:100%;overflow:auto;margin:9px 0 0;padding:11px;border:1px solid #202730;border-radius:8px;background:#0b0e12;color:#9fa8b4;font:9px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;direction:ltr;text-align:left}
+
+@media(max-width:980px){
+  .deploymentConsoleGrid{grid-template-columns:1fr}
+  .deploymentStageTrack{grid-template-columns:repeat(9,92px)}
+}
+@media(max-width:680px){
+  .deploymentConsoleHeader{align-items:flex-start}
+  .deploymentConsole .pageActions{width:100%}
+  .deploymentConsole .pageActions form{flex:1}
+  .deploymentConsole .pageActions button{width:100%}
+  .deploymentFacts>div{grid-template-columns:1fr;gap:5px}
+  .deploymentEventHeader{align-items:flex-start;flex-direction:column;gap:5px}
+  .deploymentEventHeader time{white-space:normal}
+  .deployLiveBadge{left:14px;bottom:14px}
+}
