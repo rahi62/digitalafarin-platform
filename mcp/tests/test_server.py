@@ -5,6 +5,18 @@ from digitalafarin_vps_mcp.server import create_mcp
 
 
 class FakeControlPlane:
+    async def get_coolify_status(self):
+        return {"version": "4.3.23"}
+
+    async def list_coolify_servers(self):
+        return {"items": [{"uuid": "coolify-server", "name": "localhost"}]}
+
+    async def list_coolify_projects(self):
+        return {"items": []}
+
+    async def list_coolify_resources(self):
+        return {"items": []}
+
     async def list_servers(self):
         return {
             "items": [
@@ -134,6 +146,10 @@ async def test_server_discovers_only_inventory_and_typed_operation_tools():
         names = {tool.name for tool in result.tools}
 
     assert names == {
+        "coolify_get_status",
+        "coolify_list_servers",
+        "coolify_list_projects",
+        "coolify_list_resources",
         "vps_list_servers",
         "vps_get_server",
         "vps_get_metrics",
@@ -302,3 +318,14 @@ async def test_takeover_tools_expose_only_typed_identity_inputs():
     assert read.structured_content["state"] == "prepared"
     assert activated.structured_content["activate_operation_id"] == "operation-id"
     assert canceled.structured_content["state"] == "canceled"
+
+
+@pytest.mark.asyncio
+async def test_coolify_tools_are_read_only_inventory_tools():
+    server = create_mcp(FakeControlPlane())
+    async with Client(server, raise_exceptions=True) as client:
+        status = await client.call_tool("coolify_get_status", {})
+        servers = await client.call_tool("coolify_list_servers", {})
+
+    assert status.structured_content["version"] == "4.3.23"
+    assert servers.structured_content["items"][0]["name"] == "localhost"
