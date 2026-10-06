@@ -30,6 +30,26 @@ def create_mcp(control_plane: ControlPlaneClient | Any | None = None) -> MCPServ
     )
 
     @mcp.tool()
+    async def coolify_get_status() -> dict[str, Any]:
+        """Read the configured Coolify instance version through the control plane."""
+        return await _safe(client.get_coolify_status())
+
+    @mcp.tool()
+    async def coolify_list_servers() -> dict[str, Any]:
+        """List Coolify servers without sensitive values."""
+        return await _safe(client.list_coolify_servers())
+
+    @mcp.tool()
+    async def coolify_list_projects() -> dict[str, Any]:
+        """List Coolify projects without secret values."""
+        return await _safe(client.list_coolify_projects())
+
+    @mcp.tool()
+    async def coolify_list_resources() -> dict[str, Any]:
+        """List Coolify resources without requesting sensitive values."""
+        return await _safe(client.list_coolify_resources())
+
+    @mcp.tool()
     async def vps_list_servers() -> dict[str, Any]:
         """List VPS servers visible to this read-only MCP identity."""
         return await _safe(client.list_servers())
