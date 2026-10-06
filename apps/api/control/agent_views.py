@@ -21,7 +21,11 @@ from control.services.operations import (
 )
 from control.services.execution import build_execution_context
 from control.models import Operation, ServiceTakeover
-from control.services.deployments import apply_deployment_result
+from control.services.deployments import (
+    DeploymentTransitionError,
+    apply_deployment_progress,
+    apply_deployment_result,
+)
 from control.services.github_source import GitHubSourceError, download_bundle
 from control.services.service_deletion import finalize_service_deletion
 from control.services.takeovers import (
@@ -107,6 +111,18 @@ class OperationStartedView(AgentOperationView):
                     **serializer.validated_data,
                 )
                 mark_takeover_operation_started(operation)
+                if operation.kind in {
+                    Operation.KIND_DEPLOYMENT_DEPLOY,
+                    Operation.KIND_DEPLOYMENT_ROLLBACK,
+                }:
+                    try:
+                        apply_deployment_progress(
+                            operation,
+                            state="preparing",
+                            message="Deployment worker started",
+                        )
+                    except DeploymentTransitionError:
+                        pass
         except (OperationTransitionError, TakeoverError) as exc:
             return Response(
                 {"error": "operation_transition_rejected", "message": str(exc)},
@@ -201,6 +217,14 @@ class OperationSourceView(AgentOperationView):
 
         try:
             if operation.kind == Operation.KIND_DEPLOYMENT_DEPLOY:
+                try:
+                    apply_deployment_progress(
+                        operation,
+                        state="cloning",
+                        message="Fetching verified GitHub source",
+                    )
+                except DeploymentTransitionError:
+                    pass
                 service = operation.server.managed_services.filter(
                     deployments__public_id=operation.payload.get("deployment_id")
                 ).select_related("project").prefetch_related("deployments").first()
@@ -222,6 +246,15 @@ class OperationSourceView(AgentOperationView):
                 exact_commit = takeover.requested_commit
 
             data = download_bundle(repository, exact_commit)
+            if operation.kind == Operation.KIND_DEPLOYMENT_DEPLOY:
+                try:
+                    apply_deployment_progress(
+                        operation,
+                        state="building",
+                        message="Source verified; build worker starting",
+                    )
+                except DeploymentTransitionError:
+                    pass
         except (GitHubSourceError, KeyError, ServiceTakeover.DoesNotExist):
             return Response(
                 {"error": "source_unavailable"},
