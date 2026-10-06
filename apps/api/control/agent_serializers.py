@@ -48,6 +48,16 @@ class OperationStartedSerializer(serializers.Serializer):
     claim_token = serializers.CharField(max_length=64)
 
 
+class OperationProgressSerializer(OperationStartedSerializer):
+    state = serializers.ChoiceField(
+        choices=[
+            "preparing", "cloning", "building", "releasing",
+            "health_check", "activating", "verifying",
+        ]
+    )
+    message = serializers.CharField(max_length=500, required=False, default="", allow_blank=True)
+
+
 class OperationCompleteSerializer(OperationStartedSerializer):
     succeeded = serializers.BooleanField()
     result = serializers.DictField(required=False, default=dict)
