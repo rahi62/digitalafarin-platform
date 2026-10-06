@@ -30,6 +30,27 @@ def _read(call):
         )
 
 
+def _pick(item, fields):
+    if not isinstance(item, dict):
+        return {}
+    return {field: item[field] for field in fields if field in item}
+
+
+def _servers(client):
+    fields = ("uuid", "name", "description", "ip", "port", "user", "proxy_type")
+    return {"items": [_pick(item, fields) for item in client.list_servers()]}
+
+
+def _projects(client):
+    fields = ("uuid", "name", "description")
+    return {"items": [_pick(item, fields) for item in client.list_projects()]}
+
+
+def _resources(client):
+    fields = ("uuid", "name", "type", "status", "created_at", "updated_at")
+    return {"items": [_pick(item, fields) for item in client.list_resources()]}
+
+
 class CoolifyReadView(ControlAPIView):
     authentication_classes = [ServicePrincipalAuthentication]
     permission_classes = [require_scope("coolify:read")]
@@ -54,18 +75,18 @@ class CoolifyServerListView(CoolifyReadView):
     event_type = "mcp.coolify.servers.read"
 
     def get(self, request):
-        return self.respond(request, lambda client: {"items": client.list_servers()})
+        return self.respond(request, _servers)
 
 
 class CoolifyProjectListView(CoolifyReadView):
     event_type = "mcp.coolify.projects.read"
 
     def get(self, request):
-        return self.respond(request, lambda client: {"items": client.list_projects()})
+        return self.respond(request, _projects)
 
 
 class CoolifyResourceListView(CoolifyReadView):
     event_type = "mcp.coolify.resources.read"
 
     def get(self, request):
-        return self.respond(request, lambda client: {"items": client.list_resources()})
+        return self.respond(request, _resources)
