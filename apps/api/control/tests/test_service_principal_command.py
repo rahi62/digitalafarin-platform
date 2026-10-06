@@ -29,6 +29,7 @@ class ServicePrincipalCommandTests(TestCase):
                 "operations:read",
                 "operations:create",
                 "logs:read",
+                "coolify:read",
             ],
         )
         self.assertTrue(output.getvalue().startswith("da_service_"))
