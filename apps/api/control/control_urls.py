@@ -2,6 +2,7 @@ from django.urls import path
 
 from control import (
     control_views,
+    coolify_views,
     database_views,
     domain_views,
     deployment_views,
@@ -14,6 +15,10 @@ from control import (
 )
 
 urlpatterns = [
+    path("coolify/status/", coolify_views.CoolifyStatusView.as_view()),
+    path("coolify/servers/", coolify_views.CoolifyServerListView.as_view()),
+    path("coolify/projects/", coolify_views.CoolifyProjectListView.as_view()),
+    path("coolify/resources/", coolify_views.CoolifyResourceListView.as_view()),
     path(
         "services/<uuid:service_id>/takeovers/",
         takeover_views.ServiceTakeoverListCreateView.as_view(),
