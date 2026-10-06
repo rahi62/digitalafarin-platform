@@ -41,7 +41,9 @@ def prepared_tree(tmp_path, monkeypatch):
         (release / ".git").mkdir()
         (release / ".git/HEAD").write_text("a" * 40 + "\n")
         cwd = release / "apps/web"
-        (cwd / ".next").mkdir(parents=True)
+        (cwd / ".next" / "standalone").mkdir(parents=True)
+        (cwd / ".next" / "static").mkdir(parents=True)
+        (cwd / ".next" / "standalone" / "server.js").write_text("server")
         (cwd / "package.json").write_text("{}")
         (cwd / "package-lock.json").write_text("{}")
         return release
