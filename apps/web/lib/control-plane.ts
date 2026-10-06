@@ -113,7 +113,24 @@ export type Deployment = {
   id: string; service_id: string; requested_ref: string; resolved_commit: string;
   state: string; requested_by: string; queued_at: string; started_at: string | null;
   completed_at: string | null; active_release?: string | null; previous_release?: string | null;
-  events?: Array<{ id: string; state: string; message: string; created_at: string }>;
+  operation_id?: string;
+  operation?: {
+    id: string;
+    state: string;
+    error_code: string;
+    error_message: string;
+    created_at: string;
+    claimed_at: string | null;
+    started_at: string | null;
+    completed_at: string | null;
+  } | null;
+  events?: Array<{
+    id: string;
+    state: string;
+    message: string;
+    metadata?: Record<string, unknown>;
+    created_at: string;
+  }>;
 };
 
 export type ServiceTakeover = {
