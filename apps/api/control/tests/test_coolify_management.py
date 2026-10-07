@@ -1,7 +1,7 @@
 import io
 import json
 import uuid
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.core.management import call_command
 from django.test import TestCase, override_settings
@@ -302,3 +302,48 @@ class CoolifyManagementTests(TestCase):
         self.upstream.get_environment.return_value = {"applications": [{"uuid": "app-1"}]}
         self.upstream.list_server_resources.return_value = []
         self.assertEqual(self.post("applications/app-1/deploy/").status_code, 403)
+
+    def application_routes(self):
+        return [
+            ("post", "applications/app-1/configure/", {"ports_exposes": [3000]}, "coolify:manage"),
+            ("post", "applications/app-1/environment/create/", {"key": "DATABASE_URL", "value": "SECRET"}, "coolify:manage"),
+            ("post", "applications/app-1/environment/update/", {"key": "DATABASE_URL", "value": "SECRET"}, "coolify:manage"),
+            *[("post", f"applications/app-1/{action}/", {}, "coolify:deploy")
+              for action in ["deploy", "redeploy", "start", "stop", "restart"]],
+            ("post", "applications/app-1/delete/", {"confirm_application_uuid": "app-1"}, "coolify:delete"),
+            ("get", "applications/app-1/environment/", {}, "coolify:read"),
+            ("get", "applications/app-1/deployments/", {}, "coolify:read"),
+            ("get", "applications/app-1/deployments/deployment-1/", {}, "coolify:read"),
+            ("get", "applications/app-1/deployments/deployment-1/logs/", {}, "coolify:read"),
+        ]
+
+    def test_every_management_route_requires_its_explicit_scope(self):
+        self.register()
+        routes = self.application_routes() + [
+            ("post", "applications/", self.payload(), "coolify:manage"),
+            ("get", "targets/", {}, "coolify:read"),
+            ("get", "projects/project-1/environments/", {}, "coolify:read"),
+        ]
+        scopes = {"coolify:read", "coolify:manage", "coolify:deploy", "coolify:delete"}
+        for method, path, data, required in routes:
+            with self.subTest(path=path, missing=required):
+                self.principal.scopes = sorted(scopes - {required})
+                self.principal.save()
+                self.upstream.reset_mock()
+                response = getattr(self.client, method)(BASE + path, data, format="json")
+                self.assertEqual(response.status_code, 403)
+                self.assertEqual(self.upstream.mock_calls, [])
+                self.assertNotIn("SECRET", response.content.decode())
+
+    def test_every_application_route_denies_cross_principal_and_deleted_ownership(self):
+        row = self.register()
+        other = ServicePrincipal.objects.create(name="other", scopes=[])
+        for owner, deleted in [(other, False), (self.principal, True)]:
+            row.principal, row.deleted = owner, deleted
+            row.save()
+            for method, path, data, _ in self.application_routes():
+                with self.subTest(path=path, deleted=deleted):
+                    self.upstream.reset_mock()
+                    response = getattr(self.client, method)(BASE + path, data, format="json")
+                    self.assertEqual(response.status_code, 403)
+                    self.assertEqual(self.upstream.mock_calls, [call.close()])
