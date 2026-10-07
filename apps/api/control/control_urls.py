@@ -1,3 +1,4 @@
+from control import coolify_management_views as cm
 from django.urls import path
 
 from control import (
@@ -15,6 +16,22 @@ from control import (
 )
 
 urlpatterns = [
+    path("coolify/targets/", cm.CoolifyManagementTargetListView.as_view()),
+    path("coolify/projects/<slug:project_uuid>/environments/", cm.CoolifyEnvironmentListView.as_view()),
+    path("coolify/applications/", cm.CoolifyApplicationCreateView.as_view()),
+    path("coolify/applications/<slug:application_uuid>/configure/", cm.CoolifyApplicationUpdateView.as_view()),
+    path("coolify/applications/<slug:application_uuid>/environment/", cm.CoolifyEnvironmentVariablesView.as_view()),
+    path("coolify/applications/<slug:application_uuid>/environment/create/", cm.CoolifyEnvironmentCreateView.as_view()),
+    path("coolify/applications/<slug:application_uuid>/environment/update/", cm.CoolifyEnvironmentUpdateView.as_view()),
+    path("coolify/applications/<slug:application_uuid>/delete/", cm.CoolifyApplicationDeleteView.as_view()),
+    path("coolify/applications/<slug:application_uuid>/deployments/", cm.CoolifyDeploymentListView.as_view()),
+    path("coolify/applications/<slug:application_uuid>/deploy/", cm.CoolifyApplicationActionView.as_view(action="deploy")),
+    path("coolify/applications/<slug:application_uuid>/redeploy/", cm.CoolifyApplicationActionView.as_view(action="redeploy")),
+    path("coolify/applications/<slug:application_uuid>/start/", cm.CoolifyApplicationActionView.as_view(action="start")),
+    path("coolify/applications/<slug:application_uuid>/stop/", cm.CoolifyApplicationActionView.as_view(action="stop")),
+    path("coolify/applications/<slug:application_uuid>/restart/", cm.CoolifyApplicationActionView.as_view(action="restart")),
+    path("coolify/applications/<slug:application_uuid>/deployments/<slug:deployment_uuid>/", cm.CoolifyDeploymentDetailView.as_view()),
+    path("coolify/applications/<slug:application_uuid>/deployments/<slug:deployment_uuid>/logs/", cm.CoolifyDeploymentLogsView.as_view()),
     path("coolify/status/", coolify_views.CoolifyStatusView.as_view()),
     path("coolify/servers/", coolify_views.CoolifyServerListView.as_view()),
     path("coolify/projects/", coolify_views.CoolifyProjectListView.as_view()),

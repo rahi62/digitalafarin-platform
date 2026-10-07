@@ -41,28 +41,61 @@ from digitalafarin_agent.postgres import restore_database
 from digitalafarin_agent.volumes import create_volume
 
 
-class FixtureExecutor:
-    def __init__(self):
+class FixtureHelper:
+    """Disposable helper-boundary double; never exercises privileged host setup."""
+
+    def __init__(self, apps_root, repository, commit):
+        self.service_root = apps_root / "oily" / "web"
+        self.repository = repository
+        self.commit = commit
         self.restarts = []
+        self.prepared = []
+        self.pruned = []
+        initial = self.service_root / "releases" / "fixture-initial"
+        initial.mkdir(parents=True)
+        (self.service_root / "current").symlink_to(initial)
 
-    def recipe_commands(self, runtime, install_configuration, build_configuration, root_directory):
-        return [["node", "build.mjs"]]
+    def identity(self, params):
+        assert params["project_slug"] == "oily"
+        assert params["service_name"] == "web"
+        assert params["unit_name"] == "oily-web.service"
 
-    def run_commands(self, commands, cwd, environment, known_secrets):
-        for command in commands:
-            subprocess.run(
-                command,
-                cwd=cwd,
-                env={**os.environ, **environment},
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=30,
-                shell=False,
-            )
+    def prepare_managed_node_nextjs_release(self, params):
+        self.identity(params)
+        assert params["environment"] == {}
+        assert params["volumes"] == []
+        assert params["repository"] == str(self.repository)
+        assert params["exact_commit"] == self.commit
+        assert params["root_directory"] == "."
+        release_name = f"20261007-12000{len(self.prepared)}-{self.commit[:7]}"
+        target = self.service_root / "releases" / release_name
+        subprocess.run(["git", "clone", "--no-hardlinks", str(self.repository), str(target)],
+                       check=True, capture_output=True, timeout=30)
+        git(target, "checkout", "--detach", self.commit)
+        subprocess.run(["node", "build.mjs"], cwd=target, check=True,
+                       capture_output=True, timeout=30)
+        self.prepared.append(release_name)
+        return {"release_name": release_name, "resolved_commit": git(target, "rev-parse", "HEAD")}
 
-    def restart(self, unit_name):
-        self.restarts.append(unit_name)
+    def activate_managed_release(self, params):
+        self.identity(params)
+        assert params["exact_commit"] == self.commit
+        assert params["release_name"] in self.prepared
+        current = self.service_root / "current"
+        previous = current.resolve().name
+        current.unlink()
+        current.symlink_to(self.service_root / "releases" / params["release_name"])
+        self.restarts.append(params["unit_name"])
+        return {"previous_release_name": previous, "root_directory": "."}
+
+    def rollback_managed_release(self, params):
+        return self.activate_managed_release(params)
+
+    def prune_managed_releases(self, params):
+        self.identity(params)
+        assert (self.service_root / "current").resolve().name == params["release_name"]
+        self.pruned.append(params)
+        return {"removed": []}
 
 
 def git(repo: Path, *args: str) -> str:
@@ -205,7 +238,7 @@ class MigrationReadinessAcceptance(TestCase):
         service.repository = str(repository)
         service.save(update_fields=["repository"])
         apps_root = self.root / "srv" / "digitalafarin" / "apps"
-        executor = FixtureExecutor()
+        helper = FixtureHelper(apps_root, repository, commit)
         payload = {
             "deployment_id": "fixture-deployment", "project_slug": "oily", "service_name": "web",
             "repository": str(repository), "requested_ref": "master", "exact_commit": commit,
@@ -216,19 +249,34 @@ class MigrationReadinessAcceptance(TestCase):
             "health_check": {"url": "http://127.0.0.1:3000/health", "expected_status": 200},
         }
         with patch("digitalafarin_agent.deployment.check_http_health", return_value={"attempts": 1, "status": 200}):
-            first = deploy_release(payload, apps_root=apps_root, executor=executor)
+            # The current helper contract rejects these unsupported mutations.
+            rejected = deploy_release(payload, helper=helper)
+            self.assertEqual(rejected["error_code"], "managed_environment_unsupported")
+            payload["environment"] = {}
+            rejected = deploy_release(payload, helper=helper)
+            self.assertEqual(rejected["error_code"], "managed_volumes_unsupported")
+            self.assertEqual(helper.prepared, [])
+            payload["volumes"] = []
+            first = deploy_release(payload, helper=helper)
             first_path = apps_root / "oily" / "web" / "releases" / first["release_name"]
-            second = deploy_release(payload, apps_root=apps_root, executor=executor)
-            rollback_release(
+            second = deploy_release(payload, helper=helper)
+            rolled_back = rollback_release(
                 {
-                    "deployment_id": "rollback", "service_root": str(apps_root / "oily" / "web"),
-                    "release_path": str(first_path), "exact_commit": commit,
+                    "deployment_id": "rollback", "service_root": "/srv/digitalafarin/apps/oily/web",
+                    "release_path": f"/srv/digitalafarin/apps/oily/web/releases/{first['release_name']}", "exact_commit": commit,
                     "unit_name": "oily-web.service", "health_check": payload["health_check"],
                 },
-                executor=executor,
+                helper=helper,
             )
         self.assertEqual(first["final_state"], "succeeded")
         self.assertEqual(second["final_state"], "succeeded")
+        self.assertEqual(rolled_back["final_state"], "succeeded")
+        self.assertEqual(helper.restarts, ["oily-web.service"] * 3)
+        self.assertEqual(len(helper.pruned), 3)
+        self.assertEqual(git(first_path, "rev-parse", "HEAD"), commit)
+        self.assertEqual((first_path / "build.txt").read_text(), "fixture-built")
+        second_path = helper.service_root / "releases" / second["release_name"]
+        self.assertEqual((second_path / "build.txt").read_text(), "fixture-built")
         self.assertEqual((apps_root / "oily" / "web" / "current").resolve(), first_path.resolve())
         self.assertEqual((volume_path / "persistent.txt").read_text(encoding="utf-8"), "survives")
 

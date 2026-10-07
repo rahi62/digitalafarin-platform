@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 
@@ -68,3 +69,7 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["control.authentication.PlatformTokenAuthentication"],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
 }
+
+# Fail closed until an administrator supplies reviewed placements/repositories.
+# No credentials belong in this policy. See docs/coolify-management.md.
+COOLIFY_MANAGEMENT_TARGETS = json.loads(os.getenv("COOLIFY_MANAGEMENT_TARGETS", "{}"))

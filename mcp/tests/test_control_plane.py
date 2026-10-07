@@ -391,3 +391,44 @@ async def test_enable_domain_ssl_posts_empty_body():
     assert result["ssl_enabled"] is True
     assert seen == [("POST", f"/api/control/v1/domains/{domain_id}/ssl/", "{}")]
     await http.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("hostname", [
+    "app.example.com", "a-b.example.com", "a" * 63 + ".example.com",
+    ".".join(["a" * 63] * 3 + ["b" * 57, "com"]),
+])
+async def test_domain_hostname_accepts_dns_label_and_total_length_boundaries(hostname):
+    async def handler(request):
+        assert request.url.path.endswith("/domains/")
+        return httpx.Response(201, json={"hostname": hostname})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = ControlPlaneClient("http://control", "service-secret", http=http)
+        result = await client.create_domain(
+            "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222", hostname,
+        )
+        assert result["hostname"] == hostname
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("hostname", [
+    "", "localhost", "127.0.0.1", "https://app.example.com", "app.example.com/path",
+    "app.example.com:443", "app..example.com", "-app.example.com", "app-.example.com",
+    "app_example.com", "app.example.com.", "app.example.com\n", "app;id.example.com",
+    r"app\xexample.com", "a" * 64 + ".example.com",
+    ".".join(["a" * 63] * 3 + ["b" * 58, "com"]),
+])
+async def test_domain_invalid_hostname_never_reaches_control_plane(hostname):
+    def handler(request):
+        pytest.fail("Invalid hostname must be rejected before HTTP")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = ControlPlaneClient("http://control", "service-secret", http=http)
+        with pytest.raises(MCPDomainError) as exc:
+            await client.create_domain(
+                "11111111-1111-1111-1111-111111111111",
+                "22222222-2222-2222-2222-222222222222", hostname,
+            )
+        assert exc.value.code == "invalid_request"
