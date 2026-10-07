@@ -543,7 +543,7 @@ class ControlPlaneClient:
         _validate_uuid(project_id, "project_id")
         _validate_uuid(service_id, "service_id")
         if not re.fullmatch(
-            r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}",
+            r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}",
             hostname,
         ):
             raise MCPDomainError("invalid_request", "hostname is invalid.")
