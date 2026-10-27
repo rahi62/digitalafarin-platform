@@ -57,8 +57,8 @@ server.registerTool("gsc_read_performance", {
   description: "Return raw clicks, impressions, CTR and average position. Claude handles comparisons and analysis.",
   inputSchema: {
     property: z.string().min(3).max(2048),
-    startDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
-    endDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     dimensions: z.array(z.enum(["query", "page", "country", "device", "date", "searchAppearance"])).max(6).optional(),
     rowLimit: z.number().int().min(1).max(25000).default(1000),
     startRow: z.number().int().min(0).default(0),
