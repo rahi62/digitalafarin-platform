@@ -37,11 +37,12 @@ mcp.registerTool("gsc_search_performance",{title:"Read GSC search performance",d
  endDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
  dimensions:z.array(z.enum(["query","page","date","country","device","searchAppearance"])).max(6).optional(),
  rowLimit:z.number().int().min(1).max(25000).default(1000),
- startRow:z.number().int().min(0).default(0)
-},annotations:readOnly},async({accountId,property,startDate,endDate,dimensions,rowLimit,startRow})=>{
+ startRow:z.number().int().min(0).default(0),
+ filters:z.array(z.object({dimension:z.enum(["query","page","country","device","searchAppearance"]),operator:z.enum(["equals","contains","notEquals","notContains","includingRegex","excludingRegex"]).default("equals"),expression:z.string().min(1).max(4096)})).max(20).optional()
+},annotations:readOnly},async({accountId,property,startDate,endDate,dimensions,rowLimit,startRow,filters})=>{
  try{
  if(startDate>endDate) throw new Error("Invalid date range");
- return result(await googleRead(await access(accountId),`https://www.googleapis.com/webmasters/v3/sites/${propertyUrl(property)}/searchAnalytics/query`,{startDate,endDate,dimensions,rowLimit,startRow,type:"web",dataState:"final"}));
+ return result(await googleRead(await access(accountId),`https://www.googleapis.com/webmasters/v3/sites/${propertyUrl(property)}/searchAnalytics/query`,{startDate,endDate,dimensions,rowLimit,startRow,type:"web",dataState:"final",...(filters?.length?{dimensionFilterGroups:[{groupType:"and",filters}]}:{})}));
  } catch(e){return failure(e);}
 });
 mcp.registerTool("gsc_list_sitemaps", {
