@@ -44,5 +44,19 @@ mcp.registerTool("gsc_search_performance",{title:"Read GSC search performance",d
  return result(await googleRead(await access(accountId),`https://www.googleapis.com/webmasters/v3/sites/${propertyUrl(property)}/searchAnalytics/query`,{startDate,endDate,dimensions,rowLimit,startRow,type:"web",dataState:"final"}));
  } catch(e){return failure(e);}
 });
+mcp.registerTool("gsc_list_sitemaps", {
+ title:"List GSC sitemaps",description:"Read submitted sitemaps for a Search Console property",
+ inputSchema:{accountId:z.string().min(1),property:z.string().min(3).max(2048)},annotations:readOnly
+},async({accountId,property})=>{
+ try{return result(await googleRead(await access(accountId),`https://www.googleapis.com/webmasters/v3/sites/${propertyUrl(property)}/sitemaps`));}
+ catch(e){return failure(e);}
+});
+mcp.registerTool("gsc_inspect_url", {
+ title:"Inspect indexed URL",description:"Read the last known Google index status for a URL; does not request indexing",
+ inputSchema:{accountId:z.string().min(1),property:z.string().min(3).max(2048),inspectionUrl:z.string().url().max(2048)},annotations:readOnly
+},async({accountId,property,inspectionUrl})=>{
+ try{return result(await googleRead(await access(accountId),"https://searchconsole.googleapis.com/v1/urlInspection/index:inspect",{inspectionUrl,siteUrl:property}));}
+ catch(e){return failure(e);}
+});
 await mcp.connect(new StdioServerTransport());
 }
