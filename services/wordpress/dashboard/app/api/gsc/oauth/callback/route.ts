@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { completeGscOAuth } from "@/lib/gsc";
+// Load DB-backed OAuth services only when the callback is requested.
 import { resolvePublicOrigin } from "@/lib/public-origin";
 
 export const runtime = "nodejs";
@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const { completeGscOAuth } = await import("@/lib/gsc");
     const properties = await completeGscOAuth(code, state);
     return NextResponse.redirect(settingsUrl(request, {
       gscConnected: "1",
