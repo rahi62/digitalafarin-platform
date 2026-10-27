@@ -30,7 +30,7 @@ try {
   assert.ok(!names.some((name) => name.startsWith("vps_")), "VPS tools must not be exposed");
   const response = await client.callTool({ name: "agency_get_team", arguments: {} }, undefined, { timeout: 15000 });
   assert.notEqual(response.isError, true, "Agency read-only smoke tool reported an error");
-  assert.ok(response.content?.length, "Expected a non-empty tool response");
+  assert.ok(Array.isArray(response.content) && response.content.length > 0, "Expected a non-empty tool response");
   console.log(`PASS: unified local MCP discovery (${names.length} tools) and agency_get_team`);
 } catch (error) {
   console.error("FAIL: unified local MCP smoke test:", error instanceof Error ? error.message : error);
