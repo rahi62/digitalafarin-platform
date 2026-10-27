@@ -73,3 +73,22 @@ The MCP entrypoint is `node dist/index.js` and offers `gsc_list_accounts`, `gsc_
 - Expand raw read-only MCP endpoints for URL inspection/sitemaps if required.
 - Confirm no duplicate or leaked credentials when moving from old connectors.
 - Confirm CI check/build/tests before merging. No production deployment or automatic migration has been made.
+
+## Claude Desktop: local MCP registration (after build and OAuth test)
+
+Open the Claude Desktop config file at `%APPDATA%\\Claude\\claude_desktop_config.json` and **merge** this entry into its existing `mcpServers` object; do not overwrite other servers:
+
+```json
+{
+  "mcpServers": {
+    "digitalafarin-gsc": {
+      "command": "node",
+      "args": ["D:\\projects\\next-drf projects\\digitalafarin-platform-clean\\integrations\\gsc\\dist\\index.js"]
+    }
+  }
+}
+```
+
+Update the path for the actual local checkout. Restart Claude Desktop. From its tools, first call `gsc_list_accounts`, choose an account ID, then `gsc_list_properties` and `gsc_search_performance`. Extra read-only tools: `gsc_list_sitemaps` and `gsc_inspect_url`. You do **not** need the WordPress dashboard, PostgreSQL or a remote MCP tunnel.
+
+**Security / compatibility:** OAuth is a prototype until verified against a real desktop OAuth client and the local settings endpoints are security-tested. Keep the connector in development; do not distribute it or link a sensitive production Google account yet.
