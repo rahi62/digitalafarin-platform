@@ -3,12 +3,25 @@ import { dashboardConfig } from "./config";
 
 const globalForDb = globalThis as unknown as { wpAgentPool?: Pool };
 
-export const db = globalForDb.wpAgentPool ?? new Pool({
-  connectionString: dashboardConfig.databaseUrl,
-  max: 10,
-});
+function getPool(): Pool {
+  if (globalForDb.wpAgentPool) return globalForDb.wpAgentPool;
+  const pool = new Pool({
+    connectionString: dashboardConfig.databaseUrl,
+    max: 10,
+  });
+  if (process.env.NODE_ENV !== "production") globalForDb.wpAgentPool = pool;
+  return pool;
+}
 
-if (process.env.NODE_ENV !== "production") globalForDb.wpAgentPool = db;
+// Preserve pg Pool's public API, but only create the connection pool when a
+// request actually uses it. Route discovery during next build needs no DB.
+export const db: Pool = new Proxy({} as Pool, {
+  get(_target, property) {
+    const pool = getPool();
+    const value = Reflect.get(pool, property, pool) as unknown;
+    return typeof value === "function" ? value.bind(pool) : value;
+  },
+});
 
 export async function initializeDatabase() {
   await db.query(`
