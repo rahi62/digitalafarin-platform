@@ -20,7 +20,7 @@ const targets = [
   { id: "wordpress", script: path.join(platformServices, "wordpress/dist/local.js") },
 ];
 
-const upstreams = [];
+const upstreams: Array<{ client: Client }> = [];
 const registry = new Map();
 const server = new Server(
   { name: "DigitalAfarin Local MCP Hub", version: "0.1.0" },
