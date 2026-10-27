@@ -23,7 +23,8 @@
     "acceptance:mcp": "tsx src/acceptance/mcp-smoke.ts",
     "start:local": "node dist/local.js",
     "dev:local": "tsx src/local.ts",
-    "start:unified-local": "node dist/unified-local.js"
+    "start:unified-local": "node dist/unified-local.js",
+    "smoke:unified-local": "node dist/unified-local-smoke.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.0",
