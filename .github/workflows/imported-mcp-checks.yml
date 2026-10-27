@@ -6,6 +6,7 @@ on:
       - 'services/agency/**'
       - 'services/wordpress/**'
       - 'scripts/import-mcp-workspaces.sh'
+      - 'scripts/check-mcp-imports.mjs'
       - '.github/workflows/imported-mcp-checks.yml'
   workflow_dispatch:
 
@@ -42,6 +43,9 @@ jobs:
         run: |
           test -f "services/${{ matrix.workspace }}/package.json"
           test -f "services/${{ matrix.workspace }}/package-lock.json"
+      - name: Check dependency manifest parity
+        run: node scripts/check-mcp-imports.mjs
+        working-directory: .
       - name: npm ci
         working-directory: services/${{ matrix.workspace }}
         run: npm ci
