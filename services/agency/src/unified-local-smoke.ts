@@ -24,7 +24,10 @@ try {
 
   const names = tools.map((tool) => tool.name);
   assert.equal(new Set(names).size, names.length, "Duplicate MCP tool names");
-  for (const required of ["agency_get_team", "wordpress_list_sites", "gsc_list_sites"]) {
+  const requiredTools = process.env.GSC_CLIENT_ID && process.env.GSC_CLIENT_SECRET && process.env.GSC_REFRESH_TOKEN
+    ? ["agency_get_team", "gsc_list_properties", "gsc_read_performance"]
+    : ["agency_get_team", "wordpress_list_sites", "gsc_list_sites"];
+  for (const required of requiredTools) {
     assert.ok(names.includes(required), `Missing tool: ${required}`);
   }
   assert.ok(!names.some((name) => name.startsWith("vps_")), "VPS tools must not be exposed");
