@@ -79,9 +79,18 @@ export async function runSettings() {
         await save(settings);
         return back(res);
       }
+      if (url.pathname === "/properties" && req.method === "GET") {
+        const settings = await load();
+        const account = settings.accounts.find((item) => item.id === url.searchParams.get("id"));
+        if (!account) return respond(res, 404, "Account not found");
+        const token = await googleToken(settings.clientId, await unprotect(account.encryptedRefreshToken));
+        const payload = await googleRead<{ siteEntry?: Array<{ siteUrl: string; permissionLevel: string }> }>(token, "https://www.googleapis.com/webmasters/v3/sites");
+        const items = (payload.siteEntry ?? []).map((entry) => `<div class="item"><div><strong dir="ltr">${escape(entry.siteUrl)}</strong><small> ${escape(entry.permissionLevel)}</small></div></div>`).join("");
+        return respond(res, 200, html(`<div class="card"><h2>Propertyهای ${escape(account.label)}</h2>${items || '<p class="muted">Property در دسترس نیست.</p>'}<a href="/">بازگشت به تنظیمات</a></div>`));
+      }
       if (url.pathname === "/" && req.method === "GET") {
         const settings = await load();
-        const accounts = settings.accounts.map((a) => `<div class="item"><div><strong>${escape(a.label)}</strong><div class="muted">حساب متصل به‌صورت امن روی ویندوز ذخیره شده است</div></div><form method="post" action="/remove"><input type="hidden" name="id" value="${escape(a.id)}"><button class="danger">قطع اتصال</button></form></div>`).join("");
+        const accounts = settings.accounts.map((a) => `<div class="item"><div><strong>${escape(a.label)}</strong><div class="muted">حساب متصل به‌صورت امن روی ویندوز ذخیره شده است</div><a href="/properties?id=${encodeURIComponent(a.id)}">مشاهده Propertyها و تست اتصال</a></div><form method="post" action="/remove"><input type="hidden" name="id" value="${escape(a.id)}"><button class="danger">قطع اتصال</button></form></div>`).join("");
         return respond(res, 200, html(`<div class="card"><h2>تنظیمات Google OAuth</h2><div class="muted">یک OAuth Client از نوع Desktop در Google Cloud بسازید. فقط Client ID لازم است.</div><form method="post" action="/client"><label for="clientId">Client ID</label><input id="clientId" name="clientId" required value="${escape(settings.clientId)}"><button>ذخیره تنظیمات</button></form></div><div class="card"><h2>حساب‌های متصل</h2>${accounts || '<p class="muted">هنوز حسابی متصل نیست.</p>'}<a class="button" href="/oauth/start">+ افزودن حساب Google</a></div><div class="note">دسترسی فقط‌خواندنی است؛ Claude تحلیل‌ها را انجام می‌دهد. این پنل فقط روی همین کامپیوتر باز است.</div>`));
       }
       return respond(res, 404, "Not found");
