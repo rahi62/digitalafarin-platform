@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "description": "DigitalAfarin Agency Core and MCP connector for ChatGPT",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
@@ -18,7 +20,9 @@
     "db:seed": "tsx src/db/seed.ts",
     "store:import": "tsx src/migration/import-json-store.ts",
     "store:verify": "tsx src/migration/verify-json-import.ts",
-    "acceptance:mcp": "tsx src/acceptance/mcp-smoke.ts"
+    "acceptance:mcp": "tsx src/acceptance/mcp-smoke.ts",
+    "start:local": "node dist/local.js",
+    "dev:local": "tsx src/local.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.0",
