@@ -15,9 +15,13 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const platformServices = path.resolve(here, "../..");
+const gscDirect = Boolean(process.env.GSC_CLIENT_ID && process.env.GSC_CLIENT_SECRET && process.env.GSC_REFRESH_TOKEN);
 const targets = [
   { id: "agency", script: path.join(platformServices, "agency/dist/local.js") },
-  { id: "wordpress", script: path.join(platformServices, "wordpress/dist/local.js") },
+  // Direct GSC replaces the old WordPress-broker dependency when configured.
+  gscDirect
+    ? { id: "gsc", script: path.join(platformServices, "wordpress/dist/gsc-readonly-local.js") }
+    : { id: "wordpress", script: path.join(platformServices, "wordpress/dist/local.js") },
 ];
 
 // Opt in explicitly: no Coolify process starts without its configuration.
