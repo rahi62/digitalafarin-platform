@@ -20,6 +20,11 @@ const targets = [
   { id: "wordpress", script: path.join(platformServices, "wordpress/dist/local.js") },
 ];
 
+// Opt in explicitly: no Coolify process starts without its configuration.
+if (process.env.COOLIFY_URL && process.env.COOLIFY_TOKEN) {
+  targets.push({ id: "coolify", script: path.join(platformServices, "agency/dist/coolify-local.js") });
+}
+
 const upstreams: Array<{ client: Client }> = [];
 const registry = new Map();
 const server = new Server(
