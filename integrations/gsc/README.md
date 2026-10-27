@@ -43,3 +43,33 @@ integrations/gsc/
 6. Original platform services remain unchanged; merge to `main` and production require separate approval.
 
 The existing `feat/import-agency-wordpress-workspaces` branch is **not** a prerequisite.
+
+
+## Current implementation (2026-10-27)
+
+The first localhost settings UI and Windows-protected multi-account storage were implemented in this branch. **They have not yet passed a local build or live Google authorization test.**
+
+From the `integrations/gsc` folder on Windows:
+
+```powershell
+npm install
+npm run check
+npm run build
+npm test
+npm run settings
+```
+
+Open **http://127.0.0.1:47861/** in your browser. In Google Cloud Console, enable the Search Console API, create a **Desktop app** OAuth client with the single read-only GSC scope, paste the generated **Client ID** in Settings, then use **Add Google account**.
+
+The UI listens exclusively on IPv4 loopback and applies OAuth `state` and PKCE. Each refresh token is encrypted using Windows DPAPI `CurrentUser` and remains on the local machine. Connected accounts can be removed individually. Click **View properties** to perform a live read-only connectivity check.
+
+The MCP entrypoint is `node dist/index.js` and offers `gsc_list_accounts`, `gsc_list_properties` and `gsc_search_performance`. Claude Desktop setup must be updated explicitly after successful local tests.
+
+### Important outstanding checks before connecting production Google accounts
+
+- Validate Google Desktop OAuth code/token exchange in the user's real Google Cloud configuration; certain desktop OAuth setups may require the generated `client_secret` during token exchange despite Google documents describing it as optional. The initial implementation currently accepts only the Client ID.
+- Confirm the settings UI's origin/host restrictions and account-removal CSRF protections in security review.
+- Verify Windows DPAPI portability, failure handling, and token encryption test coverage.
+- Expand raw read-only MCP endpoints for URL inspection/sitemaps if required.
+- Confirm no duplicate or leaked credentials when moving from old connectors.
+- Confirm CI check/build/tests before merging. No production deployment or automatic migration has been made.
