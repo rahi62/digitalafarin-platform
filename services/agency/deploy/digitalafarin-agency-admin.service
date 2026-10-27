@@ -1,0 +1,23 @@
+[Unit]
+Description=DigitalAfarin Agency Control Center
+After=network-online.target digitalafarin-agency-mcp.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=deploy
+Group=deploy
+WorkingDirectory=/var/www/digitalafarin-agency-mcp/admin
+Environment=NODE_ENV=production
+Environment=NEXT_TELEMETRY_DISABLED=1
+ExecStart=/usr/bin/npm run start
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/www/digitalafarin-agency-mcp/admin/.next/cache
+
+[Install]
+WantedBy=multi-user.target
