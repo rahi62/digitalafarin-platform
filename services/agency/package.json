@@ -22,7 +22,8 @@
     "store:verify": "tsx src/migration/verify-json-import.ts",
     "acceptance:mcp": "tsx src/acceptance/mcp-smoke.ts",
     "start:local": "node dist/local.js",
-    "dev:local": "tsx src/local.ts"
+    "dev:local": "tsx src/local.ts",
+    "start:unified-local": "node dist/unified-local.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.0",
