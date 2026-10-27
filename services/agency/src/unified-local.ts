@@ -14,7 +14,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const platformServices = path.resolve(here, "../../..");
+const platformServices = path.resolve(here, "../..");
 const targets = [
   { id: "agency", script: path.join(platformServices, "agency/dist/local.js") },
   { id: "wordpress", script: path.join(platformServices, "wordpress/dist/local.js") },
