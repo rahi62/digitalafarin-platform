@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { compareGscRows } from "./gsc-comparison.js";
 import { registerAdminTools } from "./admin-tools.js";
 import { registerPageTools } from "./page-tools.js";
 import { registerThemeTemplateTools } from "./theme-template-tools.js";
@@ -86,52 +85,6 @@ export function createMcpServer() {
           responseAggregationType: result.responseAggregationType,
           metadata: result.metadata,
           note: "Search Console API returns top rows and does not guarantee every possible row for large result sets.",
-        });
-      } catch (error) { return failure(error); }
-    },
-  );
-
-  server.registerTool(
-    "gsc_compare_periods",
-    {
-      title: "Compare GSC pages or queries between two periods",
-      description: "Compare Search Console clicks, impressions, CTR and average position for two explicit periods. Positive position delta means ranking worsened. Read-only. Useful for content audits and Money Page monitoring.",
-      inputSchema: {
-        siteId: siteIdSchema,
-        previousStartDate: dateSchema,
-        previousEndDate: dateSchema,
-        currentStartDate: dateSchema,
-        currentEndDate: dateSchema,
-        dimension: z.enum(["page", "query"]).default("page"),
-        filters: z.array(z.object({
-          dimension: filterDimensionSchema,
-          operator: filterOperatorSchema.default("equals"),
-          expression: z.string().min(1).max(4096),
-        })).max(20).optional(),
-        rowLimit: z.number().int().min(1).max(25_000).default(1000),
-      },
-      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
-    },
-    async ({ siteId, previousStartDate, previousEndDate, currentStartDate, currentEndDate, dimension, filters, rowLimit }) => {
-      try {
-        if (previousStartDate > previousEndDate || currentStartDate > currentEndDate) {
-          throw new Error("Each startDate must be before or equal to its endDate");
-        }
-        if (previousEndDate >= currentStartDate) throw new Error("Comparison periods must not overlap or be reversed");
-        const resolved = await resolveGscSite(siteId, "gsc_search_analytics");
-        const shared = { dimensions: [dimension], type: "web" as const, filters, rowLimit, dataState: "final" as const };
-        const [previous, current] = await Promise.all([
-          querySearchAnalytics(resolved.accessToken, resolved.site.propertyUrl, { ...shared, startDate: previousStartDate, endDate: previousEndDate }),
-          querySearchAnalytics(resolved.accessToken, resolved.site.propertyUrl, { ...shared, startDate: currentStartDate, endDate: currentEndDate }),
-        ]);
-        const rows = compareGscRows(previous, current).sort((a, b) => a.delta.clicks - b.delta.clicks);
-        return text({
-          site: resolved.site,
-          previousPeriod: { startDate: previousStartDate, endDate: previousEndDate },
-          currentPeriod: { startDate: currentStartDate, endDate: currentEndDate },
-          dimension,
-          rows,
-          note: "Rows are paired by page/query key and ordered by click loss. Missing rows are not necessarily zero traffic because Search Console may truncate or anonymize data. CTR delta is percentage points; positive position delta indicates worse ranking. Use comparable length periods and finalized data. Results are not full-site totals.",
         });
       } catch (error) { return failure(error); }
     },
