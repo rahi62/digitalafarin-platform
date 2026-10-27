@@ -1,0 +1,40 @@
+{
+  "name": "@digitalafarin/agency-mcp",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "DigitalAfarin Agency Core and MCP connector for ChatGPT",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:push": "drizzle-kit push",
+    "db:check": "drizzle-kit check",
+    "db:seed": "tsx src/db/seed.ts",
+    "store:import": "tsx src/migration/import-json-store.ts",
+    "store:verify": "tsx src/migration/verify-json-import.ts",
+    "acceptance:mcp": "tsx src/acceptance/mcp-smoke.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.0",
+    "argon2": "^0.44.0",
+    "dotenv": "^17.2.1",
+    "drizzle-orm": "^0.44.5",
+    "express": "^5.1.0",
+    "postgres": "^3.4.7",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/node": "^22.17.0",
+    "drizzle-kit": "^0.31.4",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

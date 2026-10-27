@@ -1,0 +1,119 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f5f7fb;
+  --surface: #ffffff;
+  --surface-soft: #f8fafc;
+  --foreground: #111827;
+  --muted: #667085;
+  --border: #e4e7ec;
+  --primary: #151a2d;
+  --primary-soft: #eef1ff;
+  --danger: #b42318;
+  --warning: #b54708;
+  --success: #027a48;
+  --sidebar-width: 17.5rem;
+  --radius: 1rem;
+  --shadow: 0 10px 30px rgb(15 23 42 / 0.06);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Tahoma, "Segoe UI", Arial, sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.app-shell {
+  min-height: 100vh;
+}
+
+.app-sidebar {
+  position: fixed;
+  inset-block: 0;
+  inset-inline-end: 0;
+  z-index: 50;
+  width: var(--sidebar-width);
+  padding-inline: 1rem;
+  padding-block: 1rem;
+  border-inline-start: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  backdrop-filter: blur(16px);
+  transition: translate 180ms ease;
+}
+
+.app-main {
+  min-height: 100vh;
+  padding-inline-end: var(--sidebar-width);
+}
+
+.page-container {
+  width: min(100%, 96rem);
+  margin-inline: auto;
+  padding-inline: clamp(1rem, 2.2vw, 2rem);
+  padding-block: 1.5rem 3rem;
+}
+
+.surface-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.ltr-island {
+  direction: ltr;
+  unicode-bidi: isolate;
+  text-align: start;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.status-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+@media (max-width: 900px) {
+  .app-sidebar {
+    width: min(20rem, 86vw);
+    translate: 110% 0;
+  }
+
+  .app-sidebar[data-open="true"] {
+    translate: 0 0;
+  }
+
+  .app-main {
+    padding-inline-end: 0;
+  }
+
+  .page-container {
+    padding-inline: 1rem;
+  }
+}

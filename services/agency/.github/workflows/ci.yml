@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  typecheck-test-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm run check
+      - run: npm test
+      - run: node --test admin/tests/rtl-shell.test.mjs
+      - run: npm run build
+
+  admin-check-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm run check
+      - run: npm run check:rtl
+      - run: npm run test:rtl
+      - run: npm run build
+
+  postgres-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: agency_ci
+          POSTGRES_PASSWORD: agency_ci
+          POSTGRES_DB: agency_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agency_ci -d agency_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://agency_ci:agency_ci@127.0.0.1:5432/agency_ci
+      STORE_DRIVER: postgres
+      ADMIN_ORIGIN: https://agency.digitalafarin.ir
+      CSRF_SECRET: ci-only-csrf-secret-with-more-than-32-characters
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - name: Apply committed migrations
+        run: npm run db:migrate
+      - name: Seed reference data twice to prove idempotency
+        run: |
+          npm run db:seed
+          npm run db:seed
+      - name: Import and verify legacy JSON on real PostgreSQL
+        run: |
+          npm run store:import -- src/migration/fixtures/ci-legacy-store.json
+          npm run store:verify -- src/migration/fixtures/ci-legacy-store.json
+      - name: Verify seeded and imported records
+        run: |
+          node --input-type=module <<'NODE'
+          import postgres from "postgres";
+          const sql = postgres(process.env.DATABASE_URL);
+          try {
+            const [departments] = await sql`select count(*)::int as count from departments`;
+            const [projects] = await sql`select count(*)::int as count from projects where id = '11111111-1111-4111-8111-111111111111'`;
+            const [tasks] = await sql`select count(*)::int as count from tasks where id = '44444444-4444-4444-8444-444444444444'`;
+            if (departments.count !== 5) throw new Error(`Expected 5 departments, got ${departments.count}`);
+            if (projects.count !== 1) throw new Error("CI legacy project was not imported");
+            if (tasks.count !== 1) throw new Error("CI legacy task was not imported");
+          } finally {
+            await sql.end();
+          }
+          NODE
