@@ -7,6 +7,8 @@ const host = "127.0.0.1";
 const port = 47861;
 const redirectUri = `http://${host}:${port}/oauth/callback`;
 let pending: { state: string; verifier: string; expiresAt: number } | undefined;
+const formNonce = randomBytes(32).toString("hex");
+function csrfField() { return `<input type="hidden" name="csrf" value="${formNonce}">`; }
 function html(body: string) {
   return `<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DigitalAfarin GSC</title><style>
   *{box-sizing:border-box}body{margin:0;background:#f5f7fb;color:#14243c;font:15px Tahoma,"Segoe UI",sans-serif;line-height:1.9}.wrap{max-width:780px;margin:7vh auto;padding:0 18px}.head{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}h1{font-size:24px;margin:0}small,.muted{color:#61738a}.card{background:white;border:1px solid #e1e8f2;border-radius:20px;padding:24px;margin:16px 0;box-shadow:0 5px 28px #1f36510a}h2{font-size:17px;margin:0 0 14px}input{padding:12px;width:100%;border:1px solid #cbd7e6;border-radius:11px;margin:9px 0 16px;direction:ltr;text-align:left;background:white;color:#14243c}button,.button{display:inline-block;border:0;background:#245fdf;color:white;padding:11px 20px;border-radius:11px;font:inherit;cursor:pointer;text-decoration:none}.danger{background:#fff2f3;color:#ad2638}.item{display:flex;gap:14px;align-items:center;justify-content:space-between;border-top:1px solid #e9eef5;padding:14px 0}.note{background:#eff5ff;padding:12px;border-radius:12px;color:#315487}</style><div class="wrap"><div class="head"><h1>DigitalAfarin GSC Connector</h1><small>اتصال فقط‌خواندنی</small></div>${body}</div></html>`;
@@ -31,8 +33,9 @@ export async function runSettings() {
       if (req.method === "POST") {
         const origin = req.headers.origin;
         if (origin !== `http://${host}:${port}`) return respond(res, 403, "Forbidden");
+        const body = await formBody(req);
+        if (body.get("csrf") !== formNonce) return respond(res, 403, "Forbidden");
         if (url.pathname === "/client") {
-          const body = await formBody(req);
           const clientId = (body.get("clientId") ?? "").trim();
           const clientSecret = (body.get("clientSecret") ?? "").trim();
           if (!/^\d+-[a-z0-9_-]+\.apps\.googleusercontent\.com$/.test(clientId)) throw new Error("Google OAuth Client ID is invalid");
@@ -44,13 +47,12 @@ export async function runSettings() {
           await save(settings); return back(res);
         }
         if (url.pathname === "/remove") {
-          const body = await formBody(req);
           const settings = await load();
           settings.accounts = settings.accounts.filter((a) => a.id !== body.get("id"));
           await save(settings); return back(res);
         }
       }
-      if (url.pathname === "/oauth/start" && req.method === "GET") {
+      if (url.pathname === "/oauth/start" && req.method === "POST") {
         const settings = await load();
         if (!settings.clientId) throw new Error("Configure Google OAuth Client ID first");
         const state = randomBytes(32).toString("base64url");
@@ -94,8 +96,8 @@ export async function runSettings() {
       }
       if (url.pathname === "/" && req.method === "GET") {
         const settings = await load();
-        const accounts = settings.accounts.map((a) => `<div class="item"><div><strong>${escape(a.label)}</strong><div class="muted">حساب متصل به‌صورت امن روی ویندوز ذخیره شده است</div><a href="/properties?id=${encodeURIComponent(a.id)}">مشاهده Propertyها و تست اتصال</a></div><form method="post" action="/remove"><input type="hidden" name="id" value="${escape(a.id)}"><button class="danger">قطع اتصال</button></form></div>`).join("");
-        return respond(res, 200, html(`<div class="card"><h2>تنظیمات Google OAuth</h2><div class="muted">یک OAuth Client از نوع Desktop در Google Cloud بسازید. Client ID لازم است؛ اگر Google برای OAuth Client شما Client Secret ارائه کرده، آن را هم وارد کنید.</div><form method="post" action="/client"><label for="clientId">Client ID</label><input id="clientId" name="clientId" required value="${escape(settings.clientId)}"><label for="clientSecret">Client Secret (اختیاری؛ مقدار ذخیره‌شده نمایش داده نمی‌شود)</label><input id="clientSecret" type="password" name="clientSecret" autocomplete="off" placeholder="${settings.encryptedClientSecret ? "قبلاً ثبت شده" : "در صورت ارائه توسط Google"}"><button>ذخیره تنظیمات</button></form></div><div class="card"><h2>حساب‌های متصل</h2>${accounts || '<p class="muted">هنوز حسابی متصل نیست.</p>'}<a class="button" href="/oauth/start">+ افزودن حساب Google</a></div><div class="note">دسترسی فقط‌خواندنی است؛ Claude تحلیل‌ها را انجام می‌دهد. این پنل فقط روی همین کامپیوتر باز است.</div>`));
+        const accounts = settings.accounts.map((a) => `<div class="item"><div><strong>${escape(a.label)}</strong><div class="muted">حساب متصل به‌صورت امن روی ویندوز ذخیره شده است</div><a href="/properties?id=${encodeURIComponent(a.id)}">مشاهده Propertyها و تست اتصال</a></div><form method="post" action="/remove">${csrfField()}<input type="hidden" name="id" value="${escape(a.id)}"><button class="danger">قطع اتصال</button></form></div>`).join("");
+        return respond(res, 200, html(`<div class="card"><h2>تنظیمات Google OAuth</h2><div class="muted">یک OAuth Client از نوع Desktop در Google Cloud بسازید. Client ID لازم است؛ اگر Google برای OAuth Client شما Client Secret ارائه کرده، آن را هم وارد کنید.</div><form method="post" action="/client">${csrfField()}<label for="clientId">Client ID</label><input id="clientId" name="clientId" required value="${escape(settings.clientId)}"><label for="clientSecret">Client Secret (اختیاری؛ مقدار ذخیره‌شده نمایش داده نمی‌شود)</label><input id="clientSecret" type="password" name="clientSecret" autocomplete="off" placeholder="${settings.encryptedClientSecret ? "قبلاً ثبت شده" : "در صورت ارائه توسط Google"}"><button>ذخیره تنظیمات</button></form></div><div class="card"><h2>حساب‌های متصل</h2>${accounts || '<p class="muted">هنوز حسابی متصل نیست.</p>'}<form method="post" action="/oauth/start">${csrfField()}<button type="submit">+ افزودن حساب Google</button></form></div><div class="note">دسترسی فقط‌خواندنی است؛ Claude تحلیل‌ها را انجام می‌دهد. این پنل فقط روی همین کامپیوتر باز است.</div>`));
       }
       return respond(res, 404, "Not found");
     } catch (error) {
