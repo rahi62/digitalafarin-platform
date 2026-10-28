@@ -35,13 +35,18 @@ export async function runSettings() {
       const url = new URL(req.url ?? "/", `http://${authority}/`);
       if (req.method === "POST") {
         const origin = req.headers.origin;
-        const expectedOrigin = `http://${authority}`;
         // Origin is optional for browser form posts. When supplied it must match
         // the exact loopback authority; reject explicit cross-site Fetch Metadata.
         // The separate per-process CSRF form token is mandatory below.
-        if ((origin && origin !== expectedOrigin) ||
-            (req.headers["sec-fetch-site"] && req.headers["sec-fetch-site"] !== "same-origin" && req.headers["sec-fetch-site"] !== "none"))
+        // The settings UI is bound to IPv4 loopback and every form carries a
+        // random per-process CSRF token. Browsers may report localhost and
+        // 127.0.0.1 as different origins; do not trust either header alone.
+        const localOrigins = new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`]);
+        if (origin && !localOrigins.has(origin))
           return respond(res, 403, "Forbidden: invalid request origin");
+        // The mandatory unguessable form token below authenticates POSTs.
+        // Fetch Metadata may classify mixed loopback aliases as cross-site.
+
         const body = await formBody(req);
         if (body.get("csrf") !== formNonce) return respond(res, 403, "Forbidden");
         if (url.pathname === "/client") {
