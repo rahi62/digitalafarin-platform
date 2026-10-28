@@ -1,3 +1,4 @@
+import type { SshTunnelConfig } from "./ssh-tunnel.js";
 import { googleFetch } from "./proxy.js";
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -9,11 +10,11 @@ const directory = path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 
 const filename = path.join(directory, "accounts.json");
 
 export type Account = { id: string; label: string; encryptedRefreshToken: string };
-export type Settings = { clientId: string; encryptedClientSecret?: string; proxyPort?: number; accounts: Account[] };
+export type Settings = { clientId: string; encryptedClientSecret?: string; proxyPort?: number; sshTunnel?: SshTunnelConfig; accounts: Account[] };
 export async function load(): Promise<Settings> {
   try {
     const data = JSON.parse(await readFile(filename, "utf8")) as Settings;
-    return { clientId: data.clientId || "", encryptedClientSecret: data.encryptedClientSecret, proxyPort: data.proxyPort, accounts: Array.isArray(data.accounts) ? data.accounts : [] };
+    return { clientId: data.clientId || "", encryptedClientSecret: data.encryptedClientSecret, proxyPort: data.proxyPort, sshTunnel: data.sshTunnel, accounts: Array.isArray(data.accounts) ? data.accounts : [] };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return { clientId: "", accounts: [] };
     throw error;
