@@ -21,6 +21,7 @@ try {
   Copy-Item (Join-Path $root 'dist/*') (Join-Path $stage 'dist') -Recurse
   Copy-Item (Join-Path $root 'scripts/register-claude.mjs') (Join-Path $stage 'scripts')
   Copy-Item (Join-Path $root 'package.json') $stage
+  Copy-Item (Join-Path $root 'package-lock.json') $stage
   & npm.cmd ci --omit=dev --ignore-scripts --prefix $stage
   if ($LASTEXITCODE -ne 0) { throw 'Production dependencies install failed' }
   $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
