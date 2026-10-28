@@ -42,8 +42,20 @@ export async function runSettings() {
         // random per-process CSRF token. Browsers may report localhost and
         // 127.0.0.1 as different origins; do not trust either header alone.
         const localOrigins = new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`]);
-        if (origin && !localOrigins.has(origin))
-          return respond(res, 403, "Forbidden: invalid request origin");
+        if (origin && !localOrigins.has(origin)) {
+          // Report only the origin's classification; never expose credentials,
+          // cookies, OAuth codes, or the submitted request body.
+          let reason = "unrecognized";
+          try {
+            const parsed = new URL(origin);
+            reason = parsed.protocol === "null:" ? "opaque-origin"
+              : parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost"
+                ? (parsed.port === String(port) ? "loopback-scheme-mismatch" : "loopback-port-mismatch")
+                : "non-loopback-origin";
+          } catch { reason = origin === "null" ? "opaque-origin" : "malformed-origin"; }
+          console.error(`GSC settings: rejected form origin category=${reason}; path=${url.pathname}`);
+          return respond(res, 403, `Forbidden: invalid request origin (${reason})`, "text/plain; charset=utf-8");
+        }
         // The mandatory unguessable form token below authenticates POSTs.
         // Fetch Metadata may classify mixed loopback aliases as cross-site.
 
