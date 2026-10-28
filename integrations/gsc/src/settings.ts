@@ -38,6 +38,7 @@ export async function runSettings() {
           if (!/^\d+-[a-z0-9_-]+\.apps\.googleusercontent\.com$/.test(clientId)) throw new Error("Google OAuth Client ID is invalid");
           const settings = await load();
           if (settings.accounts.length && settings.clientId !== clientId) throw new Error("Disconnect accounts before changing OAuth client");
+          if (settings.clientId !== clientId) settings.encryptedClientSecret = undefined;
           settings.clientId = clientId;
           if (clientSecret) settings.encryptedClientSecret = await protect(clientSecret);
           await save(settings); return back(res);
