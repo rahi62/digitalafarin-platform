@@ -93,11 +93,18 @@ export async function runSettings() {
         if (!response.ok) throw new Error(`Google token exchange failed: HTTP ${response.status}`);
         const token = await response.json() as { access_token?: string; refresh_token?: string };
         if (!token.access_token || !token.refresh_token) throw new Error("Google did not provide offline access; retry connection");
-        const properties = await googleRead<{siteEntry?: unknown[]}>(token.access_token, "https://www.googleapis.com/webmasters/v3/sites");
+        // Persist the successfully authorized account before checking the API:
+        // a Search Console 403 must not discard a valid OAuth refresh token.
         const id = randomBytes(12).toString("hex");
-        settings.accounts.push({ id, label: `Google account ${settings.accounts.length + 1} (${properties.siteEntry?.length ?? 0} properties)`, encryptedRefreshToken: await protect(token.refresh_token) });
+        settings.accounts.push({ id, label: `Google account ${settings.accounts.length + 1}`, encryptedRefreshToken: await protect(token.refresh_token) });
         await save(settings);
-        return back(res, "connected");
+        try {
+          await googleRead<{siteEntry?: unknown[]}>(token.access_token, "https://www.googleapis.com/webmasters/v3/sites");
+          return back(res, "connected");
+        } catch (error) {
+          console.error("GSC property discovery failed:", error instanceof Error ? error.message : "unknown");
+          return back(res, "api-error");
+        }
       }
       if (url.pathname === "/properties" && req.method === "GET") {
         const settings = await load();
@@ -110,7 +117,7 @@ export async function runSettings() {
       }
       if (url.pathname === "/" && req.method === "GET") {
         const settings = await load();
-        const notice = url.searchParams.get("status") === "saved" ? '<div class="note" role="status">تنظیمات با موفقیت ذخیره شد.</div>' : url.searchParams.get("status") === "connected" ? '<div class="note" role="status">حساب Google با موفقیت متصل شد.</div>' : "";
+        const notice = url.searchParams.get("status") === "saved" ? '<div class="note" role="status">تنظیمات با موفقیت ذخیره شد.</div>' : url.searchParams.get("status") === "connected" ? '<div class="note" role="status">حساب Google با موفقیت متصل شد.</div>' : url.searchParams.get("status") === "api-error" ? '<div class="note" role="alert">مجوز Google دریافت و رمزنگاری شد، اما API سرچ کنسول خطا داد. وضعیت فعال‌سازی API و دسترسی حساب را بررسی کنید؛ نیازی به اتصال مجدد نیست.</div>' : "";
         const accounts = settings.accounts.map((a) => `<div class="item"><div><strong>${escape(a.label)}</strong><div class="muted">حساب متصل به‌صورت امن روی ویندوز ذخیره شده است</div><a href="/properties?id=${encodeURIComponent(a.id)}">مشاهده Propertyها و تست اتصال</a></div><form method="post" action="/remove">${csrfField()}<input type="hidden" name="id" value="${escape(a.id)}"><button class="danger">قطع اتصال</button></form></div>`).join("");
         return respond(res, 200, html(`${notice}<div class="card"><h2>تنظیمات Google OAuth</h2><div class="muted">یک OAuth Client از نوع Desktop در Google Cloud بسازید. Client ID لازم است؛ اگر Google برای OAuth Client شما Client Secret ارائه کرده، آن را هم وارد کنید.</div><form method="post" action="/client">${csrfField()}<label for="clientId">Client ID</label><input id="clientId" name="clientId" required value="${escape(settings.clientId)}"><label for="clientSecret">Client Secret (اختیاری؛ مقدار ذخیره‌شده نمایش داده نمی‌شود)</label><input id="clientSecret" type="password" name="clientSecret" autocomplete="off" placeholder="${settings.encryptedClientSecret ? "قبلاً ثبت شده" : "در صورت ارائه توسط Google"}"><button>ذخیره تنظیمات</button></form></div><div class="card"><h2>حساب‌های متصل</h2>${accounts || '<p class="muted">هنوز حسابی متصل نیست.</p>'}<form method="post" action="/oauth/start">${csrfField()}<button type="submit">+ افزودن حساب Google</button></form></div><div class="note">دسترسی فقط‌خواندنی است؛ Claude تحلیل‌ها را انجام می‌دهد. این پنل فقط روی همین کامپیوتر باز است.</div>`));
       }
