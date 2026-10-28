@@ -36,9 +36,11 @@ export async function runSettings() {
       if (req.method === "POST") {
         const origin = req.headers.origin;
         const expectedOrigin = `http://${authority}`;
-        // Browsers may omit Origin on some same-origin form submissions.
-        // Require an exact Origin when present; otherwise require same-origin Fetch Metadata.
-        if (origin ? origin !== expectedOrigin : req.headers["sec-fetch-site"] !== "same-origin")
+        // Origin is optional for browser form posts. When supplied it must match
+        // the exact loopback authority; reject explicit cross-site Fetch Metadata.
+        // The separate per-process CSRF form token is mandatory below.
+        if ((origin && origin !== expectedOrigin) ||
+            (req.headers["sec-fetch-site"] && req.headers["sec-fetch-site"] !== "same-origin" && req.headers["sec-fetch-site"] !== "none"))
           return respond(res, 403, "Forbidden: invalid request origin");
         const body = await formBody(req);
         if (body.get("csrf") !== formNonce) return respond(res, 403, "Forbidden");
