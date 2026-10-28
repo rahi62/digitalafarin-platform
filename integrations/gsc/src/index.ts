@@ -1,3 +1,4 @@
+import { ensureSshTunnel, stopOwnedSshTunnel } from "./ssh-tunnel.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -20,6 +21,7 @@ async function access(accountId: string): Promise<string> {
   const settings = await load();
   const account = settings.accounts.find((value) => value.id === accountId);
   if (!account) throw new Error("Account not found. Check gsc_list_accounts.");
+  if (settings.sshTunnel) await ensureSshTunnel(settings.sshTunnel);
   return googleToken(settings.clientId, await unprotect(account.encryptedRefreshToken), settings.encryptedClientSecret, settings.proxyPort);
 }
 const mcp = new McpServer({ name:"DigitalAfarin GSC", version:"0.1.0" });
@@ -59,5 +61,8 @@ mcp.registerTool("gsc_inspect_url", {
  try{return result(await googleRead(await access(accountId),"https://searchconsole.googleapis.com/v1/urlInspection/index:inspect",{inspectionUrl,siteUrl:property},(await load()).proxyPort));}
  catch(e){return failure(e);}
 });
+process.once("SIGINT", () => { stopOwnedSshTunnel(); process.exit(0); });
+process.once("SIGTERM", () => { stopOwnedSshTunnel(); process.exit(0); });
+process.once("exit", stopOwnedSshTunnel);
 await mcp.connect(new StdioServerTransport());
 }
