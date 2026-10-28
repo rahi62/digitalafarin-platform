@@ -20,7 +20,7 @@ async function access(accountId: string): Promise<string> {
   const settings = await load();
   const account = settings.accounts.find((value) => value.id === accountId);
   if (!account) throw new Error("Account not found. Check gsc_list_accounts.");
-  return googleToken(settings.clientId, await unprotect(account.encryptedRefreshToken));
+  return googleToken(settings.clientId, await unprotect(account.encryptedRefreshToken), settings.encryptedClientSecret);
 }
 const mcp = new McpServer({ name:"DigitalAfarin GSC", version:"0.1.0" });
 const readOnly = { readOnlyHint:true, destructiveHint:false, openWorldHint:true };
