@@ -18,7 +18,7 @@ function respond(res: http.ServerResponse, status: number, content: string, type
   res.writeHead(status, { "Content-Type": type, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'", "Referrer-Policy": "no-referrer" });
   res.end(content);
 }
-function back(res: http.ServerResponse) { res.writeHead(303, { Location: "/" }); res.end(); }
+function back(res: http.ServerResponse, status = "saved") { res.writeHead(303, { Location: `/?status=${encodeURIComponent(status)}`, "Cache-Control": "no-store" }); res.end(); }
 async function formBody(req: http.IncomingMessage) {
   let body = "";
   for await (const chunk of req) { body += String(chunk); if (body.length > 8192) throw new Error("Request too large"); }
@@ -58,7 +58,7 @@ export async function runSettings() {
           if (settings.clientId !== clientId) settings.encryptedClientSecret = undefined;
           settings.clientId = clientId;
           if (clientSecret) settings.encryptedClientSecret = await protect(clientSecret);
-          await save(settings); return back(res);
+          await save(settings); return back(res, "saved");
         }
         if (url.pathname === "/remove") {
           const settings = await load();
@@ -97,7 +97,7 @@ export async function runSettings() {
         const id = randomBytes(12).toString("hex");
         settings.accounts.push({ id, label: `Google account ${settings.accounts.length + 1} (${properties.siteEntry?.length ?? 0} properties)`, encryptedRefreshToken: await protect(token.refresh_token) });
         await save(settings);
-        return back(res);
+        return back(res, "connected");
       }
       if (url.pathname === "/properties" && req.method === "GET") {
         const settings = await load();
@@ -110,8 +110,9 @@ export async function runSettings() {
       }
       if (url.pathname === "/" && req.method === "GET") {
         const settings = await load();
+        const notice = url.searchParams.get("status") === "saved" ? '<div class="note" role="status">تنظیمات با موفقیت ذخیره شد.</div>' : url.searchParams.get("status") === "connected" ? '<div class="note" role="status">حساب Google با موفقیت متصل شد.</div>' : "";
         const accounts = settings.accounts.map((a) => `<div class="item"><div><strong>${escape(a.label)}</strong><div class="muted">حساب متصل به‌صورت امن روی ویندوز ذخیره شده است</div><a href="/properties?id=${encodeURIComponent(a.id)}">مشاهده Propertyها و تست اتصال</a></div><form method="post" action="/remove">${csrfField()}<input type="hidden" name="id" value="${escape(a.id)}"><button class="danger">قطع اتصال</button></form></div>`).join("");
-        return respond(res, 200, html(`<div class="card"><h2>تنظیمات Google OAuth</h2><div class="muted">یک OAuth Client از نوع Desktop در Google Cloud بسازید. Client ID لازم است؛ اگر Google برای OAuth Client شما Client Secret ارائه کرده، آن را هم وارد کنید.</div><form method="post" action="/client">${csrfField()}<label for="clientId">Client ID</label><input id="clientId" name="clientId" required value="${escape(settings.clientId)}"><label for="clientSecret">Client Secret (اختیاری؛ مقدار ذخیره‌شده نمایش داده نمی‌شود)</label><input id="clientSecret" type="password" name="clientSecret" autocomplete="off" placeholder="${settings.encryptedClientSecret ? "قبلاً ثبت شده" : "در صورت ارائه توسط Google"}"><button>ذخیره تنظیمات</button></form></div><div class="card"><h2>حساب‌های متصل</h2>${accounts || '<p class="muted">هنوز حسابی متصل نیست.</p>'}<form method="post" action="/oauth/start">${csrfField()}<button type="submit">+ افزودن حساب Google</button></form></div><div class="note">دسترسی فقط‌خواندنی است؛ Claude تحلیل‌ها را انجام می‌دهد. این پنل فقط روی همین کامپیوتر باز است.</div>`));
+        return respond(res, 200, html(`${notice}<div class="card"><h2>تنظیمات Google OAuth</h2><div class="muted">یک OAuth Client از نوع Desktop در Google Cloud بسازید. Client ID لازم است؛ اگر Google برای OAuth Client شما Client Secret ارائه کرده، آن را هم وارد کنید.</div><form method="post" action="/client">${csrfField()}<label for="clientId">Client ID</label><input id="clientId" name="clientId" required value="${escape(settings.clientId)}"><label for="clientSecret">Client Secret (اختیاری؛ مقدار ذخیره‌شده نمایش داده نمی‌شود)</label><input id="clientSecret" type="password" name="clientSecret" autocomplete="off" placeholder="${settings.encryptedClientSecret ? "قبلاً ثبت شده" : "در صورت ارائه توسط Google"}"><button>ذخیره تنظیمات</button></form></div><div class="card"><h2>حساب‌های متصل</h2>${accounts || '<p class="muted">هنوز حسابی متصل نیست.</p>'}<form method="post" action="/oauth/start">${csrfField()}<button type="submit">+ افزودن حساب Google</button></form></div><div class="note">دسترسی فقط‌خواندنی است؛ Claude تحلیل‌ها را انجام می‌دهد. این پنل فقط روی همین کامپیوتر باز است.</div>`));
       }
       return respond(res, 404, "Not found");
     } catch (error) {
