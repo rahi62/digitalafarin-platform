@@ -1,3 +1,4 @@
+import { googleFetch, validProxyPort } from "./proxy.js";
 import http from "node:http";
 import { randomBytes, createHash } from "node:crypto";
 import { load, save, protect, unprotect, googleToken } from "./accounts.js";
@@ -52,11 +53,13 @@ export async function runSettings() {
         if (url.pathname === "/client") {
           const clientId = (body.get("clientId") ?? "").trim();
           const clientSecret = (body.get("clientSecret") ?? "").trim();
+          const proxyPort = validProxyPort(body.get("proxyPort")) ;
           if (!/^\d+-[a-z0-9_-]+\.apps\.googleusercontent\.com$/.test(clientId)) throw new Error("Google OAuth Client ID is invalid");
           const settings = await load();
           if (settings.accounts.length && settings.clientId !== clientId) throw new Error("Disconnect accounts before changing OAuth client");
           if (settings.clientId !== clientId) settings.encryptedClientSecret = undefined;
           settings.clientId = clientId;
+          settings.proxyPort = proxyPort;
           if (clientSecret) settings.encryptedClientSecret = await protect(clientSecret);
           await save(settings); return back(res, "saved");
         }
@@ -85,11 +88,11 @@ export async function runSettings() {
         const code = url.searchParams.get("code");
         if (!code || url.searchParams.has("error")) throw new Error("Google authorization was cancelled or failed");
         const settings = await load();
-        const response = await fetch("https://oauth2.googleapis.com/token", {
+        const response = await googleFetch("https://oauth2.googleapis.com/token", {
           method: "POST", redirect: "error", signal: AbortSignal.timeout(15000),
           headers: { "content-type": "application/x-www-form-urlencoded" },
           body: new URLSearchParams({ client_id: settings.clientId, ...(settings.encryptedClientSecret ? { client_secret: await unprotect(settings.encryptedClientSecret) } : {}), code, code_verifier: current.verifier, redirect_uri: redirectUri, grant_type: "authorization_code" }),
-        });
+        }, settings.proxyPort);
         if (!response.ok) throw new Error(`Google token exchange failed: HTTP ${response.status}`);
         const token = await response.json() as { access_token?: string; refresh_token?: string };
         if (!token.access_token || !token.refresh_token) throw new Error("Google did not provide offline access; retry connection");
@@ -99,7 +102,7 @@ export async function runSettings() {
         settings.accounts.push({ id, label: `Google account ${settings.accounts.length + 1}`, encryptedRefreshToken: await protect(token.refresh_token) });
         await save(settings);
         try {
-          await googleRead<{siteEntry?: unknown[]}>(token.access_token, "https://www.googleapis.com/webmasters/v3/sites");
+          await googleRead<{siteEntry?: unknown[]}>(token.access_token, "https://www.googleapis.com/webmasters/v3/sites", undefined, settings.proxyPort);
           return back(res, "connected");
         } catch (error) {
           console.error("GSC property discovery failed:", error instanceof Error ? error.message : "unknown");
@@ -110,8 +113,8 @@ export async function runSettings() {
         const settings = await load();
         const account = settings.accounts.find((item) => item.id === url.searchParams.get("id"));
         if (!account) return respond(res, 404, "Account not found");
-        const token = await googleToken(settings.clientId, await unprotect(account.encryptedRefreshToken), settings.encryptedClientSecret);
-        const payload = await googleRead<{ siteEntry?: Array<{ siteUrl: string; permissionLevel: string }> }>(token, "https://www.googleapis.com/webmasters/v3/sites");
+        const token = await googleToken(settings.clientId, await unprotect(account.encryptedRefreshToken), settings.encryptedClientSecret, settings.proxyPort);
+        const payload = await googleRead<{ siteEntry?: Array<{ siteUrl: string; permissionLevel: string }> }>(token, "https://www.googleapis.com/webmasters/v3/sites", undefined, settings.proxyPort);
         const items = (payload.siteEntry ?? []).map((entry) => `<div class="item"><div><strong dir="ltr">${escape(entry.siteUrl)}</strong><small> ${escape(entry.permissionLevel)}</small></div></div>`).join("");
         return respond(res, 200, html(`<div class="card"><h2>Propertyهای ${escape(account.label)}</h2>${items || '<p class="muted">Property در دسترس نیست.</p>'}<a href="/">بازگشت به تنظیمات</a></div>`));
       }
@@ -119,7 +122,7 @@ export async function runSettings() {
         const settings = await load();
         const notice = url.searchParams.get("status") === "saved" ? '<div class="note" role="status">تنظیمات با موفقیت ذخیره شد.</div>' : url.searchParams.get("status") === "connected" ? '<div class="note" role="status">حساب Google با موفقیت متصل شد.</div>' : url.searchParams.get("status") === "api-error" ? '<div class="note" role="alert">مجوز Google دریافت و رمزنگاری شد، اما API سرچ کنسول خطا داد. وضعیت فعال‌سازی API و دسترسی حساب را بررسی کنید؛ نیازی به اتصال مجدد نیست.</div>' : "";
         const accounts = settings.accounts.map((a) => `<div class="item"><div><strong>${escape(a.label)}</strong><div class="muted">حساب متصل به‌صورت امن روی ویندوز ذخیره شده است</div><a href="/properties?id=${encodeURIComponent(a.id)}">مشاهده Propertyها و تست اتصال</a></div><form method="post" action="/remove">${csrfField()}<input type="hidden" name="id" value="${escape(a.id)}"><button class="danger">قطع اتصال</button></form></div>`).join("");
-        return respond(res, 200, html(`${notice}<div class="card"><h2>تنظیمات Google OAuth</h2><div class="muted">یک OAuth Client از نوع Desktop در Google Cloud بسازید. Client ID لازم است؛ اگر Google برای OAuth Client شما Client Secret ارائه کرده، آن را هم وارد کنید.</div><form method="post" action="/client">${csrfField()}<label for="clientId">Client ID</label><input id="clientId" name="clientId" required value="${escape(settings.clientId)}"><label for="clientSecret">Client Secret (اختیاری؛ مقدار ذخیره‌شده نمایش داده نمی‌شود)</label><input id="clientSecret" type="password" name="clientSecret" autocomplete="off" placeholder="${settings.encryptedClientSecret ? "قبلاً ثبت شده" : "در صورت ارائه توسط Google"}"><button>ذخیره تنظیمات</button></form></div><div class="card"><h2>حساب‌های متصل</h2>${accounts || '<p class="muted">هنوز حسابی متصل نیست.</p>'}<form method="post" action="/oauth/start">${csrfField()}<button type="submit">+ افزودن حساب Google</button></form></div><div class="note">دسترسی فقط‌خواندنی است؛ Claude تحلیل‌ها را انجام می‌دهد. این پنل فقط روی همین کامپیوتر باز است.</div>`));
+        return respond(res, 200, html(`${notice}<div class="card"><h2>تنظیمات Google OAuth</h2><div class="muted">یک OAuth Client از نوع Desktop در Google Cloud بسازید. Client ID لازم است؛ اگر Google برای OAuth Client شما Client Secret ارائه کرده، آن را هم وارد کنید.</div><form method="post" action="/client">${csrfField()}<label for="clientId">Client ID</label><input id="clientId" name="clientId" required value="${escape(settings.clientId)}"><label for="clientSecret">Client Secret (اختیاری؛ مقدار ذخیره‌شده نمایش داده نمی‌شود)</label><input id="clientSecret" type="password" name="clientSecret" autocomplete="off" placeholder="${settings.encryptedClientSecret ? "قبلاً ثبت شده" : "در صورت ارائه توسط Google"}"><label for="proxyPort">پورت SOCKS5 محلی V2Ray (اختیاری)</label><input id="proxyPort" name="proxyPort" type="number" min="1" max="65535" placeholder="10808" value="${settings.proxyPort ?? ""}"><button>ذخیره تنظیمات</button></form></div><div class="card"><h2>حساب‌های متصل</h2>${accounts || '<p class="muted">هنوز حسابی متصل نیست.</p>'}<form method="post" action="/oauth/start">${csrfField()}<button type="submit">+ افزودن حساب Google</button></form></div><div class="note">دسترسی فقط‌خواندنی است؛ Claude تحلیل‌ها را انجام می‌دهد. این پنل فقط روی همین کامپیوتر باز است.</div>`));
       }
       return respond(res, 404, "Not found");
     } catch (error) {
