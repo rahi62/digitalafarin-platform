@@ -42,24 +42,11 @@ export async function runSettings() {
         // random per-process CSRF token. Browsers may report localhost and
         // 127.0.0.1 as different origins; do not trust either header alone.
         const localOrigins = new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`]);
-        if (origin && !localOrigins.has(origin)) {
-          // Report only the origin's classification; never expose credentials,
-          // cookies, OAuth codes, or the submitted request body.
-          let reason = "unrecognized";
-          try {
-            const parsed = new URL(origin);
-            reason = parsed.protocol === "null:" ? "opaque-origin"
-              : parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost"
-                ? (parsed.port === String(port) ? "loopback-scheme-mismatch" : "loopback-port-mismatch")
-                : "non-loopback-origin";
-          } catch { reason = origin === "null" ? "opaque-origin" : "malformed-origin"; }
-          console.error(`GSC settings: rejected form origin category=${reason}; path=${url.pathname}`);
-          if (reason === "opaque-origin") return respond(res, 403, html(`<div class="card"><h2>مرورگر درخواست را از مبدأ ناشناس ارسال کرده است</h2><p>این صفحه را مستقیماً در مرورگر معمولی سیستم (Chrome یا Edge)، با آدرس <code dir="ltr">http://127.0.0.1:${port}/</code> باز کنید؛ نه در مرورگر داخلی برنامه یا پیش‌نمایش.</p><p class="muted">تا زمانی که Origin معتبر نباشد، تنظیمات امنیتی تغییر نمی‌کنند.</p></div>`));
-          return respond(res, 403, `Forbidden: invalid request origin (${reason})`, "text/plain; charset=utf-8");
-        }
-        // The mandatory unguessable form token below authenticates POSTs.
-        // Fetch Metadata may classify mixed loopback aliases as cross-site.
-
+        // Some privacy/browser contexts send Origin: null even for a loopback
+        // form. It is acceptable ONLY with a valid, unguessable CSRF token,
+        // checked below. All other foreign origins remain rejected.
+        if (origin && origin !== "null" && !localOrigins.has(origin))
+          return respond(res, 403, "Forbidden: invalid request origin");
         const body = await formBody(req);
         if (body.get("csrf") !== formNonce) return respond(res, 403, "Forbidden");
         if (url.pathname === "/client") {
