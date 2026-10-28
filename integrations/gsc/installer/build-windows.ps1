@@ -7,8 +7,12 @@ $nodeVersion = (& $node -p "process.versions.node").Trim()
 if ([int]($nodeVersion.Split('.')[0]) -lt 20) { throw 'Node.js 20+ required' }
 Push-Location $root
 try {
-  & npm.cmd ci
-  if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
+  if (Test-Path (Join-Path $root 'package-lock.json')) {
+    & npm.cmd ci
+  } else {
+    & npm.cmd install --no-audit --no-fund
+  }
+  if ($LASTEXITCODE -ne 0) { throw 'npm dependency installation failed' }
   & npm.cmd run check
   if ($LASTEXITCODE -ne 0) { throw 'TypeScript check failed' }
   & npm.cmd run build
