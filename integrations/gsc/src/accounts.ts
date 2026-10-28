@@ -1,3 +1,4 @@
+import { googleFetch } from "./proxy.js";
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -8,11 +9,11 @@ const directory = path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 
 const filename = path.join(directory, "accounts.json");
 
 export type Account = { id: string; label: string; encryptedRefreshToken: string };
-export type Settings = { clientId: string; encryptedClientSecret?: string; accounts: Account[] };
+export type Settings = { clientId: string; encryptedClientSecret?: string; proxyPort?: number; accounts: Account[] };
 export async function load(): Promise<Settings> {
   try {
     const data = JSON.parse(await readFile(filename, "utf8")) as Settings;
-    return { clientId: data.clientId || "", encryptedClientSecret: data.encryptedClientSecret, accounts: Array.isArray(data.accounts) ? data.accounts : [] };
+    return { clientId: data.clientId || "", encryptedClientSecret: data.encryptedClientSecret, proxyPort: data.proxyPort, accounts: Array.isArray(data.accounts) ? data.accounts : [] };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return { clientId: "", accounts: [] };
     throw error;
@@ -49,12 +50,12 @@ export async function unprotect(ciphertext: string): Promise<string> {
   const script = `Add-Type -AssemblyName System.Security; $raw=[Console]::In.ReadToEnd(); $bytes=[Convert]::FromBase64String($raw); $decrypted=[System.Security.Cryptography.ProtectedData]::Unprotect($bytes,$null,[System.Security.Cryptography.DataProtectionScope]::CurrentUser); [Console]::Out.Write([System.Text.Encoding]::UTF8.GetString($decrypted))`;
   return runPowerShell(script, ciphertext);
 }
-export async function googleToken(clientId: string, refreshToken: string, encryptedClientSecret?: string): Promise<string> {
-  const response = await fetch("https://oauth2.googleapis.com/token", {
+export async function googleToken(clientId: string, refreshToken: string, encryptedClientSecret?: string, proxyPort?: number): Promise<string> {
+  const response = await googleFetch("https://oauth2.googleapis.com/token", {
     method: "POST", redirect: "error", signal: AbortSignal.timeout(15000),
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ client_id: clientId, ...(encryptedClientSecret ? { client_secret: await unprotect(encryptedClientSecret) } : {}), refresh_token: refreshToken, grant_type: "refresh_token" }),
-  });
+  }, proxyPort);
   if (!response.ok) throw new Error(`Google authorization failed (HTTP ${response.status}). Reconnect the account.`);
   const data = await response.json() as { access_token?: string };
   if (!data.access_token) throw new Error("Google did not return an access token");
