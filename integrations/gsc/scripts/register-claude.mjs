@@ -1,7 +1,6 @@
 import { readFile, writeFile, copyFile, rename, mkdir, access } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
-import { execFileSync } from "node:child_process";
 import os from "node:os";
 
 if (process.platform !== "win32") throw new Error("This installer is for Claude Desktop on Windows.");
@@ -43,7 +42,7 @@ if (original !== undefined) {
 if (existing.mcpServers !== undefined && (!existing.mcpServers || typeof existing.mcpServers !== "object" || Array.isArray(existing.mcpServers)))
   throw new Error("Claude mcpServers must be an object. No changes made.");
 const servers = existing.mcpServers || {};
-if (servers["digitalafarin-gsc"]) throw new Error("digitalafarin-gsc already exists. Edit or back up explicitly; no changes made.");
+if (servers["digitalafarin-gsc"] && !process.argv.includes("--update")) throw new Error("digitalafarin-gsc already exists. Run with --update to back up and replace only this entry.");
 const command = process.execPath;
 servers["digitalafarin-gsc"] = { command, args: [entry] };
 existing.mcpServers = servers;
