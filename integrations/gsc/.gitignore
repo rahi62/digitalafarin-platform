@@ -3,3 +3,6 @@ dist/
 .env*
 !.env.example
 .local/
+
+installer/stage/
+installer/output/
