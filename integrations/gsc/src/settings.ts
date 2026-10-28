@@ -54,6 +54,7 @@ export async function runSettings() {
                 : "non-loopback-origin";
           } catch { reason = origin === "null" ? "opaque-origin" : "malformed-origin"; }
           console.error(`GSC settings: rejected form origin category=${reason}; path=${url.pathname}`);
+          if (reason === "opaque-origin") return respond(res, 403, html(`<div class="card"><h2>مرورگر درخواست را از مبدأ ناشناس ارسال کرده است</h2><p>این صفحه را مستقیماً در مرورگر معمولی سیستم (Chrome یا Edge)، با آدرس <code dir="ltr">http://127.0.0.1:${port}/</code> باز کنید؛ نه در مرورگر داخلی برنامه یا پیش‌نمایش.</p><p class="muted">تا زمانی که Origin معتبر نباشد، تنظیمات امنیتی تغییر نمی‌کنند.</p></div>`));
           return respond(res, 403, `Forbidden: invalid request origin (${reason})`, "text/plain; charset=utf-8");
         }
         // The mandatory unguessable form token below authenticates POSTs.
