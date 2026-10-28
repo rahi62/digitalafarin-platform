@@ -9,9 +9,28 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const entry = join(root, "dist", "index.js");
 await access(entry).catch(() => { throw new Error("Build first: npm run build"); });
 const appdata = process.env.APPDATA || join(os.homedir(), "AppData", "Roaming");
-const dir = join(appdata, "Claude");
-const file = join(dir, "claude_desktop_config.json");
+const localappdata = process.env.LOCALAPPDATA || join(os.homedir(), "AppData", "Local");
+const roamingFile = join(appdata, "Claude", "claude_desktop_config.json");
+const { readdir } = await import("node:fs/promises");
+const localRoot = join(localappdata, "Claude-Data");
+const localFiles = [];
+try {
+  for (const name of await readdir(localRoot)) {
+    if (!name.startsWith("claude_")) continue;
+    const candidate = join(localRoot, name, "claude_desktop_config.json");
+    try { await access(candidate); localFiles.push(candidate); } catch {}
+  }
+} catch (error) {
+  if (error.code !== "ENOENT") throw error;
+}
+let file;
+if (localFiles.length === 1) file = localFiles[0];
+else if (localFiles.length > 1) throw new Error("Multiple Claude-Data profiles found. Set CLAUDE_CONFIG_PATH to the intended JSON file.");
+else file = roamingFile;
+if (process.env.CLAUDE_CONFIG_PATH) file = resolve(process.env.CLAUDE_CONFIG_PATH);
+const dir = dirname(file);
 await mkdir(dir, { recursive: true });
+console.log("Claude configuration:", file);
 let existing = {};
 let original;
 try { original = await readFile(file, "utf8"); } catch (error) {
