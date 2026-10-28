@@ -62,6 +62,7 @@ export async function runSettings() {
           if (settings.accounts.length && settings.clientId !== clientId) throw new Error("Disconnect accounts before changing OAuth client");
           if (settings.clientId !== clientId) settings.encryptedClientSecret = undefined;
           settings.clientId = clientId;
+          if (settings.sshTunnel && proxyPort !== settings.sshTunnel.port) throw new Error("SSH mode is enabled. Change the SOCKS5 port in the SSH section.");
           settings.proxyPort = proxyPort;
           if (clientSecret) settings.encryptedClientSecret = await protect(clientSecret);
           await save(settings); return back(res, "saved");
@@ -71,7 +72,7 @@ export async function runSettings() {
           if (body.get("enabled") !== "yes") settings.sshTunnel = undefined;
           else {
             const config = validateSshConfig({ host: (body.get("sshHost") ?? "").trim(), user: (body.get("sshUser") ?? "").trim(), keyPath: (body.get("sshKey") ?? "").trim(), port: Number(body.get("sshPort")), useWsl: body.get("useWsl") === "yes" });
-            if (settings.proxyPort && settings.proxyPort !== config.port) throw new Error("SOCKS5 port must match SSH tunnel port. Update the SOCKS5 port first.");
+            // SSH mode owns the SOCKS port: keep it aligned automatically.
             settings.proxyPort = config.port;
             settings.sshTunnel = config;
           }
