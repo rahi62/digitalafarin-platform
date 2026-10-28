@@ -22,7 +22,7 @@ export async function googleFetch(url: string, init: RequestInit = {}, socksPort
       let size = 0;
       response.on("data", (chunk: Buffer) => { size += chunk.length; if (size > 5_000_000) { request.destroy(new Error("Google response too large")); return; } chunks.push(chunk); });
       response.on("error", reject);
-      response.on("end", () => resolve(new Response(Buffer.concat(chunks), { status: response.statusCode ?? 502, headers: response.headers as Record<string,string> })));
+      response.on("end", () => resolve(new Response(Buffer.concat(chunks), { status: response.statusCode ?? 502, headers: { "content-type": String(response.headers["content-type"] ?? "") } })));
     });
     request.on("error", reject);
     request.on("timeout", () => request.destroy(new Error("Google proxy timeout")));
