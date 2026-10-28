@@ -28,11 +28,18 @@ function pkceChallenge(verifier: string) { return createHash("sha256").update(ve
 export async function runSettings() {
   const server = http.createServer(async (req, res) => {
     try {
-      if (req.headers.host !== `${host}:${port}`) return respond(res, 403, "Forbidden");
-      const url = new URL(req.url ?? "/", redirectUri);
+      // Accept the two standard loopback hostnames, never LAN or arbitrary hosts.
+      const authority = req.headers.host;
+      if (authority !== `127.0.0.1:${port}` && authority !== `localhost:${port}`)
+        return respond(res, 403, "Forbidden: invalid local host");
+      const url = new URL(req.url ?? "/", `http://${authority}/`);
       if (req.method === "POST") {
         const origin = req.headers.origin;
-        if (origin !== `http://${host}:${port}`) return respond(res, 403, "Forbidden");
+        const expectedOrigin = `http://${authority}`;
+        // Browsers may omit Origin on some same-origin form submissions.
+        // Require an exact Origin when present; otherwise require same-origin Fetch Metadata.
+        if (origin ? origin !== expectedOrigin : req.headers["sec-fetch-site"] !== "same-origin")
+          return respond(res, 403, "Forbidden: invalid request origin");
         const body = await formBody(req);
         if (body.get("csrf") !== formNonce) return respond(res, 403, "Forbidden");
         if (url.pathname === "/client") {
