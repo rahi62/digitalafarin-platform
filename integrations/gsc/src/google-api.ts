@@ -17,9 +17,13 @@ export async function googleRead<T>(accessToken: string, endpoint: string, query
       error?: { status?: string; details?: Array<{ reason?: string; metadata?: { service?: string } }>; errors?: Array<{ reason?: string }> };
     } | null;
     const reasons = [...(payload?.error?.details ?? []).map((item) => item.reason), ...(payload?.error?.errors ?? []).map((item) => item.reason)];
-    const known = new Set(["SERVICE_DISABLED", "accessNotConfigured", "SERVICE_NOT_ENABLED", "PERMISSION_DENIED", "insufficientPermissions", "forbidden", "rateLimitExceeded", "userRateLimitExceeded"]);
-    const category = reasons.find((reason) => reason && known.has(reason)) ?? (payload?.error?.status === "PERMISSION_DENIED" ? "PERMISSION_DENIED" : "unknown");
-    throw new Error(`Search Console API HTTP ${response.status} (${category})`);
+    const category = reasons.find((reason) => reason && /^[A-Za-z_]{3,60}$/.test(reason)) ?? payload?.error?.status ?? "unknown";
+    // Google messages sometimes identify a project or API service; omit raw
+    // messages from logs and only reveal a small approved diagnostic class.
+    const service = (payload?.error?.details ?? []).map((item) => item.metadata?.service).find((value) => value === "searchconsole.googleapis.com");
+    const hint = service ? " (service=searchconsole.googleapis.com)" : "";
+    throw new Error(`Search Console API HTTP ${response.status} (${category})${hint}`);
+
   }
   return await response.json() as T;
 }
