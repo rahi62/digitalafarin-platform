@@ -15,7 +15,7 @@ function html(body: string) {
 }
 function escape(value: string) { return value.replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" })[c]!); }
 function respond(res: http.ServerResponse, status: number, content: string, type = "text/html; charset=utf-8") {
-  res.writeHead(status, { "Content-Type": type, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'", "Referrer-Policy": "no-referrer" });
+  res.writeHead(status, { "Content-Type": type, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action http://127.0.0.1:47861 http://localhost:47861; base-uri 'none'; frame-ancestors 'none'", "Referrer-Policy": "no-referrer" });
   res.end(content);
 }
 function back(res: http.ServerResponse, status = "saved") { res.writeHead(303, { Location: `/?status=${encodeURIComponent(status)}`, "Cache-Control": "no-store" }); res.end(); }
